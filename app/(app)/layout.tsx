@@ -15,16 +15,18 @@ const MOBILE_NAV = [
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { ready, authed, toasts } = useStore();
+  const { ready, authed, orgId, toasts } = useStore();
   const router = useRouter();
   const path = usePathname();
 
   useEffect(() => {
-    if (ready && !authed) router.replace("/login");
-  }, [ready, authed, router]);
+    if (!ready) return;
+    if (!authed) { router.replace("/login"); return; }
+    if (!orgId) router.replace("/onboarding");
+  }, [ready, authed, orgId, router]);
 
   if (!ready) return <div className="min-h-screen flex items-center justify-center text-ink-500">A carregar…</div>;
-  if (!authed) return null;
+  if (!authed || !orgId) return null;
 
   return (
     <div className="flex min-h-screen">
