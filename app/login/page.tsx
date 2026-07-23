@@ -16,7 +16,7 @@ function friendlyError(msg: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,7 +28,15 @@ export default function LoginPage() {
     setError(null); setNotice(null); setBusy(true);
     const supabase = createClient();
     try {
-      if (mode === "signin") {
+      if (mode === "reset") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/login`,
+        });
+        if (error) { setError(friendlyError(error.message)); return; }
+        setNotice("E-mail de recuperação enviado. Verifica a tua caixa de entrada.");
+        setMode("signin");
+        return;
+      } else if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
         if (error) { setError(friendlyError(error.message)); return; }
         router.push("/");
@@ -66,9 +74,9 @@ export default function LoginPage() {
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="lg:hidden font-display text-2xl mb-8">ZERO<span className="text-maka-500">MAKA</span></div>
-          <h2 className="font-display text-2xl">{mode === "signin" ? "Entrar" : "Criar conta"}</h2>
+          <h2 className="font-display text-2xl">{mode === "reset" ? "Recuperar palavra-passe" : mode === "signin" ? "Entrar" : "Criar conta"}</h2>
           <p className="text-sm text-ink-400 mt-1 mb-6">
-            {mode === "signin" ? "Entra com o teu e-mail e palavra-passe." : "Cria a tua conta ZeroMaka em segundos."}
+            {mode === "reset" ? "Introduz o teu e-mail para receber um link de recuperação." : mode === "signin" ? "Entra com o teu e-mail e palavra-passe." : "Cria a tua conta ZeroMaka em segundos."}
           </p>
 
           {error && <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div>}
@@ -80,22 +88,33 @@ export default function LoginPage() {
               <input className="input" type="email" placeholder="teu@email.ao" value={email} autoComplete="email"
                 onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
             </div>
-            <div>
-              <label className="label">Palavra-passe</label>
-              <input className="input" type="password" placeholder="••••••••" value={pass}
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
-            </div>
-            <button onClick={go} disabled={busy || !email || !pass} className="btn-primary w-full justify-center disabled:opacity-60">
-              {busy ? <Loader2 size={15} className="animate-spin" /> : <>{mode === "signin" ? "Entrar no ZeroMaka" : "Criar conta"} <ArrowRight size={15} /></>}
+            {mode !== "reset" && (
+              <div>
+                <label className="label">Palavra-passe</label>
+                <input className="input" type="password" placeholder="••••••••" value={pass}
+                  autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                  onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
+              </div>
+            )}
+            <button onClick={go} disabled={busy || !email || (mode !== "reset" && !pass)} className="btn-primary w-full justify-center disabled:opacity-60">
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <>{mode === "reset" ? "Enviar link" : mode === "signin" ? "Entrar no ZeroMaka" : "Criar conta"} <ArrowRight size={15} /></>}
             </button>
           </div>
 
-          <p className="mt-6 text-sm text-ink-400">
-            {mode === "signin" ? "Ainda não tens conta?" : "Já tens conta?"}{" "}
+          {mode === "signin" && (
+            <p className="mt-3 text-sm">
+              <button className="text-ink-400 hover:text-maka-400 hover:underline"
+                onClick={() => { setMode("reset"); setError(null); setNotice(null); }}>
+                Esqueci a palavra-passe
+              </button>
+            </p>
+          )}
+
+          <p className="mt-4 text-sm text-ink-400">
+            {mode === "reset" ? "Lembraste?" : mode === "signin" ? "Ainda não tens conta?" : "Já tens conta?"}{" "}
             <button className="text-maka-400 hover:underline font-medium"
               onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(null); setNotice(null); }}>
-              {mode === "signin" ? "Criar conta" : "Entrar"}
+              {mode === "reset" ? "Voltar ao login" : mode === "signin" ? "Criar conta" : "Entrar"}
             </button>
           </p>
         </div>
