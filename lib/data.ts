@@ -1,0 +1,183 @@
+export type AccountType = "bank" | "mobile_money" | "cash";
+export type TxType = "income" | "expense" | "transfer_in" | "transfer_out" | "capital_in" | "capital_out";
+export type InvoiceType = "receivable" | "payable";
+export type InvoiceStatus = "pending" | "overdue" | "paid";
+export type TaxRegime = "geral" | "simplificado" | "isencao";
+export type ContactKind = "cliente" | "fornecedor" | "socio";
+export type ReqStatus = "pendente" | "aprovado" | "reprovado";
+export type PaymentTerm = "pronto" | "credito15" | "credito30" | "credito60" | "credito90" | "mensal";
+export type SocioRole = "gerente" | "investidor" | "outro";
+
+export interface Account {
+  id: string; name: string; type: AccountType; bank?: string;
+  initialBalance: number; currentBalance: number;
+}
+export interface Transaction {
+  id: string; accountId: string; type: TxType; amount: number;
+  category: string; subcategory?: string; description: string; date: string;
+  isSale?: boolean; taxAmount?: number; partnerId?: string; partnerName?: string;
+  linkId?: string; invoiceId?: string;
+}
+export interface Invoice {
+  id: string; contactName: string; contactId?: string; type: InvoiceType; amount: number;
+  dueDate: string; issueDate?: string; status: InvoiceStatus; category: string;
+  isSale?: boolean; taxAmount?: number; accountId?: string; paidAt?: string; notes?: string;
+}
+export interface Contact {
+  id: string; name: string; kind: ContactKind; phone?: string; nif?: string;
+  email?: string; location?: string; paymentTerm?: PaymentTerm; role?: SocioRole; notes?: string;
+}
+export interface ReqItem { description: string; qty: number; unitPrice: number; }
+export interface Requisition {
+  id: string; number: string; requester: string; approver: string;
+  department?: string; items?: ReqItem[];
+  amount: number; date: string; purpose: string; category: string;
+  status: ReqStatus; accountId?: string; decidedAt?: string; reason?: string;
+}
+export interface CommissionMember { id: string; name: string; percent: number; }
+export interface Commissions {
+  paysCommercial: boolean; members: CommissionMember[];
+  paysClients: boolean; clientPercent: number; clientNote: string;
+}
+export interface Company {
+  name: string; nif: string; logo?: string; regime: TaxRegime;
+  address: string; phone: string; email?: string; commissions: Commissions;
+}
+export interface Badge { id: string; name: string; desc: string; xp: number; unlocked: boolean; }
+export interface UserProfile {
+  name: string; phone: string; email: string; bi: string;
+  plan: "Gratuito" | "Pessoal" | "Pro" | "Business"; renewal: string;
+  xp: number; level: number; streak: number; lastActive: string;
+}
+
+export const REGIMES: Record<TaxRegime, { label: string; rate: number; tax: string; short: string }> = {
+  geral: { label: "Regime Geral", rate: 0.14, tax: "IVA 14%", short: "Geral · IVA 14%" },
+  simplificado: { label: "Regime Simplificado", rate: 0.07, tax: "IVA 7%", short: "Simplificado · IVA 7%" },
+  isencao: { label: "Regime de Exclusão", rate: 0.01, tax: "Imposto de Selo 1%", short: "Exclusão · Selo 1%" }
+};
+export const taxRateFor = (r: TaxRegime) => REGIMES[r].rate;
+// Imposto POR DENTRO: já está contido no valor da fatura (não é acrescido).
+export const taxIncluded = (value: number, rate: number) => Math.round(value - value / (1 + rate));
+
+export const PAYMENT_TERMS: Record<PaymentTerm, string> = {
+  pronto: "Pronto pagamento", credito15: "Crédito 15 dias", credito30: "Crédito 30 dias",
+  credito60: "Crédito 60 dias", credito90: "Crédito 90 dias", mensal: "Mensal (fecho de mês)"
+};
+export const termDays: Record<PaymentTerm, number> = { pronto: 0, credito15: 15, credito30: 30, credito60: 60, credito90: 90, mensal: 30 };
+export const SOCIO_ROLES: Record<SocioRole, string> = { gerente: "Sócio-gerente", investidor: "Sócio investidor", outro: "Outro" };
+
+export const BANKS = ["BAI", "BFA", "BIC", "BCI", "BPC", "Standard Bank", "Banco Sol", "Banco Keve", "Millennium Atlântico", "Banco Económico", "BCGA", "Outro"];
+
+// Categorias de FATURA (contextuais ao tipo)
+export const INVOICE_CATEGORIES: Record<InvoiceType, string[]> = {
+  receivable: ["Venda de mercadorias", "Venda de serviços"],
+  payable: ["Compra de mercadorias", "Compra de serviços", "Outras despesas"]
+};
+
+// Categorias de TRANSAÇÃO (sem "Vendas" — vendas entram por Faturas) com subcategorias
+export const TX_INCOME_CATEGORIES = ["Outras receitas", "Juros / rendimentos", "Reembolso", "Venda de ativo"];
+export const TX_EXPENSE_CATEGORIES = ["Compra de mercadorias", "Renda / Aluguer", "Salários", "Transporte", "Consumíveis", "Equipamento", "Comunicações", "Impostos (AGT)", "Marketing", "Comissões", "Manutenção", "Outras despesas"];
+export const SUBCATEGORIES: Record<string, string[]> = {
+  "Compra de mercadorias": ["Mercadoria para revenda", "Matéria-prima", "Embalagens"],
+  "Renda / Aluguer": ["Armazém", "Loja / Escritório", "Equipamento"],
+  "Salários": ["Ordenados", "Subsídios", "Horas extra"],
+  "Transporte": ["Combustível", "Manutenção de viatura", "Táxi / Entregas", "Portagens"],
+  "Consumíveis": ["Copa / Limpeza", "Material de escritório"],
+  "Equipamento": ["Informático", "Cozinha", "Mobiliário"],
+  "Comunicações": ["Internet", "Telefone", "Software / Subscrições"],
+  "Marketing": ["Publicidade online", "Impressão / Brindes", "Eventos"],
+  "Comissões": ["Departamento comercial", "Cliente / Parceiro"],
+  "Outras despesas": ["Bancárias", "Taxas / Licenças", "Diversos"]
+};
+// Lista plana usada em Requisições (despesas)
+export const CATEGORIES = TX_EXPENSE_CATEGORIES;
+
+export const LEVELS = [
+  { level: 1, name: "Iniciante", min: 0 }, { level: 2, name: "Organizado", min: 500 },
+  { level: 3, name: "Gestor Master", min: 1500 }, { level: 4, name: "Investidor", min: 4000 },
+  { level: 5, name: "Magnata", min: 8000 }
+];
+export function levelFor(xp: number) {
+  let cur = LEVELS[0];
+  for (const l of LEVELS) if (xp >= l.min) cur = l;
+  const next = LEVELS.find((l) => l.min > xp);
+  return { ...cur, next, progress: next ? (xp - cur.min) / (next.min - cur.min) : 1 };
+}
+
+export function fmtKz(v: number) {
+  return new Intl.NumberFormat("pt-AO", { maximumFractionDigits: 0 }).format(Math.round(v)) + " Kz";
+}
+export function fmtDate(iso: string) {
+  const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso);
+  return d.toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" });
+}
+export function daysUntil(iso: string) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(iso + "T00:00:00");
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+}
+const iso = (o: number) => { const d = new Date(); d.setDate(d.getDate() + o); return d.toISOString().slice(0, 10); };
+
+export const seedCompany: Company = {
+  name: "BLUEAXIS TRADING, LDA", nif: "5417089321", regime: "geral",
+  address: "Nova Vida, Luanda", phone: "+244 923 000 000", email: "geral@blueaxis.ao",
+  commissions: { paysCommercial: false, members: [], paysClients: false, clientPercent: 0, clientNote: "" }
+};
+
+export const seedAccounts: Account[] = [
+  { id: "a1", name: "BAI Empresa", type: "bank", bank: "BAI", initialBalance: 1200000, currentBalance: 1846500 },
+  { id: "a2", name: "Unitel Money", type: "mobile_money", initialBalance: 150000, currentBalance: 238400 },
+  { id: "a3", name: "Caixa Físico", type: "cash", initialBalance: 80000, currentBalance: 64200 }
+];
+
+export const seedTransactions: Transaction[] = [
+  { id: "t3", accountId: "a1", type: "expense", amount: 210000, category: "Compra de mercadorias", subcategory: "Mercadoria para revenda", description: "Compra de mercadoria — Angomart", date: iso(-3) },
+  { id: "t4", accountId: "a3", type: "expense", amount: 15800, category: "Transporte", subcategory: "Combustível", description: "Combustível entregas", date: iso(-3) },
+  { id: "tc1", accountId: "a1", type: "capital_in", amount: 1500000, partnerId: "s1", partnerName: "Sócio Investidor", category: "Capital", description: "Aporte para captação societária", date: iso(-20) },
+  { id: "t5", accountId: "a1", type: "expense", amount: 350000, category: "Renda / Aluguer", subcategory: "Armazém", description: "Renda do armazém — Julho", date: iso(-6) },
+  { id: "t7", accountId: "a3", type: "expense", amount: 9500, category: "Consumíveis", subcategory: "Copa / Limpeza", description: "Café, açúcar e chá — copa", date: iso(-9) },
+  { id: "t8", accountId: "a1", type: "expense", amount: 145000, category: "Salários", subcategory: "Ordenados", description: "Salário — Maria (cozinha)", date: iso(-12) }
+];
+
+export const seedInvoices: Invoice[] = [
+  { id: "i1", contactName: "Hotel Talatona", type: "receivable", amount: 380000, taxAmount: taxIncluded(380000, 0.14), isSale: true, issueDate: iso(-1), dueDate: iso(2), status: "pending", category: "Venda de mercadorias" },
+  { id: "i2", contactName: "Hotel Presidente", type: "receivable", amount: 265000, taxAmount: taxIncluded(265000, 0.14), isSale: true, issueDate: iso(-7), dueDate: iso(-4), status: "overdue", category: "Venda de mercadorias" },
+  { id: "i3", contactName: "Epic Sana", type: "receivable", amount: 120000, taxAmount: taxIncluded(120000, 0.14), isSale: true, issueDate: iso(-15), dueDate: iso(-10), status: "paid", category: "Venda de serviços", paidAt: iso(-9), accountId: "a1" },
+  { id: "i4", contactName: "Distribuidora Angomart", type: "payable", amount: 540000, issueDate: iso(-2), dueDate: iso(3), status: "pending", category: "Compra de mercadorias" },
+  { id: "i5", contactName: "ENDE — Electricidade", type: "payable", amount: 42600, issueDate: iso(-10), dueDate: iso(-2), status: "overdue", category: "Outras despesas" },
+  { id: "i6", contactName: "Talho Central", type: "payable", amount: 186000, issueDate: iso(-3), dueDate: iso(12), status: "pending", category: "Compra de mercadorias" }
+];
+
+export const seedContacts: Contact[] = [
+  { id: "c1", name: "Hotel Presidente", kind: "cliente", phone: "+244 222 000 111", nif: "5000111222", location: "Ingombota, Luanda", paymentTerm: "credito30", email: "compras@presidente.ao" },
+  { id: "c2", name: "Hotel Talatona", kind: "cliente", phone: "+244 222 000 222", nif: "5000222333", location: "Talatona, Luanda", paymentTerm: "credito15" },
+  { id: "c3", name: "Epic Sana", kind: "cliente", phone: "+244 222 000 333", nif: "5000333444", location: "Marginal, Luanda", paymentTerm: "pronto" },
+  { id: "f1", name: "Distribuidora Angomart", kind: "fornecedor", phone: "+244 923 111 222", nif: "5411222333", location: "Viana, Luanda", paymentTerm: "credito30", notes: "Vende a crédito 30 dias" },
+  { id: "f2", name: "Talho Central", kind: "fornecedor", phone: "+244 923 111 333", nif: "5411333444", location: "Kilamba, Luanda", paymentTerm: "credito15" },
+  { id: "s1", name: "Sócio Investidor", kind: "socio", phone: "+244 923 999 000", role: "investidor", notes: "Quota 50% — suprimentos" },
+  { id: "s2", name: "Erickson Fonseca", kind: "socio", phone: "+244 923 999 111", role: "gerente", notes: "Sócio-gerente" }
+];
+
+export const seedRequisitions: Requisition[] = [
+  { id: "r1", number: "RQ-001/07/2026", requester: "Maria Cozinha", approver: "Erickson Fonseca", department: "Cozinha", items: [{ description: "Café torrado (pacote 1kg)", qty: 3, unitPrice: 4500 }, { description: "Açúcar (saco 5kg)", qty: 2, unitPrice: 3200 }, { description: "Chá preto (caixa)", qty: 4, unitPrice: 2000 }], amount: 28000, date: iso(-1), purpose: "Compra urgente de consumíveis para a copa, sem fatura.", category: "Consumíveis", status: "pendente" },
+  { id: "r2", number: "RQ-002/07/2026", requester: "João Entregas", approver: "Erickson Fonseca", department: "Logística", items: [{ description: "Reparação de pneu da carrinha", qty: 1, unitPrice: 12000 }], amount: 12000, date: iso(-2), purpose: "Furo no pneu dianteiro durante entrega.", category: "Transporte", status: "pendente" }
+];
+
+export const seedBadges: Badge[] = [
+  { id: "b1", name: "Primeiro Passo", desc: "Registou a primeira transacção", xp: 50, unlocked: true },
+  { id: "b2", name: "7 Dias de Disciplina", desc: "Streak de 7 dias consecutivos", xp: 150, unlocked: true },
+  { id: "b3", name: "Corte Cirúrgico", desc: "Reduziu despesas 15% num mês", xp: 200, unlocked: true },
+  { id: "b4", name: "Caçador de Dívidas", desc: "Cobrou 3 faturas vencidas", xp: 250, unlocked: false },
+  { id: "b5", name: "Estado em Dia", desc: "Apurou o imposto de 10 vendas", xp: 300, unlocked: false },
+  { id: "b6", name: "Magnata do Kwanza", desc: "Atingiu 5M Kz de receitas acumuladas", xp: 500, unlocked: false }
+];
+
+export const seedProfile: UserProfile = {
+  name: "Erickson Fonseca", phone: "+244 923 999 111", email: "erickson@zeromaka.ao",
+  bi: "004567890LA042", plan: "Business", renewal: iso(23), xp: 1840, level: 3, streak: 9, lastActive: iso(0)
+};
+
+export const seedRanking = [
+  { name: "Tchissola M.", xp: 2450, health: 94 }, { name: "Erickson Fonseca", xp: 1840, health: 91, me: true },
+  { name: "Adilson P.", xp: 1620, health: 88 }, { name: "Ngonga V.", xp: 1330, health: 85 }, { name: "Luena K.", xp: 990, health: 79 }
+];
