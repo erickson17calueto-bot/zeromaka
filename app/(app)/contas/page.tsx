@@ -65,6 +65,7 @@ export default function ContasPage() {
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {accounts.length === 0 && <div className="card p-8 text-center text-sm text-ink-500 sm:col-span-2">Sem contas criadas. Clica em &quot;Nova conta&quot; para começar.</div>}
         {accounts.map((a) => {
           const T = TYPES.find((t) => t.value === a.type)!; const Icon = T.icon;
           return (
