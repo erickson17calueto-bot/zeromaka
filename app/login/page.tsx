@@ -1,18 +1,53 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useStore } from "@/lib/store";
-import { ArrowRight } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { ArrowRight, Loader2 } from "lucide-react";
+
+// Mensagens de erro do Supabase traduzidas para o utilizador
+function friendlyError(msg: string): string {
+  if (msg.includes("Invalid login credentials")) return "E-mail ou palavra-passe incorretos.";
+  if (msg.includes("Email not confirmed")) return "Confirma o teu e-mail antes de entrar (verifica a caixa de entrada).";
+  if (msg.includes("User already registered")) return "Este e-mail já tem conta. Usa \"Entrar\".";
+  if (msg.includes("Password should be at least")) return "A palavra-passe deve ter pelo menos 6 caracteres.";
+  if (msg.includes("valid email")) return "Introduz um e-mail válido.";
+  return "Não foi possível concluir. Tenta novamente.";
+}
 
 export default function LoginPage() {
-  const { login } = useStore();
   const router = useRouter();
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const go = () => {
-    login(email);
-    router.push("/");
+  const go = async () => {
+    if (busy) return;
+    setError(null); setNotice(null); setBusy(true);
+    const supabase = createClient();
+    try {
+      if (mode === "signin") {
+        const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+        if (error) { setError(friendlyError(error.message)); return; }
+        router.push("/");
+        router.refresh();
+      } else {
+        const { data, error } = await supabase.auth.signUp({ email, password: pass });
+        if (error) { setError(friendlyError(error.message)); return; }
+        if (data.session) {
+          router.push("/");
+          router.refresh();
+        } else {
+          // Confirmação de e-mail ativa no projeto
+          setNotice("Conta criada. Verifica o teu e-mail para confirmar antes de entrar.");
+          setMode("signin");
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -31,22 +66,38 @@ export default function LoginPage() {
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="lg:hidden font-display text-2xl mb-8">ZERO<span className="text-maka-500">MAKA</span></div>
-          <h2 className="font-display text-2xl">Entrar</h2>
-          <p className="text-sm text-ink-400 mt-1 mb-6">Modo demonstração — entra com qualquer e-mail.</p>
+          <h2 className="font-display text-2xl">{mode === "signin" ? "Entrar" : "Criar conta"}</h2>
+          <p className="text-sm text-ink-400 mt-1 mb-6">
+            {mode === "signin" ? "Entra com o teu e-mail e palavra-passe." : "Cria a tua conta ZeroMaka em segundos."}
+          </p>
+
+          {error && <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div>}
+          {notice && <div className="mb-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{notice}</div>}
+
           <div className="space-y-4">
             <div>
               <label className="label">E-mail</label>
-              <input className="input" type="email" placeholder="teu@email.ao" value={email}
+              <input className="input" type="email" placeholder="teu@email.ao" value={email} autoComplete="email"
                 onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
             </div>
             <div>
               <label className="label">Palavra-passe</label>
               <input className="input" type="password" placeholder="••••••••" value={pass}
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
                 onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
             </div>
-            <button onClick={go} className="btn-primary w-full justify-center">Entrar no ZeroMaka <ArrowRight size={15} /></button>
+            <button onClick={go} disabled={busy || !email || !pass} className="btn-primary w-full justify-center disabled:opacity-60">
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <>{mode === "signin" ? "Entrar no ZeroMaka" : "Criar conta"} <ArrowRight size={15} /></>}
+            </button>
           </div>
-          <p className="mt-6 text-[12px] text-ink-500">Ao entrar, os dados de demonstração são carregados localmente no teu navegador. Nada é enviado para servidores.</p>
+
+          <p className="mt-6 text-sm text-ink-400">
+            {mode === "signin" ? "Ainda não tens conta?" : "Já tens conta?"}{" "}
+            <button className="text-maka-400 hover:underline font-medium"
+              onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(null); setNotice(null); }}>
+              {mode === "signin" ? "Criar conta" : "Entrar"}
+            </button>
+          </p>
         </div>
       </div>
     </div>

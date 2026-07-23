@@ -1,5 +1,6 @@
 "use client";
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createClient } from "./supabase/client";
 import {
   Account, Transaction, Invoice, Badge, UserProfile, Company, Contact, Requisition,
   seedAccounts, seedTransactions, seedInvoices, seedBadges, seedProfile, seedCompany, seedContacts, seedRequisitions,
@@ -10,7 +11,7 @@ interface Toast { id: number; msg: string; kind: "ok" | "xp" | "warn" }
 
 interface Store {
   ready: boolean; authed: boolean;
-  login: (email: string) => void; logout: () => void;
+  logout: () => Promise<void>;
   company: Company; accounts: Account[]; transactions: Transaction[]; invoices: Invoice[];
   contacts: Contact[]; requisitions: Requisition[]; badges: Badge[]; profile: UserProfile; toasts: Toast[];
   updateCompany: (p: Partial<Company>) => void;
@@ -59,6 +60,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile>(seedProfile);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  // Dados de negócio ainda em localStorage (legado — migração para Supabase em fases seguintes).
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS);
@@ -72,16 +74,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (s.requisitions) setRequisitions(s.requisitions);
         if (s.badges) setBadges(s.badges);
         if (s.profile) setProfile(s.profile);
-        if (s.authed) setAuthed(true);
       }
     } catch {}
-    setReady(true);
+  }, []);
+
+  // Autenticação: fonte de verdade é a sessão Supabase (cookies), nunca o localStorage.
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setAuthed(!!user);
+      if (user?.email) setProfile((p) => ({ ...p, email: user.email! }));
+      setReady(true);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthed(!!session?.user);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
     if (!ready) return;
-    localStorage.setItem(LS, JSON.stringify({ company, accounts, transactions, invoices, contacts, requisitions, badges, profile, authed }));
-  }, [ready, company, accounts, transactions, invoices, contacts, requisitions, badges, profile, authed]);
+    localStorage.setItem(LS, JSON.stringify({ company, accounts, transactions, invoices, contacts, requisitions, badges, profile }));
+  }, [ready, company, accounts, transactions, invoices, contacts, requisitions, badges, profile]);
 
   const toast = useCallback((msg: string, kind: Toast["kind"] = "ok") => {
     const id = Date.now() + Math.random();
@@ -94,8 +108,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toast(`+${amount} XP — ${reason}`, "xp");
   }, [toast]);
 
-  const login = (email: string) => { setAuthed(true); setProfile((p) => ({ ...p, email: email || p.email })); };
-  const logout = () => setAuthed(false);
+  const logout = async () => {
+    await createClient().auth.signOut();
+    setAuthed(false);
+  };
   const updateCompany: Store["updateCompany"] = (p) => { setCompany((c) => ({ ...c, ...p })); toast("Dados da empresa atualizados", "ok"); };
 
   const applyToBalance = (accountId: string, delta: number) =>
@@ -297,7 +313,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      ready, authed, login, logout, company, accounts, transactions, invoices, contacts, requisitions, badges, profile, toasts,
+      ready, authed, logout, company, accounts, transactions, invoices, contacts, requisitions, badges, profile, toasts,
       updateCompany, addAccount, editAccount, deleteAccount, addTransaction, editTransaction, deleteTransaction, transfer,
       addInvoice, editInvoice, deleteInvoice, markPaid, addContact, editContact, removeContact,
       addRequisition, editRequisition, deleteRequisition, approveRequisition, rejectRequisition, addCapital, updateProfile, gainXp,

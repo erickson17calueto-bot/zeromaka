@@ -93,7 +93,7 @@ export default function Sidebar() {
         <Link href="/perfil" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${path === "/perfil" ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-white"}`}>
           <UserCircle size={17} /> Meu perfil
         </Link>
-        <button onClick={() => { logout(); router.push("/login"); }} className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-400 hover:bg-ink-900 hover:text-white transition-colors">
+        <button onClick={async () => { await logout(); router.push("/login"); router.refresh(); }} className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-400 hover:bg-ink-900 hover:text-white transition-colors">
           <LogOut size={17} /> Sair
         </button>
       </div>
