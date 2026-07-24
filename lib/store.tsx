@@ -4,6 +4,9 @@ import { createClient } from "./supabase/client";
 import {
   Account, Transaction, TxType, Invoice, Badge, UserProfile, Company, Contact, Requisition,
   JournalEntry, JournalLine, FinancialCategory,
+  Obligation, Settlement, SettlementAllocation, CollectionInteraction,
+  ObligationDirection, ObligationDocumentKind, SettlementDirection,
+  CollectionChannel, CollectionInteractionType, CollectionOutcome,
   seedBadges, taxRateFor
 } from "./data";
 
@@ -16,6 +19,13 @@ interface Store {
   company: Company; accounts: Account[]; transactions: Transaction[]; invoices: Invoice[];
   contacts: Contact[]; requisitions: Requisition[]; badges: Badge[]; profile: UserProfile; toasts: Toast[];
   journalEntries: JournalEntry[]; categories: FinancialCategory[];
+  obligations: Obligation[]; settlements: Settlement[]; collectionInteractions: CollectionInteraction[];
+  createObligation: (d: { direction: ObligationDirection; contactId: string; dueDate: string; amount: number; documentKind?: ObligationDocumentKind; externalDocumentNumber?: string; issueDate?: string; description?: string; notes?: string; categoryId?: string }) => Promise<string | null>;
+  postSettlement: (d: { direction: SettlementDirection; contactId: string; accountId: string; allocations: { obligationId: string; amount: number }[]; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string }) => Promise<string | null>;
+  reverseSettlement: (settlementId: string, reason: string) => Promise<string | null>;
+  cancelObligation: (obligationId: string, reason: string) => Promise<string | null>;
+  updateObligation: (obligationId: string, p: { contactId?: string; description?: string; externalDocumentNumber?: string; amount?: number; issueDate?: string; dueDate?: string; categoryId?: string; notes?: string }) => Promise<string | null>;
+  logInteraction: (d: { obligationId?: string; contactId: string; channel: CollectionChannel; interactionType: CollectionInteractionType; message?: string; outcome?: CollectionOutcome; promisedPaymentDate?: string; nextFollowUpAt?: string }) => Promise<string | null>;
   updateCompany: (p: Partial<Company>) => void;
   addAccount: (a: Omit<Account, "id" | "currentBalance">) => void;
   editAccount: (id: string, p: Partial<Pick<Account, "name" | "type" | "bank">>) => void;
@@ -89,6 +99,40 @@ const dbToCategory = (r: any): FinancialCategory => ({
   isSystem: r.is_system, isActive: r.is_active,
 });
 
+const dbToObligation = (r: any): Obligation => ({
+  id: r.id, organizationId: r.organization_id, direction: r.direction,
+  internalNumber: r.internal_number, contactId: r.contact_id,
+  documentKind: r.document_kind, externalDocumentNumber: r.external_document_number || undefined,
+  issueDate: r.issue_date, dueDate: r.due_date,
+  originalAmount: Number(r.original_amount), currencyCode: r.currency_code,
+  description: r.description || undefined, notes: r.notes || undefined,
+  lifecycleStatus: r.lifecycle_status, categoryId: r.category_id || undefined,
+  paidAmount: Number(r.paid_amount), outstandingAmount: Number(r.outstanding_amount),
+  daysOverdue: Number(r.days_overdue), financialStatus: r.financial_status,
+});
+
+const dbToSettlementAllocation = (r: any): SettlementAllocation => ({
+  id: r.id, obligationId: r.obligation_id, allocatedAmount: Number(r.allocated_amount),
+  journalEntryId: r.journal_entry_id || undefined,
+});
+
+const dbToSettlement = (r: any): Settlement => ({
+  id: r.id, internalNumber: r.internal_number, direction: r.direction,
+  contactId: r.contact_id, accountId: r.account_id, paymentDate: r.payment_date,
+  totalAmount: Number(r.total_amount), paymentMethod: r.payment_method || undefined,
+  reference: r.reference || undefined, notes: r.notes || undefined, status: r.status,
+  reversedAt: r.reversed_at || undefined, reversalReason: r.reversal_reason || undefined,
+  allocations: (r.settlement_allocations || []).map(dbToSettlementAllocation),
+});
+
+const dbToInteraction = (r: any): CollectionInteraction => ({
+  id: r.id, obligationId: r.obligation_id || undefined, contactId: r.contact_id,
+  channel: r.channel, interactionType: r.interaction_type,
+  message: r.message || undefined, outcome: r.outcome || undefined,
+  promisedPaymentDate: r.promised_payment_date || undefined,
+  nextFollowUpAt: r.next_follow_up_at || undefined, performedAt: r.performed_at,
+});
+
 const dbToInvoice = (r: any): Invoice => ({
   id: r.id, contactName: r.contact_name, contactId: r.contact_id || undefined,
   type: r.type, amount: Number(r.amount),
@@ -104,6 +148,9 @@ const dbToContact = (r: any): Contact => ({
   email: r.email || undefined, nif: r.nif || undefined,
   location: r.location || undefined, paymentTerm: r.payment_term || undefined,
   role: r.role || undefined, notes: r.notes || undefined,
+  whatsapp: r.whatsapp || undefined,
+  creditLimit: r.credit_limit != null ? Number(r.credit_limit) : undefined,
+  isArchived: r.is_archived || false,
 });
 
 const dbToRequisition = (r: any): Requisition => ({
@@ -209,6 +256,7 @@ const contactToDb = (c: Contact, orgId: string) => ({
   phone: c.phone ?? null, email: c.email ?? null, nif: c.nif ?? null,
   location: c.location ?? null, payment_term: c.paymentTerm ?? null,
   role: c.role ?? null, notes: c.notes ?? null,
+  whatsapp: c.whatsapp ?? null, credit_limit: c.creditLimit ?? null,
 });
 
 const contactFieldsToDb = (p: Partial<Contact>) => {
@@ -222,6 +270,9 @@ const contactFieldsToDb = (p: Partial<Contact>) => {
   if (p.paymentTerm !== undefined) r.payment_term = p.paymentTerm;
   if (p.role !== undefined) r.role = p.role;
   if (p.notes !== undefined) r.notes = p.notes;
+  if (p.whatsapp !== undefined) r.whatsapp = p.whatsapp;
+  if (p.creditLimit !== undefined) r.credit_limit = p.creditLimit;
+  if (p.isArchived !== undefined) r.is_archived = p.isArchived;
   return r;
 };
 
@@ -269,6 +320,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [rawObligations, setRawObligations] = useState<Obligation[]>([]);
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [collectionInteractions, setCollectionInteractions] = useState<CollectionInteraction[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [badges, setBadges] = useState<Badge[]>(seedBadges);
@@ -295,6 +349,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [journalEntries]
   );
 
+  // Obrigações enriquecidas com o nome do contacto
+  const obligations = useMemo<Obligation[]>(() =>
+    rawObligations.map(o => ({ ...o, contactName: contacts.find(c => c.id === o.contactId)?.name })),
+    [rawObligations, contacts]
+  );
+
   const sb = useCallback(() => createClient(), []);
 
   // ---- Refresh helpers ----
@@ -310,10 +370,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (data) setJournalEntries(data.map(dbToJournalEntry));
   }, []);
 
+  const refreshObligations = useCallback(async (oid?: string) => {
+    const supabase = createClient();
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    const [obRes, stRes] = await Promise.all([
+      supabase.from("obligation_status").select("*").eq("organization_id", id).order("due_date"),
+      supabase.from("settlements").select("*, settlement_allocations(*)").eq("organization_id", id).order("payment_date", { ascending: false }),
+    ]);
+    if (obRes.data) setRawObligations(obRes.data.map(dbToObligation));
+    if (stRes.data) setSettlements(stRes.data.map(dbToSettlement));
+    await refreshEntries(id); // pagamentos afetam o livro/saldos
+  }, [refreshEntries]);
+
   // ---- Auth & data loading ----
   const loadOrgData = useCallback(async (oid: string) => {
     const supabase = createClient();
-    const [compRes, accRes, entryRes, catRes, invRes, conRes, rqRes] = await Promise.all([
+    const [compRes, accRes, entryRes, catRes, invRes, conRes, rqRes, obRes, stRes, ciRes] = await Promise.all([
       supabase.from("companies").select("*").eq("organization_id", oid).single(),
       supabase.from("accounts").select("*").eq("organization_id", oid).eq("is_archived", false).order("created_at"),
       supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
@@ -321,6 +394,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       supabase.from("invoices").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
       supabase.from("contacts").select("*").eq("organization_id", oid).order("name"),
       supabase.from("requisitions").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
+      supabase.from("obligation_status").select("*").eq("organization_id", oid).order("due_date"),
+      supabase.from("settlements").select("*, settlement_allocations(*)").eq("organization_id", oid).order("payment_date", { ascending: false }),
+      supabase.from("collection_interactions").select("*").eq("organization_id", oid).order("performed_at", { ascending: false }),
     ]);
     if (compRes.data) setCompany(dbToCompany(compRes.data));
     if (accRes.data) setRawAccounts(accRes.data.map(dbToAccount));
@@ -329,6 +405,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (invRes.data) setInvoices(invRes.data.map(dbToInvoice));
     if (conRes.data) setContacts(conRes.data.map(dbToContact));
     if (rqRes.data) setRequisitions(rqRes.data.map(dbToRequisition));
+    if (obRes.data) setRawObligations(obRes.data.map(dbToObligation));
+    if (stRes.data) setSettlements(stRes.data.map(dbToSettlement));
+    if (ciRes.data) setCollectionInteractions(ciRes.data.map(dbToInteraction));
   }, []);
 
   useEffect(() => {
@@ -358,6 +437,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setOrgId(null);
         setRawAccounts([]); setJournalEntries([]); setCategories([]);
         setInvoices([]); setContacts([]); setRequisitions([]); setCompany(defaultCompany);
+        setRawObligations([]); setSettlements([]); setCollectionInteractions([]);
       }
     });
     return () => subscription.unsubscribe();
@@ -574,6 +654,85 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           refreshEntries();
         }
       });
+  };
+
+  // ---- Contas a receber / pagar (Fase 3) ----
+  const createObligation: Store["createObligation"] = async (d) => {
+    const { data, error } = await sb().rpc("create_financial_obligation", {
+      p_org_id: orgIdRef.current!, p_direction: d.direction, p_contact_id: d.contactId,
+      p_due_date: d.dueDate, p_amount: d.amount,
+      p_document_kind: d.documentKind || "other",
+      p_external_document_number: d.externalDocumentNumber || null,
+      p_issue_date: d.issueDate || new Date().toISOString().slice(0, 10),
+      p_description: d.description || null, p_notes: d.notes || null,
+      p_category_id: d.categoryId || null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast(`${d.direction === "receivable" ? "Conta a receber" : "Conta a pagar"} ${(data as any)?.internal_number || ""} criada`, "ok");
+    gainXp(30, "Documento criado");
+    await refreshObligations();
+    return null;
+  };
+
+  const postSettlement: Store["postSettlement"] = async (d) => {
+    const { data, error } = await sb().rpc("post_settlement", {
+      p_org_id: orgIdRef.current!, p_direction: d.direction, p_contact_id: d.contactId,
+      p_account_id: d.accountId,
+      p_allocations: d.allocations.map(a => ({ obligation_id: a.obligationId, amount: a.amount })),
+      p_payment_date: d.paymentDate || new Date().toISOString().slice(0, 10),
+      p_payment_method: d.paymentMethod || null, p_reference: d.reference || null,
+      p_notes: d.notes || null, p_idempotency_key: crypto.randomUUID(),
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast(`Pagamento ${(data as any)?.internal_number || ""} registado`, "ok");
+    gainXp(100, d.direction === "incoming" ? "Recebimento registado" : "Pagamento registado");
+    await refreshObligations();
+    return null;
+  };
+
+  const reverseSettlement: Store["reverseSettlement"] = async (settlementId, reason) => {
+    const { error } = await sb().rpc("reverse_settlement", { p_settlement_id: settlementId, p_reason: reason });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Pagamento revertido", "ok");
+    await refreshObligations();
+    return null;
+  };
+
+  const cancelObligation: Store["cancelObligation"] = async (obligationId, reason) => {
+    const { error } = await sb().rpc("cancel_obligation", { p_obligation_id: obligationId, p_reason: reason });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Documento cancelado", "ok");
+    await refreshObligations();
+    return null;
+  };
+
+  const updateObligation: Store["updateObligation"] = async (obligationId, p) => {
+    const { error } = await sb().rpc("update_obligation", {
+      p_obligation_id: obligationId,
+      p_contact_id: p.contactId ?? null, p_description: p.description ?? null,
+      p_external_document_number: p.externalDocumentNumber ?? null,
+      p_amount: p.amount ?? null, p_issue_date: p.issueDate ?? null,
+      p_due_date: p.dueDate ?? null, p_category_id: p.categoryId ?? null,
+      p_notes: p.notes ?? null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Documento atualizado", "ok");
+    await refreshObligations();
+    return null;
+  };
+
+  const logInteraction: Store["logInteraction"] = async (d) => {
+    const { data, error } = await sb().from("collection_interactions").insert({
+      organization_id: orgIdRef.current!, obligation_id: d.obligationId || null,
+      contact_id: d.contactId, channel: d.channel, interaction_type: d.interactionType,
+      message: d.message || null, outcome: d.outcome || null,
+      promised_payment_date: d.promisedPaymentDate || null,
+      next_follow_up_at: d.nextFollowUpAt || null,
+    }).select("*").single();
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    if (data) setCollectionInteractions(prev => [dbToInteraction(data), ...prev]);
+    toast("Cobrança registada", "ok");
+    return null;
   };
 
   // ---- Invoices ----
@@ -800,6 +959,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ready, authed, orgId, logout, createOrganization,
       company, accounts, transactions, invoices, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories,
+      obligations, settlements, collectionInteractions,
+      createObligation, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
       updateCompany, addAccount, editAccount, deleteAccount,
       addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
       addInvoice, editInvoice, deleteInvoice, markPaid,

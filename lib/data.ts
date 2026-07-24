@@ -3,7 +3,7 @@ export type TxType = "income" | "expense" | "transfer_in" | "transfer_out" | "ca
 export type InvoiceType = "receivable" | "payable";
 export type InvoiceStatus = "pending" | "overdue" | "paid";
 export type TaxRegime = "geral" | "simplificado" | "isencao";
-export type ContactKind = "cliente" | "fornecedor" | "socio";
+export type ContactKind = "cliente" | "fornecedor" | "socio" | "ambos";
 export type ReqStatus = "pendente" | "aprovado" | "reprovado";
 export type PaymentTerm = "pronto" | "credito15" | "credito30" | "credito60" | "credito90" | "mensal";
 export type SocioRole = "gerente" | "investidor" | "outro";
@@ -53,6 +53,74 @@ export interface Invoice {
 export interface Contact {
   id: string; name: string; kind: ContactKind; phone?: string; nif?: string;
   email?: string; location?: string; paymentTerm?: PaymentTerm; role?: SocioRole; notes?: string;
+  whatsapp?: string; creditLimit?: number; isArchived?: boolean;
+}
+
+// ---- Fase 3: contas a receber/pagar ----
+export type ObligationDirection = "receivable" | "payable";
+export type ObligationDocumentKind =
+  | "invoice_reference" | "service_charge" | "product_sale"
+  | "supplier_invoice" | "expense_commitment" | "other";
+export type ObligationLifecycle = "open" | "cancelled";
+export type FinancialStatus =
+  | "cancelled" | "paid" | "partial" | "overdue" | "partial_overdue" | "due_today" | "open";
+export type SettlementDirection = "incoming" | "outgoing";
+export type SettlementStatus = "posted" | "reversed";
+export type CollectionChannel = "whatsapp" | "phone" | "email" | "in_person" | "other";
+export type CollectionInteractionType =
+  | "reminder" | "collection" | "negotiation" | "promise_to_pay" | "dispute" | "note";
+export type CollectionOutcome =
+  | "contacted" | "no_response" | "promised_payment" | "disputed"
+  | "paid" | "follow_up_required" | "other";
+
+// Linha da view obligation_status (estado calculado no servidor)
+export interface Obligation {
+  id: string; organizationId: string; direction: ObligationDirection;
+  internalNumber: string; contactId: string; contactName?: string;
+  documentKind: ObligationDocumentKind; externalDocumentNumber?: string;
+  issueDate: string; dueDate: string; originalAmount: number; currencyCode: string;
+  description?: string; notes?: string; lifecycleStatus: ObligationLifecycle;
+  categoryId?: string;
+  paidAmount: number; outstandingAmount: number; daysOverdue: number;
+  financialStatus: FinancialStatus;
+}
+
+export interface SettlementAllocation { id: string; obligationId: string; allocatedAmount: number; journalEntryId?: string; }
+export interface Settlement {
+  id: string; internalNumber: string; direction: SettlementDirection;
+  contactId: string; accountId: string; paymentDate: string; totalAmount: number;
+  paymentMethod?: string; reference?: string; notes?: string; status: SettlementStatus;
+  reversedAt?: string; reversalReason?: string; allocations: SettlementAllocation[];
+}
+
+export interface CollectionInteraction {
+  id: string; obligationId?: string; contactId: string;
+  channel: CollectionChannel; interactionType: CollectionInteractionType;
+  message?: string; outcome?: CollectionOutcome;
+  promisedPaymentDate?: string; nextFollowUpAt?: string; performedAt: string;
+}
+
+export const FIN_STATUS_LABEL: Record<FinancialStatus, string> = {
+  cancelled: "Cancelado", paid: "Pago", partial: "Parcial", overdue: "Vencido",
+  partial_overdue: "Parcial e vencido", due_today: "Vence hoje", open: "Em aberto",
+};
+
+export const OBLIGATION_KIND_LABEL: Record<ObligationDocumentKind, string> = {
+  invoice_reference: "Referência de fatura", service_charge: "Serviço",
+  product_sale: "Venda de produto", supplier_invoice: "Fatura de fornecedor",
+  expense_commitment: "Compromisso de despesa", other: "Outro",
+};
+
+// Modelo de mensagem de cobrança (editável antes de enviar manualmente)
+export function collectionMessage(clientName: string, docNumber: string, amount: number, dueDate: string): string {
+  return `Olá, ${clientName}. Esperamos que esteja bem. Verificámos que o pagamento referente ao documento ${docNumber}, no valor pendente de ${fmtKz(amount)}, venceu em ${fmtDate(dueDate)}. Poderia, por favor, confirmar a previsão de pagamento?`;
+}
+
+// Link wa.me com mensagem pré-preenchida (não envia — abre o WhatsApp)
+export function whatsappLink(phone: string, message: string): string {
+  const clean = (phone || "").replace(/[^0-9]/g, "");
+  const num = clean.startsWith("244") ? clean : "244" + clean;
+  return `https://wa.me/${num}?text=${encodeURIComponent(message)}`;
 }
 export interface ReqItem { description: string; qty: number; unitPrice: number; }
 export interface Requisition {
