@@ -5,7 +5,7 @@ import { useStore } from "@/lib/store";
 import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
-  Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame
+  Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins, Receipt
 } from "lucide-react";
 
 const SECTIONS = [
@@ -13,7 +13,9 @@ const SECTIONS = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/contas", label: "Contas", icon: Wallet },
     { href: "/transacoes", label: "Transações", icon: ArrowLeftRight },
-    { href: "/faturas", label: "Faturas", icon: FileText, badge: "overdue" }
+    { href: "/faturas", label: "A receber", icon: FileText, badge: "overdue" },
+    { href: "/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
+    { href: "/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" }
   ]},
   { title: "Operações", items: [
     { href: "/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
@@ -30,12 +32,14 @@ const SECTIONS = [
 export default function Sidebar() {
   const path = usePathname();
   const router = useRouter();
-  const { profile, invoices, requisitions, logout } = useStore();
+  const { profile, obligations, requisitions, logout } = useStore();
   const lv = levelFor(profile.xp);
-  const overdue = invoices.filter((i) => i.status === "overdue").length;
+  const isOverdue = (s: string) => s === "overdue" || s === "partial_overdue";
+  const overdue = obligations.filter((o) => o.direction === "receivable" && isOverdue(o.financialStatus)).length;
+  const payableOverdue = obligations.filter((o) => o.direction === "payable" && isOverdue(o.financialStatus)).length;
   const pendingReq = requisitions.filter((r) => r.status === "pendente").length;
   const initials = profile.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-  const badgeVal = (k?: string) => k === "overdue" ? overdue : k === "req" ? pendingReq : 0;
+  const badgeVal = (k?: string) => k === "overdue" ? overdue : k === "payable" ? payableOverdue : k === "req" ? pendingReq : 0;
 
   return (
     <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-ink-800 bg-ink-950 p-4 sticky top-0 h-screen overflow-y-auto">
