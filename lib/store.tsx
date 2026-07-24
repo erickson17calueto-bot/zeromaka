@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { createClient } from "./supabase/client";
 import {
-  Account, Transaction, TxType, Invoice, Badge, UserProfile, Company, Contact, Requisition,
+  Account, Transaction, TxType, Badge, UserProfile, Company, Contact, Requisition,
   JournalEntry, JournalLine, FinancialCategory,
   Obligation, Settlement, SettlementAllocation, CollectionInteraction,
   ObligationDirection, ObligationDocumentKind, SettlementDirection,
@@ -16,7 +16,7 @@ interface Store {
   ready: boolean; authed: boolean; orgId: string | null;
   logout: () => Promise<void>;
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
-  company: Company; accounts: Account[]; transactions: Transaction[]; invoices: Invoice[];
+  company: Company; accounts: Account[]; transactions: Transaction[];
   contacts: Contact[]; requisitions: Requisition[]; badges: Badge[]; profile: UserProfile; toasts: Toast[];
   journalEntries: JournalEntry[]; categories: FinancialCategory[];
   obligations: Obligation[]; settlements: Settlement[]; collectionInteractions: CollectionInteraction[];
@@ -35,10 +35,6 @@ interface Store {
   deleteTransaction: (id: string) => void;
   transfer: (from: string, to: string, amount: number) => string | null;
   reverseEntry: (entryId: string, reason: string) => void;
-  addInvoice: (i: Omit<Invoice, "id" | "status">) => void;
-  editInvoice: (id: string, p: Partial<Invoice>) => string | null;
-  deleteInvoice: (id: string) => string | null;
-  markPaid: (invoiceId: string, accountId: string) => void;
   addContact: (c: Omit<Contact, "id">) => void;
   editContact: (id: string, p: Partial<Contact>) => void;
   removeContact: (id: string) => void;
@@ -133,16 +129,6 @@ const dbToInteraction = (r: any): CollectionInteraction => ({
   nextFollowUpAt: r.next_follow_up_at || undefined, performedAt: r.performed_at,
 });
 
-const dbToInvoice = (r: any): Invoice => ({
-  id: r.id, contactName: r.contact_name, contactId: r.contact_id || undefined,
-  type: r.type, amount: Number(r.amount),
-  taxAmount: r.tax_amount ? Number(r.tax_amount) : undefined,
-  isSale: r.is_sale || undefined, category: r.category,
-  issueDate: r.issue_date || undefined, dueDate: r.due_date,
-  status: r.status, accountId: r.account_id || undefined,
-  paidAt: r.paid_at || undefined, notes: r.notes || undefined,
-});
-
 const dbToContact = (r: any): Contact => ({
   id: r.id, name: r.name, kind: r.kind, phone: r.phone || undefined,
   email: r.email || undefined, nif: r.nif || undefined,
@@ -229,28 +215,6 @@ const companyToDb = (p: Partial<Company>) => {
   return row;
 };
 
-const invToDb = (i: Invoice, orgId: string) => ({
-  id: i.id, organization_id: orgId, contact_name: i.contactName,
-  contact_id: i.contactId ?? null, type: i.type, amount: i.amount,
-  tax_amount: i.taxAmount ?? null, is_sale: i.isSale ?? false,
-  category: i.category, issue_date: i.issueDate ?? new Date().toISOString().slice(0, 10),
-  due_date: i.dueDate, status: i.status, notes: i.notes ?? null,
-});
-
-const invFieldsToDb = (p: Partial<Invoice>) => {
-  const r: Record<string, any> = {};
-  if (p.contactName !== undefined) r.contact_name = p.contactName;
-  if (p.contactId !== undefined) r.contact_id = p.contactId;
-  if (p.amount !== undefined) r.amount = p.amount;
-  if (p.taxAmount !== undefined) r.tax_amount = p.taxAmount;
-  if (p.isSale !== undefined) r.is_sale = p.isSale;
-  if (p.category !== undefined) r.category = p.category;
-  if (p.issueDate !== undefined) r.issue_date = p.issueDate;
-  if (p.dueDate !== undefined) r.due_date = p.dueDate;
-  if (p.notes !== undefined) r.notes = p.notes;
-  return r;
-};
-
 const contactToDb = (c: Contact, orgId: string) => ({
   id: c.id, organization_id: orgId, name: c.name, kind: c.kind,
   phone: c.phone ?? null, email: c.email ?? null, nif: c.nif ?? null,
@@ -319,7 +283,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [rawAccounts, setRawAccounts] = useState<Omit<Account, "currentBalance">[]>([]);
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [rawObligations, setRawObligations] = useState<Obligation[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [collectionInteractions, setCollectionInteractions] = useState<CollectionInteraction[]>([]);
@@ -386,12 +349,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- Auth & data loading ----
   const loadOrgData = useCallback(async (oid: string) => {
     const supabase = createClient();
-    const [compRes, accRes, entryRes, catRes, invRes, conRes, rqRes, obRes, stRes, ciRes] = await Promise.all([
+    const [compRes, accRes, entryRes, catRes, conRes, rqRes, obRes, stRes, ciRes] = await Promise.all([
       supabase.from("companies").select("*").eq("organization_id", oid).single(),
       supabase.from("accounts").select("*").eq("organization_id", oid).eq("is_archived", false).order("created_at"),
       supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
       supabase.from("financial_categories").select("*").eq("organization_id", oid).eq("is_active", true).order("name"),
-      supabase.from("invoices").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
       supabase.from("contacts").select("*").eq("organization_id", oid).order("name"),
       supabase.from("requisitions").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
       supabase.from("obligation_status").select("*").eq("organization_id", oid).order("due_date"),
@@ -402,7 +364,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (accRes.data) setRawAccounts(accRes.data.map(dbToAccount));
     if (entryRes.data) setJournalEntries(entryRes.data.map(dbToJournalEntry));
     if (catRes.data) setCategories(catRes.data.map(dbToCategory));
-    if (invRes.data) setInvoices(invRes.data.map(dbToInvoice));
     if (conRes.data) setContacts(conRes.data.map(dbToContact));
     if (rqRes.data) setRequisitions(rqRes.data.map(dbToRequisition));
     if (obRes.data) setRawObligations(obRes.data.map(dbToObligation));
@@ -436,7 +397,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         userIdRef.current = null;
         setOrgId(null);
         setRawAccounts([]); setJournalEntries([]); setCategories([]);
-        setInvoices([]); setContacts([]); setRequisitions([]); setCompany(defaultCompany);
+        setContacts([]); setRequisitions([]); setCompany(defaultCompany);
         setRawObligations([]); setSettlements([]); setCollectionInteractions([]);
       }
     });
@@ -735,75 +696,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
-  // ---- Invoices ----
-  const addInvoice: Store["addInvoice"] = (i) => {
-    const id = crypto.randomUUID();
-    const overdue = new Date(i.dueDate + "T00:00:00") < new Date(new Date().toDateString());
-    const inv: Invoice = { ...i, id, status: overdue ? "overdue" : "pending" };
-    setInvoices(prev => [inv, ...prev]);
-    gainXp(50, "Fatura criada");
-    sb().from("invoices").insert(invToDb(inv, orgIdRef.current!))
-      .then(({ error }) => { if (error) { toast("Erro: " + error.message, "warn"); setInvoices(prev => prev.filter(x => x.id !== id)); } });
-  };
-
-  const editInvoice: Store["editInvoice"] = (id, p) => {
-    const inv = invoices.find(i => i.id === id);
-    if (!inv) return "Fatura não encontrada";
-    if (inv.status === "paid") return "Fatura paga não pode ser editada.";
-    setInvoices(prev => prev.map(i => {
-      if (i.id !== id) return i;
-      const merged = { ...i, ...p };
-      const od = new Date(merged.dueDate + "T00:00:00") < new Date(new Date().toDateString());
-      return { ...merged, status: od ? "overdue" : "pending" };
-    }));
-    toast("Fatura atualizada", "ok");
-    sb().from("invoices").update(invFieldsToDb(p)).eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
-    return null;
-  };
-
-  const deleteInvoice: Store["deleteInvoice"] = (id) => {
-    const inv = invoices.find(i => i.id === id);
-    if (!inv) return "Fatura não encontrada";
-    if (inv.status === "paid") return "Fatura paga não pode ser apagada.";
-    setInvoices(prev => prev.filter(i => i.id !== id));
-    toast("Fatura apagada", "ok");
-    sb().from("invoices").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
-    return null;
-  };
-
-  const markPaid: Store["markPaid"] = (invoiceId, accountId) => {
-    const inv = invoices.find(i => i.id === invoiceId);
-    if (!inv) return;
-    const wasOverdue = inv.status === "overdue";
-    const isIncome = inv.type === "receivable";
-    setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, status: "paid" as const, paidAt: new Date().toISOString(), accountId } : i));
-    gainXp(wasOverdue && isIncome ? 150 : 100, wasOverdue && isIncome ? "Fatura vencida cobrada!" : "Fatura liquidada");
-
-    sb().rpc("mark_invoice_paid", { p_invoice_id: invoiceId, p_account_id: accountId, p_org_id: orgIdRef.current! })
-      .then(({ error }) => {
-        if (error) {
-          toast("Erro: " + error.message, "warn");
-          setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, status: (wasOverdue ? "overdue" : "pending") as Invoice["status"], paidAt: undefined, accountId: undefined } : i));
-        } else {
-          Promise.all([
-            refreshEntries(),
-            sb().from("invoices").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false }),
-          ]).then(([, invR]) => { if (invR.data) setInvoices(invR.data.map(dbToInvoice)); });
-        }
-      });
-    if (wasOverdue && isIncome) {
-      setBadges(prev => {
-        const b4 = prev.find(b => b.id === "b4");
-        if (b4 && !b4.unlocked) {
-          toast("Conquista desbloqueada: Caçador de Dívidas (+250 XP)", "xp");
-          setProfile(p => ({ ...p, xp: p.xp + 250 }));
-          return prev.map(b => b.id === "b4" ? { ...b, unlocked: true } : b);
-        }
-        return prev;
-      });
-    }
-  };
-
   // ---- Contacts ----
   const addContact: Store["addContact"] = (c) => {
     const id = crypto.randomUUID();
@@ -957,13 +849,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       ready, authed, orgId, logout, createOrganization,
-      company, accounts, transactions, invoices, contacts, requisitions, badges, profile, toasts,
+      company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories,
       obligations, settlements, collectionInteractions,
       createObligation, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
       updateCompany, addAccount, editAccount, deleteAccount,
       addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
-      addInvoice, editInvoice, deleteInvoice, markPaid,
       addContact, editContact, removeContact,
       addRequisition, editRequisition, deleteRequisition, approveRequisition, rejectRequisition,
       addCapital, updateProfile, gainXp,

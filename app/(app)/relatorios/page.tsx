@@ -7,7 +7,7 @@ import { FileBarChart, TrendingUp, Scale, Receipt } from "lucide-react";
 type Tab = "dre" | "dfc" | "impostos" | "balanco";
 
 export default function RelatoriosPage() {
-  const { transactions, invoices, accounts, company } = useStore();
+  const { transactions, obligations, accounts, company } = useStore();
   const [tab, setTab] = useState<Tab>("dre");
   const [period, setPeriod] = useState<"month" | "all">("month");
 
@@ -41,8 +41,9 @@ export default function RelatoriosPage() {
   const cashOut = tx.filter((t) => t.type === "expense" || t.type === "capital_out").reduce((s, t) => s + t.amount, 0);
   const totalBalance = accounts.reduce((s, a) => s + a.currentBalance, 0);
 
-  const openReceivables = invoices.filter((i) => i.type === "receivable" && i.status !== "paid").reduce((s, i) => s + i.amount, 0);
-  const openPayables = invoices.filter((i) => i.type === "payable" && i.status !== "paid").reduce((s, i) => s + i.amount, 0);
+  const openObl = obligations.filter((o) => o.lifecycleStatus === "open" && o.outstandingAmount > 0);
+  const openReceivables = openObl.filter((o) => o.direction === "receivable").reduce((s, o) => s + o.outstandingAmount, 0);
+  const openPayables = openObl.filter((o) => o.direction === "payable").reduce((s, o) => s + o.outstandingAmount, 0);
   const capitalIn = transactions.filter((t) => t.type === "capital_in").reduce((s, t) => s + t.amount, 0);
   const capitalOut = transactions.filter((t) => t.type === "capital_out").reduce((s, t) => s + t.amount, 0);
   const shareholderLoans = capitalIn - capitalOut;
