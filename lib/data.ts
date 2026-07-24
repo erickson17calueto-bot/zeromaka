@@ -11,6 +11,33 @@ export type SocioRole = "gerente" | "investidor" | "outro";
 export interface Account {
   id: string; name: string; type: AccountType; bank?: string;
   initialBalance: number; currentBalance: number;
+  isArchived?: boolean; currency?: string;
+}
+
+export type JournalEntryType = "income" | "expense" | "transfer" | "opening_balance" | "adjustment" | "reversal";
+export type JournalStatus = "posted" | "reversed";
+export type LineDirection = "debit" | "credit";
+export type FinCategoryType = "income" | "expense";
+
+export interface FinancialCategory {
+  id: string; organizationId: string; name: string; categoryType: FinCategoryType;
+  parentId?: string; isSystem: boolean; isActive: boolean;
+}
+
+export interface JournalLine {
+  id: string; accountId: string; direction: LineDirection; amount: number;
+}
+
+export interface JournalEntry {
+  id: string; entryNumber: string; entryType: JournalEntryType;
+  transactionDate: string; description: string; reference?: string;
+  contactId?: string; categoryId?: string; categoryName?: string;
+  status: JournalStatus; source: string;
+  createdAt: string; postedAt: string;
+  reversedAt?: string; reversedByEntryId?: string;
+  reversesEntryId?: string; reversalReason?: string;
+  metadata: Record<string, unknown>;
+  lines: JournalLine[];
 }
 export interface Transaction {
   id: string; accountId: string; type: TxType; amount: number;

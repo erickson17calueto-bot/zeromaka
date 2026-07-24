@@ -2,7 +2,8 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { createClient } from "./supabase/client";
 import {
-  Account, Transaction, Invoice, Badge, UserProfile, Company, Contact, Requisition,
+  Account, Transaction, TxType, Invoice, Badge, UserProfile, Company, Contact, Requisition,
+  JournalEntry, JournalLine, FinancialCategory,
   seedBadges, taxRateFor
 } from "./data";
 
@@ -14,6 +15,7 @@ interface Store {
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
   company: Company; accounts: Account[]; transactions: Transaction[]; invoices: Invoice[];
   contacts: Contact[]; requisitions: Requisition[]; badges: Badge[]; profile: UserProfile; toasts: Toast[];
+  journalEntries: JournalEntry[]; categories: FinancialCategory[];
   updateCompany: (p: Partial<Company>) => void;
   addAccount: (a: Omit<Account, "id" | "currentBalance">) => void;
   editAccount: (id: string, p: Partial<Pick<Account, "name" | "type" | "bank">>) => void;
@@ -22,6 +24,7 @@ interface Store {
   editTransaction: (id: string, p: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
   transfer: (from: string, to: string, amount: number) => string | null;
+  reverseEntry: (entryId: string, reason: string) => void;
   addInvoice: (i: Omit<Invoice, "id" | "status">) => void;
   editInvoice: (id: string, p: Partial<Invoice>) => string | null;
   deleteInvoice: (id: string) => string | null;
@@ -45,9 +48,6 @@ export const useStore = () => useContext(Ctx);
 
 const LS_GAME = "zeromaka_gamification";
 
-const txDelta = (t: { type: string; amount: number }) =>
-  (t.type === "income" || t.type === "transfer_in" || t.type === "capital_in") ? t.amount : -t.amount;
-
 function slugify(text: string): string {
   let s = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50);
@@ -60,16 +60,33 @@ function slugify(text: string): string {
 const dbToAccount = (r: any): Omit<Account, "currentBalance"> => ({
   id: r.id, name: r.name, type: r.type, bank: r.bank || undefined,
   initialBalance: Number(r.initial_balance),
+  isArchived: r.is_archived || false, currency: r.currency || "AOA",
 });
 
-const dbToTransaction = (r: any): Transaction => ({
-  id: r.id, accountId: r.account_id, type: r.type, amount: Number(r.amount),
-  taxAmount: r.tax_amount ? Number(r.tax_amount) : undefined,
-  category: r.category, subcategory: r.subcategory || undefined,
-  description: r.description, date: r.date,
-  isSale: r.is_sale || undefined, partnerId: r.partner_id || undefined,
-  partnerName: r.partner_name || undefined, linkId: r.link_id || undefined,
-  invoiceId: r.invoice_id || undefined,
+const dbToJournalLine = (r: any): JournalLine => ({
+  id: r.id, accountId: r.account_id, direction: r.direction, amount: Number(r.amount),
+});
+
+const dbToJournalEntry = (r: any): JournalEntry => ({
+  id: r.id, entryNumber: r.entry_number, entryType: r.entry_type,
+  transactionDate: r.transaction_date, description: r.description,
+  reference: r.reference || undefined,
+  contactId: r.contact_id || undefined, categoryId: r.category_id || undefined,
+  categoryName: r.financial_categories?.name || undefined,
+  status: r.status, source: r.source,
+  createdAt: r.created_at, postedAt: r.posted_at,
+  reversedAt: r.reversed_at || undefined,
+  reversedByEntryId: r.reversed_by_entry_id || undefined,
+  reversesEntryId: r.reverses_entry_id || undefined,
+  reversalReason: r.reversal_reason || undefined,
+  metadata: r.metadata || {},
+  lines: (r.journal_lines || []).map(dbToJournalLine),
+});
+
+const dbToCategory = (r: any): FinancialCategory => ({
+  id: r.id, organizationId: r.organization_id, name: r.name,
+  categoryType: r.category_type, parentId: r.parent_id || undefined,
+  isSystem: r.is_system, isActive: r.is_active,
 });
 
 const dbToInvoice = (r: any): Invoice => ({
@@ -106,6 +123,45 @@ const dbToCompany = (r: any): Company => ({
   },
 });
 
+// ---- Journal → backward-compatible Transaction mapper ----
+function entryToTransactions(entry: JournalEntry): Transaction[] {
+  if (entry.status === "reversed") return [];
+  if (entry.entryType === "opening_balance" || entry.entryType === "reversal" || entry.entryType === "adjustment") return [];
+
+  const meta = entry.metadata || {};
+
+  if (entry.entryType === "transfer") {
+    const creditLine = entry.lines.find(l => l.direction === "credit");
+    const debitLine = entry.lines.find(l => l.direction === "debit");
+    if (!creditLine || !debitLine) return [];
+    return [
+      { id: entry.id + "_out", accountId: creditLine.accountId, type: "transfer_out" as TxType, amount: creditLine.amount, category: "Transferência", description: entry.description, date: entry.transactionDate, linkId: entry.id },
+      { id: entry.id + "_in", accountId: debitLine.accountId, type: "transfer_in" as TxType, amount: debitLine.amount, category: "Transferência", description: entry.description, date: entry.transactionDate, linkId: entry.id },
+    ];
+  }
+
+  const line = entry.lines[0];
+  if (!line) return [];
+
+  let txType: TxType;
+  if (meta.type === "capital_in") txType = "capital_in";
+  else if (meta.type === "capital_out") txType = "capital_out";
+  else if (entry.entryType === "income") txType = "income";
+  else txType = "expense";
+
+  return [{
+    id: entry.id, accountId: line.accountId, type: txType, amount: line.amount,
+    category: entry.categoryName || (meta.category as string) || "",
+    subcategory: meta.subcategory as string | undefined,
+    description: entry.description, date: entry.transactionDate,
+    partnerId: meta.partnerId as string | undefined,
+    partnerName: meta.partnerName as string | undefined,
+    isSale: meta.is_sale as boolean | undefined,
+    taxAmount: typeof meta.tax_amount === "number" ? meta.tax_amount : undefined,
+    invoiceId: meta.invoice_id as string | undefined,
+  }];
+}
+
 // ---- Frontend → DB mappers ----
 const companyToDb = (p: Partial<Company>) => {
   const row: Record<string, any> = {};
@@ -124,29 +180,6 @@ const companyToDb = (p: Partial<Company>) => {
     row.client_note = p.commissions.clientNote;
   }
   return row;
-};
-
-const txToDb = (t: Transaction, orgId: string) => ({
-  id: t.id, organization_id: orgId, account_id: t.accountId, type: t.type,
-  amount: t.amount, tax_amount: t.taxAmount ?? null, category: t.category,
-  subcategory: t.subcategory ?? null, description: t.description, date: t.date,
-  is_sale: t.isSale ?? false, partner_id: t.partnerId ?? null,
-  partner_name: t.partnerName ?? null, link_id: t.linkId ?? null,
-  invoice_id: t.invoiceId ?? null,
-});
-
-const txFieldsToDb = (p: Partial<Transaction>) => {
-  const r: Record<string, any> = {};
-  if (p.accountId !== undefined) r.account_id = p.accountId;
-  if (p.type !== undefined) r.type = p.type;
-  if (p.amount !== undefined) r.amount = p.amount;
-  if (p.taxAmount !== undefined) r.tax_amount = p.taxAmount;
-  if (p.category !== undefined) r.category = p.category;
-  if (p.subcategory !== undefined) r.subcategory = p.subcategory;
-  if (p.description !== undefined) r.description = p.description;
-  if (p.date !== undefined) r.date = p.date;
-  if (p.isSale !== undefined) r.is_sale = p.isSale;
-  return r;
 };
 
 const invToDb = (i: Invoice, orgId: string) => ({
@@ -233,7 +266,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const [company, setCompany] = useState<Company>(defaultCompany);
   const [rawAccounts, setRawAccounts] = useState<Omit<Account, "currentBalance">[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [categories, setCategories] = useState<FinancialCategory[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
@@ -243,32 +277,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { orgIdRef.current = orgId; }, [orgId]);
 
+  // Balance derived from journal lines (debit increases, credit decreases)
   const accounts = useMemo<Account[]>(() =>
-    rawAccounts.map(a => ({
-      ...a,
-      currentBalance: a.initialBalance + transactions
-        .filter(t => t.accountId === a.id)
-        .reduce((sum, t) => sum + txDelta(t), 0),
-    })),
-    [rawAccounts, transactions]
+    rawAccounts.map(a => {
+      const balance = journalEntries
+        .flatMap(e => e.lines)
+        .filter(l => l.accountId === a.id)
+        .reduce((sum, l) => sum + (l.direction === "debit" ? l.amount : -l.amount), 0);
+      return { ...a, currentBalance: balance };
+    }),
+    [rawAccounts, journalEntries]
+  );
+
+  // Backward-compatible transactions derived from journal entries
+  const transactions = useMemo<Transaction[]>(() =>
+    journalEntries.flatMap(entryToTransactions),
+    [journalEntries]
   );
 
   const sb = useCallback(() => createClient(), []);
 
+  // ---- Refresh helpers ----
+  const refreshEntries = useCallback(async (oid?: string) => {
+    const supabase = createClient();
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    const { data } = await supabase
+      .from("journal_entries")
+      .select("*, journal_lines(*), financial_categories(name)")
+      .eq("organization_id", id)
+      .order("transaction_date", { ascending: false });
+    if (data) setJournalEntries(data.map(dbToJournalEntry));
+  }, []);
+
   // ---- Auth & data loading ----
   const loadOrgData = useCallback(async (oid: string) => {
     const supabase = createClient();
-    const [compRes, accRes, txRes, invRes, conRes, rqRes] = await Promise.all([
+    const [compRes, accRes, entryRes, catRes, invRes, conRes, rqRes] = await Promise.all([
       supabase.from("companies").select("*").eq("organization_id", oid).single(),
-      supabase.from("accounts").select("*").eq("organization_id", oid).order("created_at"),
-      supabase.from("transactions").select("*").eq("organization_id", oid).order("date", { ascending: false }),
+      supabase.from("accounts").select("*").eq("organization_id", oid).eq("is_archived", false).order("created_at"),
+      supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
+      supabase.from("financial_categories").select("*").eq("organization_id", oid).eq("is_active", true).order("name"),
       supabase.from("invoices").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
       supabase.from("contacts").select("*").eq("organization_id", oid).order("name"),
       supabase.from("requisitions").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
     ]);
     if (compRes.data) setCompany(dbToCompany(compRes.data));
     if (accRes.data) setRawAccounts(accRes.data.map(dbToAccount));
-    if (txRes.data) setTransactions(txRes.data.map(dbToTransaction));
+    if (entryRes.data) setJournalEntries(entryRes.data.map(dbToJournalEntry));
+    if (catRes.data) setCategories(catRes.data.map(dbToCategory));
     if (invRes.data) setInvoices(invRes.data.map(dbToInvoice));
     if (conRes.data) setContacts(conRes.data.map(dbToContact));
     if (rqRes.data) setRequisitions(rqRes.data.map(dbToRequisition));
@@ -299,8 +356,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!session?.user) {
         userIdRef.current = null;
         setOrgId(null);
-        setRawAccounts([]); setTransactions([]); setInvoices([]);
-        setContacts([]); setRequisitions([]); setCompany(defaultCompany);
+        setRawAccounts([]); setJournalEntries([]); setCategories([]);
+        setInvoices([]); setContacts([]); setRequisitions([]); setCompany(defaultCompany);
       }
     });
     return () => subscription.unsubscribe();
@@ -346,10 +403,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await Promise.all([
       supabase.from("companies").update({ name: companyName }).eq("organization_id", newOrgId),
       supabase.from("profiles").update({ full_name: userName }).eq("id", userIdRef.current!),
+      supabase.rpc("seed_default_categories", { p_org_id: newOrgId }),
     ]);
     setProfile(p => ({ ...p, name: userName }));
     setOrgId(newOrgId);
     setCompany(prev => ({ ...prev, name: companyName }));
+    // Load categories that were just seeded
+    const { data: cats } = await supabase.from("financial_categories").select("*").eq("organization_id", newOrgId).eq("is_active", true).order("name");
+    if (cats) setCategories(cats.map(dbToCategory));
   };
 
   // ---- Company ----
@@ -363,10 +424,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- Accounts ----
   const addAccount: Store["addAccount"] = (a) => {
     const id = crypto.randomUUID();
-    setRawAccounts(prev => [...prev, { ...a, id }]);
+    setRawAccounts(prev => [...prev, { ...a, id, isArchived: false, currency: "AOA" }]);
     gainXp(50, "Nova conta criada");
-    sb().from("accounts").insert({ id, organization_id: orgIdRef.current!, name: a.name, type: a.type, bank: a.bank || null, initial_balance: a.initialBalance })
-      .then(({ error }) => { if (error) { toast("Erro: " + error.message, "warn"); setRawAccounts(prev => prev.filter(x => x.id !== id)); } });
+    sb().rpc("create_account_with_balance", {
+      p_org_id: orgIdRef.current!, p_id: id,
+      p_name: a.name, p_type: a.type, p_bank: a.bank || null,
+      p_initial_balance: a.initialBalance,
+    }).then(({ error }) => {
+      if (error) {
+        toast("Erro: " + error.message, "warn");
+        setRawAccounts(prev => prev.filter(x => x.id !== id));
+      } else {
+        refreshEntries();
+      }
+    });
   };
 
   const editAccount: Store["editAccount"] = (id, p) => {
@@ -377,43 +448,76 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteAccount: Store["deleteAccount"] = (id) => {
-    if (transactions.some(t => t.accountId === id)) { toast("Não dá para apagar: a conta tem lançamentos.", "warn"); return; }
+    const hasMovements = journalEntries.some(e => e.status === "posted" && e.lines.some(l => l.accountId === id));
+    if (hasMovements) {
+      setRawAccounts(prev => prev.filter(a => a.id !== id));
+      toast("Conta arquivada (tem lançamentos)", "ok");
+      sb().from("accounts").update({ is_archived: true }).eq("id", id)
+        .then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
+      return;
+    }
     setRawAccounts(prev => prev.filter(a => a.id !== id));
     toast("Conta apagada", "ok");
     sb().from("accounts").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
   };
 
-  // ---- Transactions ----
+  // ---- Financial Mutations (Journal-based) ----
   const addTransaction: Store["addTransaction"] = (t) => {
-    const id = crypto.randomUUID();
-    const tx: Transaction = { ...t, id };
-    setTransactions(prev => [tx, ...prev]);
+    const isIncome = t.type === "income" || t.type === "capital_in";
+    const rpcName = isIncome ? "post_income" : "post_expense";
+    const catType = isIncome ? "income" : "expense";
+    const cat = categories.find(c => c.name === t.category && c.categoryType === catType);
+
+    const metadata: Record<string, unknown> = {};
+    if (t.subcategory) metadata.subcategory = t.subcategory;
+    if (t.isSale) metadata.is_sale = t.isSale;
+    if (t.taxAmount) metadata.tax_amount = t.taxAmount;
+    if (t.type === "capital_in") metadata.type = "capital_in";
+    if (t.type === "capital_out") metadata.type = "capital_out";
+    if (t.partnerId) metadata.partnerId = t.partnerId;
+    if (t.partnerName) metadata.partnerName = t.partnerName;
+    if (t.category) metadata.category = t.category;
+
+    // Optimistic entry
+    const tempId = crypto.randomUUID();
+    const tempEntry: JournalEntry = {
+      id: tempId, entryNumber: "...", entryType: isIncome ? "income" : "expense",
+      transactionDate: t.date, description: t.description,
+      categoryId: cat?.id, categoryName: cat?.name || t.category,
+      contactId: t.partnerId, status: "posted", source: "manual",
+      createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
+      metadata,
+      lines: [{ id: "temp", accountId: t.accountId, direction: isIncome ? "debit" : "credit", amount: t.amount }],
+    };
+    setJournalEntries(prev => [tempEntry, ...prev]);
     gainXp(50, "Lançamento registado");
-    sb().from("transactions").insert(txToDb(tx, orgIdRef.current!))
-      .then(({ error }) => { if (error) { toast("Erro: " + error.message, "warn"); setTransactions(prev => prev.filter(x => x.id !== id)); } });
+
+    sb().rpc(rpcName, {
+      p_org_id: orgIdRef.current!, p_account_id: t.accountId,
+      p_amount: t.amount, p_description: t.description, p_date: t.date,
+      p_category_id: cat?.id || null, p_contact_id: t.partnerId || null,
+      p_metadata: metadata,
+    }).then(({ data, error }) => {
+      if (error) {
+        toast("Erro: " + error.message, "warn");
+        setJournalEntries(prev => prev.filter(e => e.id !== tempId));
+      } else {
+        refreshEntries();
+      }
+    });
   };
 
-  const editTransaction: Store["editTransaction"] = (id, p) => {
-    setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...p } : t));
-    toast("Lançamento atualizado", "ok");
-    sb().from("transactions").update(txFieldsToDb(p)).eq("id", id)
-      .then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
+  const editTransaction: Store["editTransaction"] = (_id, _p) => {
+    toast("Lançamentos confirmados não podem ser editados. Reverta e crie um novo.", "warn");
   };
 
   const deleteTransaction: Store["deleteTransaction"] = (id) => {
-    setTransactions(prev => {
-      const target = prev.find(t => t.id === id);
-      if (!target) return prev;
-      const group = target.linkId ? prev.filter(t => t.linkId === target.linkId) : [target];
-      const ids = new Set(group.map(t => t.id));
-      if (target.linkId) {
-        sb().from("transactions").delete().eq("link_id", target.linkId).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
-      } else {
-        sb().from("transactions").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
-      }
-      return prev.filter(t => !ids.has(t.id));
-    });
-    toast("Lançamento apagado", "ok");
+    // Map old transaction ID to journal entry and reverse it
+    const cleanId = id.endsWith("_out") ? id.replace(/_out$/, "") : id.endsWith("_in") ? id.replace(/_in$/, "") : id;
+    const entry = journalEntries.find(e => e.id === cleanId);
+    if (!entry) { toast("Movimento não encontrado", "warn"); return; }
+    if (entry.status === "reversed") { toast("Este movimento já foi revertido", "warn"); return; }
+    reverseEntry(cleanId, "Apagado pelo utilizador");
   };
 
   const transfer: Store["transfer"] = (from, to, amount) => {
@@ -421,20 +525,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!src) return "Conta de origem inválida";
     if (from === to) return "As contas devem ser diferentes";
     if (src.currentBalance < amount) return "Saldo insuficiente";
-    const linkId = crypto.randomUUID();
-    const now = new Date().toISOString().slice(0, 10);
-    setTransactions(prev => [
-      { id: crypto.randomUUID(), accountId: from, type: "transfer_out", amount, category: "Transferência", description: "Transferência interna", date: now, linkId },
-      { id: crypto.randomUUID(), accountId: to, type: "transfer_in", amount, category: "Transferência", description: "Transferência interna", date: now, linkId },
-      ...prev,
-    ]);
+
+    // Optimistic entry
+    const tempId = crypto.randomUUID();
+    const tempEntry: JournalEntry = {
+      id: tempId, entryNumber: "...", entryType: "transfer",
+      transactionDate: new Date().toISOString().slice(0, 10),
+      description: "Transferência interna", status: "posted", source: "manual",
+      createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
+      metadata: {},
+      lines: [
+        { id: "t1", accountId: from, direction: "credit", amount },
+        { id: "t2", accountId: to, direction: "debit", amount },
+      ],
+    };
+    setJournalEntries(prev => [tempEntry, ...prev]);
     toast("Transferência concluída", "ok");
-    sb().rpc("transfer_funds", { p_from_account: from, p_to_account: to, p_amount: amount, p_org_id: orgIdRef.current! })
-      .then(({ error }) => {
-        if (error) { toast("Erro na transferência: " + error.message, "warn"); setTransactions(prev => prev.filter(t => t.linkId !== linkId)); }
-        else { sb().from("transactions").select("*").eq("organization_id", orgIdRef.current!).order("date", { ascending: false }).then(({ data }) => { if (data) setTransactions(data.map(dbToTransaction)); }); }
-      });
+
+    sb().rpc("post_transfer", {
+      p_org_id: orgIdRef.current!, p_from_account_id: from,
+      p_to_account_id: to, p_amount: amount,
+    }).then(({ error }) => {
+      if (error) {
+        toast("Erro na transferência: " + error.message, "warn");
+        setJournalEntries(prev => prev.filter(e => e.id !== tempId));
+      } else {
+        refreshEntries();
+      }
+    });
     return null;
+  };
+
+  const reverseEntry: Store["reverseEntry"] = (entryId, reason) => {
+    const entry = journalEntries.find(e => e.id === entryId);
+    if (!entry) { toast("Movimento não encontrado", "warn"); return; }
+    if (entry.status === "reversed") { toast("Este movimento já foi revertido", "warn"); return; }
+
+    // Optimistic: mark as reversed
+    setJournalEntries(prev => prev.map(e => e.id === entryId ? { ...e, status: "reversed" as const, reversedAt: new Date().toISOString() } : e));
+    toast("Movimento revertido", "ok");
+
+    sb().rpc("reverse_journal_entry", { p_entry_id: entryId, p_reason: reason })
+      .then(({ error }) => {
+        if (error) {
+          toast("Erro na reversão: " + error.message, "warn");
+          setJournalEntries(prev => prev.map(e => e.id === entryId ? { ...e, status: "posted" as const, reversedAt: undefined } : e));
+        } else {
+          refreshEntries();
+        }
+      });
   };
 
   // ---- Invoices ----
@@ -451,7 +590,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const editInvoice: Store["editInvoice"] = (id, p) => {
     const inv = invoices.find(i => i.id === id);
     if (!inv) return "Fatura não encontrada";
-    if (inv.status === "paid") return "Fatura paga não pode ser editada. Corrige o lançamento gerado em Transações.";
+    if (inv.status === "paid") return "Fatura paga não pode ser editada.";
     setInvoices(prev => prev.map(i => {
       if (i.id !== id) return i;
       const merged = { ...i, ...p };
@@ -466,7 +605,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const deleteInvoice: Store["deleteInvoice"] = (id) => {
     const inv = invoices.find(i => i.id === id);
     if (!inv) return "Fatura não encontrada";
-    if (inv.status === "paid") return "Fatura paga não pode ser apagada. Apaga o lançamento em Transações.";
+    if (inv.status === "paid") return "Fatura paga não pode ser apagada.";
     setInvoices(prev => prev.filter(i => i.id !== id));
     toast("Fatura apagada", "ok");
     sb().from("invoices").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
@@ -479,25 +618,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const wasOverdue = inv.status === "overdue";
     const isIncome = inv.type === "receivable";
     setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, status: "paid" as const, paidAt: new Date().toISOString(), accountId } : i));
-    const tempTxId = crypto.randomUUID();
-    setTransactions(prev => [{
-      id: tempTxId, accountId, type: isIncome ? "income" as const : "expense" as const, amount: inv.amount,
-      taxAmount: isIncome ? inv.taxAmount : undefined, isSale: isIncome ? inv.isSale : undefined,
-      category: inv.category, description: `Fatura ${isIncome ? "recebida de" : "paga a"} ${inv.contactName}`,
-      date: new Date().toISOString().slice(0, 10), invoiceId,
-    }, ...prev]);
     gainXp(wasOverdue && isIncome ? 150 : 100, wasOverdue && isIncome ? "Fatura vencida cobrada!" : "Fatura liquidada");
+
     sb().rpc("mark_invoice_paid", { p_invoice_id: invoiceId, p_account_id: accountId, p_org_id: orgIdRef.current! })
       .then(({ error }) => {
         if (error) {
           toast("Erro: " + error.message, "warn");
           setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, status: (wasOverdue ? "overdue" : "pending") as Invoice["status"], paidAt: undefined, accountId: undefined } : i));
-          setTransactions(prev => prev.filter(t => t.id !== tempTxId));
         } else {
           Promise.all([
-            sb().from("transactions").select("*").eq("organization_id", orgIdRef.current!).order("date", { ascending: false }),
+            refreshEntries(),
             sb().from("invoices").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false }),
-          ]).then(([txR, invR]) => { if (txR.data) setTransactions(txR.data.map(dbToTransaction)); if (invR.data) setInvoices(invR.data.map(dbToInvoice)); });
+          ]).then(([, invR]) => { if (invR.data) setInvoices(invR.data.map(dbToInvoice)); });
         }
       });
     if (wasOverdue && isIncome) {
@@ -578,24 +710,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const req = requisitions.find(r => r.id === id);
     if (!req) return;
     setRequisitions(prev => prev.map(r => r.id === id ? { ...r, status: "aprovado" as const, accountId, decidedAt: new Date().toISOString() } : r));
-    const tempTxId = crypto.randomUUID();
-    setTransactions(prev => [{
-      id: tempTxId, accountId, type: "expense" as const, amount: req.amount, category: req.category,
-      description: `Requisição ${req.number} — ${req.purpose.slice(0, 40)}`, date: new Date().toISOString().slice(0, 10),
-    }, ...prev]);
     toast(`${req.number} aprovada — saída lançada`, "ok");
     gainXp(50, "Requisição aprovada");
+
     sb().rpc("approve_requisition", { p_req_id: id, p_account_id: accountId, p_org_id: orgIdRef.current! })
       .then(({ error }) => {
         if (error) {
           toast("Erro: " + error.message, "warn");
           setRequisitions(prev => prev.map(r => r.id === id ? { ...r, status: "pendente" as const, accountId: undefined, decidedAt: undefined } : r));
-          setTransactions(prev => prev.filter(t => t.id !== tempTxId));
         } else {
           Promise.all([
-            sb().from("transactions").select("*").eq("organization_id", orgIdRef.current!).order("date", { ascending: false }),
+            refreshEntries(),
             sb().from("requisitions").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false }),
-          ]).then(([txR, rqR]) => { if (txR.data) setTransactions(txR.data.map(dbToTransaction)); if (rqR.data) setRequisitions(rqR.data.map(dbToRequisition)); });
+          ]).then(([, rqR]) => { if (rqR.data) setRequisitions(rqR.data.map(dbToRequisition)); });
         }
       });
   };
@@ -617,17 +744,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const withdrawn = transactions.filter(t => t.partnerId === d.partnerId && t.type === "capital_out").reduce((s, t) => s + t.amount, 0);
       if (contributed - withdrawn < d.amount) return `O sócio só tem ${(contributed - withdrawn).toLocaleString("pt-AO")} Kz de capital disponível`;
     }
-    const id = crypto.randomUUID();
-    const tx: Transaction = {
-      id, accountId: d.accountId, type: d.kind === "aporte" ? "capital_in" : "capital_out",
-      amount: d.amount, partnerId: d.partnerId, partnerName: d.partnerName, category: "Capital",
-      description: d.description || (d.kind === "aporte" ? "Aporte de capital" : "Retirada de capital"), date: d.date,
+    const isAporte = d.kind === "aporte";
+    const rpcName = isAporte ? "post_income" : "post_expense";
+    const metadata = {
+      type: isAporte ? "capital_in" : "capital_out",
+      partnerId: d.partnerId, partnerName: d.partnerName,
+      category: "Capital",
     };
-    setTransactions(prev => [tx, ...prev]);
-    toast(d.kind === "aporte" ? "Aporte registado" : "Retirada registada", "ok");
-    gainXp(40, d.kind === "aporte" ? "Aporte de sócio" : "Retirada de sócio");
-    sb().from("transactions").insert(txToDb(tx, orgIdRef.current!))
-      .then(({ error }) => { if (error) { toast("Erro: " + error.message, "warn"); setTransactions(prev => prev.filter(t => t.id !== id)); } });
+
+    // Optimistic entry
+    const tempId = crypto.randomUUID();
+    const tempEntry: JournalEntry = {
+      id: tempId, entryNumber: "...", entryType: isAporte ? "income" : "expense",
+      transactionDate: d.date, description: d.description || (isAporte ? "Aporte de capital" : "Retirada de capital"),
+      status: "posted", source: "manual",
+      createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
+      metadata,
+      lines: [{ id: "temp", accountId: d.accountId, direction: isAporte ? "debit" : "credit", amount: d.amount }],
+    };
+    setJournalEntries(prev => [tempEntry, ...prev]);
+    toast(isAporte ? "Aporte registado" : "Retirada registada", "ok");
+    gainXp(40, isAporte ? "Aporte de sócio" : "Retirada de sócio");
+
+    sb().rpc(rpcName, {
+      p_org_id: orgIdRef.current!, p_account_id: d.accountId,
+      p_amount: d.amount, p_description: d.description || (isAporte ? "Aporte de capital" : "Retirada de capital"),
+      p_date: d.date, p_metadata: metadata,
+    }).then(({ error }) => {
+      if (error) {
+        toast("Erro: " + error.message, "warn");
+        setJournalEntries(prev => prev.filter(e => e.id !== tempId));
+      } else {
+        refreshEntries();
+      }
+    });
     return null;
   };
 
@@ -649,8 +799,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       ready, authed, orgId, logout, createOrganization,
       company, accounts, transactions, invoices, contacts, requisitions, badges, profile, toasts,
+      journalEntries, categories,
       updateCompany, addAccount, editAccount, deleteAccount,
-      addTransaction, editTransaction, deleteTransaction, transfer,
+      addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
       addInvoice, editInvoice, deleteInvoice, markPaid,
       addContact, editContact, removeContact,
       addRequisition, editRequisition, deleteRequisition, approveRequisition, rejectRequisition,
