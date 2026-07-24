@@ -18,7 +18,11 @@ const STATUS_STYLE: Record<FinancialStatus, string> = {
 };
 
 export default function ObligationsView({ direction }: { direction: ObligationDirection }) {
-  const { obligations, contacts, accounts, categories, settlements, createObligation, postSettlement, reverseSettlement, cancelObligation } = useStore();
+  const { obligations, contacts, accounts, categories, settlements, reserves, createObligation, postSettlement, reverseSettlement, cancelObligation } = useStore();
+  const reservedFor = (obligationId: string) => reserves
+    .filter(r => r.obligationId === obligationId && (r.status === "active" || r.status === "partially_released"))
+    .reduce((s, r) => s + r.reservedAmount, 0);
+  const linkedReserve = (obligationId: string) => reserves.find(r => r.obligationId === obligationId && (r.status === "active" || r.status === "partially_released"));
   const isRec = direction === "receivable";
   const contactPool = useMemo(
     () => contacts.filter(c => !c.isArchived && (c.kind === "ambos" || c.kind === (isRec ? "cliente" : "fornecedor"))),
@@ -73,15 +77,18 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
   const [payAmount, setPayAmount] = useState("");
   const [payAccount, setPayAccount] = useState("");
   const [payMethod, setPayMethod] = useState("");
+  const [payUseReserve, setPayUseReserve] = useState(false);
   const openPay = (o: Obligation) => {
     setPayFor(o); setPayAmount(String(o.outstandingAmount));
-    setPayAccount(accounts[0]?.id ?? ""); setPayMethod("");
+    setPayAccount(accounts[0]?.id ?? ""); setPayMethod(""); setPayUseReserve(!!linkedReserve(o.id));
   };
   const submitPay = async () => {
     if (!payFor || !payAccount || !payAmount) return;
+    const reserve = !isRec && payUseReserve ? linkedReserve(payFor.id) : undefined;
     const err = await postSettlement({
       direction: isRec ? "incoming" : "outgoing", contactId: payFor.contactId, accountId: payAccount,
       allocations: [{ obligationId: payFor.id, amount: Number(payAmount) }], paymentMethod: payMethod || undefined,
+      reserveId: reserve?.id,
     });
     if (!err) setPayFor(null);
   };
@@ -149,6 +156,9 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                 <div className="text-[11px] text-ink-500">
                   {OBLIGATION_KIND_LABEL[o.documentKind]}{o.externalDocumentNumber ? ` · ${o.externalDocumentNumber}` : ""} · vence {fmtDate(o.dueDate)}
                   {o.daysOverdue > 0 && <span className="text-red-400"> · {o.daysOverdue}d em atraso</span>}
+                  {!isRec && reservedFor(o.id) > 0 && (() => { const r = Math.min(reservedFor(o.id), o.outstandingAmount); const unc = o.outstandingAmount - r; return (
+                    <span className="text-emerald-400"> · reservado {fmtKz(r)}{unc > 0 ? <span className="text-amber-400"> · descoberto {fmtKz(unc)}</span> : ""}</span>
+                  ); })()}
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -233,6 +243,12 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                 </select>
               </div>
               <div><label className="label">Método (opcional)</label><input className="input" placeholder="Transferência, numerário, TPA..." value={payMethod} onChange={e => setPayMethod(e.target.value)} /></div>
+              {!isRec && linkedReserve(payFor.id) && (
+                <label className="flex items-center gap-2 text-sm text-ink-300 rounded-lg border border-ink-800 p-3 cursor-pointer">
+                  <input type="checkbox" checked={payUseReserve} onChange={e => setPayUseReserve(e.target.checked)} />
+                  Consumir a reserva ligada ({fmtKz(linkedReserve(payFor.id)!.reservedAmount)})
+                </label>
+              )}
               <button onClick={submitPay} disabled={!payAccount || Number(payAmount) <= 0 || Number(payAmount) > payFor.outstandingAmount} className="btn-primary w-full justify-center disabled:opacity-40">Confirmar</button>
             </div>
           </div>

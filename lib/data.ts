@@ -100,6 +100,76 @@ export interface CollectionInteraction {
   promisedPaymentDate?: string; nextFollowUpAt?: string; performedAt: string;
 }
 
+// ---- Fase 4: reservas e disponível de verdade ----
+export type ReserveCategoryType =
+  | "payroll" | "tax" | "emergency" | "rent" | "supplier" | "maintenance" | "investment" | "custom";
+export type ReserveType = "general" | "account_specific" | "obligation_linked";
+export type ReserveStatus = "active" | "partially_released" | "released" | "cancelled";
+export type ReservePriority = "critical" | "high" | "normal" | "low";
+export type ReserveMovementType = "create" | "increase" | "decrease" | "release" | "cancel" | "consume_on_payment";
+export type SafetyState = "safe" | "warning" | "critical";
+
+export interface ReserveCategory {
+  id: string; organizationId: string; name: string;
+  categoryType: ReserveCategoryType; isSystem: boolean; isActive: boolean;
+}
+
+export interface FinancialReserve {
+  id: string; organizationId: string; categoryId: string; name: string;
+  description?: string; reserveType: ReserveType;
+  accountId?: string; obligationId?: string;
+  targetAmount?: number; reservedAmount: number;
+  startDate: string; targetDate?: string;
+  status: ReserveStatus; priority: ReservePriority;
+  releasedAt?: string; releaseReason?: string;
+}
+
+export interface ReserveMovement {
+  id: string; reserveId: string; movementType: ReserveMovementType;
+  amount: number; reason?: string; settlementId?: string; createdAt: string;
+}
+
+export interface FinancialSettings {
+  horizonDays: 7 | 15 | 30;
+  includeOverduePayables: boolean;
+  includeApprovedRequisitions: boolean;
+  includeArchivedAccounts: boolean;
+  minimumCashBuffer: number;
+}
+
+// Resposta de get_true_available_cash (calculado no servidor, nunca no frontend)
+export interface TrueAvailableCash {
+  currentCashBalance: number;
+  activeReservesTotal: number;
+  minimumCashBuffer: number;
+  overduePayablesTotal: number;
+  upcomingPayablesTotal: number;
+  approvedRequisitionsTotal: number;
+  coveredObligationsTotal: number;
+  uncoveredCommitmentsTotal: number;
+  trueAvailableCash: number;
+  calculationDate: string;
+  horizonDays: number;
+  horizonEndDate: string;
+  safetyState: SafetyState;
+  breakdown: {
+    accounts: { id: string; name: string; balance: number; archived: boolean }[];
+    reserves: { id: string; name: string; amount: number; priority: ReservePriority; type: ReserveType; obligation_id?: string }[];
+    obligations: { id: string; number: string; due_date: string; outstanding: number; covered: number; uncovered: number; overdue: boolean }[];
+    requisitions: { id: string; number: string; amount: number }[];
+  };
+}
+
+export const RESERVE_PRIORITY_LABEL: Record<ReservePriority, string> = {
+  critical: "Crítica", high: "Alta", normal: "Normal", low: "Baixa",
+};
+export const RESERVE_STATUS_LABEL: Record<ReserveStatus, string> = {
+  active: "Ativa", partially_released: "Parcialmente libertada", released: "Libertada", cancelled: "Cancelada",
+};
+export const SAFETY_STATE_LABEL: Record<SafetyState, string> = {
+  safe: "Seguro", warning: "Atenção", critical: "Crítico",
+};
+
 export const FIN_STATUS_LABEL: Record<FinancialStatus, string> = {
   cancelled: "Cancelado", paid: "Pago", partial: "Parcial", overdue: "Vencido",
   partial_overdue: "Parcial e vencido", due_today: "Vence hoje", open: "Em aberto",

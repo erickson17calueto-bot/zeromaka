@@ -7,6 +7,8 @@ import {
   Obligation, Settlement, SettlementAllocation, CollectionInteraction,
   ObligationDirection, ObligationDocumentKind, SettlementDirection,
   CollectionChannel, CollectionInteractionType, CollectionOutcome,
+  ReserveCategory, FinancialReserve, ReserveMovement, FinancialSettings, TrueAvailableCash,
+  ReserveType, ReservePriority,
   seedBadges, taxRateFor
 } from "./data";
 
@@ -20,8 +22,16 @@ interface Store {
   contacts: Contact[]; requisitions: Requisition[]; badges: Badge[]; profile: UserProfile; toasts: Toast[];
   journalEntries: JournalEntry[]; categories: FinancialCategory[];
   obligations: Obligation[]; settlements: Settlement[]; collectionInteractions: CollectionInteraction[];
+  reserves: FinancialReserve[]; reserveCategories: ReserveCategory[]; reserveMovements: ReserveMovement[];
+  finSettings: FinancialSettings; trueAvailable: TrueAvailableCash | null;
+  refreshAvailable: (horizonDays?: number) => Promise<void>;
+  createReserve: (d: { categoryId: string; name: string; amount: number; reserveType?: ReserveType; accountId?: string; obligationId?: string; targetAmount?: number; targetDate?: string; priority?: ReservePriority; description?: string }) => Promise<string | null>;
+  increaseReserve: (reserveId: string, amount: number, reason?: string) => Promise<string | null>;
+  releaseReserve: (reserveId: string, amount: number, reason: string) => Promise<string | null>;
+  cancelReserve: (reserveId: string, reason: string) => Promise<string | null>;
+  updateFinSettings: (p: Partial<FinancialSettings>) => Promise<string | null>;
   createObligation: (d: { direction: ObligationDirection; contactId: string; dueDate: string; amount: number; documentKind?: ObligationDocumentKind; externalDocumentNumber?: string; issueDate?: string; description?: string; notes?: string; categoryId?: string }) => Promise<string | null>;
-  postSettlement: (d: { direction: SettlementDirection; contactId: string; accountId: string; allocations: { obligationId: string; amount: number }[]; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string }) => Promise<string | null>;
+  postSettlement: (d: { direction: SettlementDirection; contactId: string; accountId: string; allocations: { obligationId: string; amount: number }[]; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string; reserveId?: string }) => Promise<string | null>;
   reverseSettlement: (settlementId: string, reason: string) => Promise<string | null>;
   cancelObligation: (obligationId: string, reason: string) => Promise<string | null>;
   updateObligation: (obligationId: string, p: { contactId?: string; description?: string; externalDocumentNumber?: string; amount?: number; issueDate?: string; dueDate?: string; categoryId?: string; notes?: string }) => Promise<string | null>;
@@ -127,6 +137,51 @@ const dbToInteraction = (r: any): CollectionInteraction => ({
   message: r.message || undefined, outcome: r.outcome || undefined,
   promisedPaymentDate: r.promised_payment_date || undefined,
   nextFollowUpAt: r.next_follow_up_at || undefined, performedAt: r.performed_at,
+});
+
+const dbToReserveCategory = (r: any): ReserveCategory => ({
+  id: r.id, organizationId: r.organization_id, name: r.name,
+  categoryType: r.category_type, isSystem: r.is_system, isActive: r.is_active,
+});
+
+const dbToReserve = (r: any): FinancialReserve => ({
+  id: r.id, organizationId: r.organization_id, categoryId: r.category_id, name: r.name,
+  description: r.description || undefined, reserveType: r.reserve_type,
+  accountId: r.account_id || undefined, obligationId: r.obligation_id || undefined,
+  targetAmount: r.target_amount != null ? Number(r.target_amount) : undefined,
+  reservedAmount: Number(r.reserved_amount),
+  startDate: r.start_date, targetDate: r.target_date || undefined,
+  status: r.status, priority: r.priority,
+  releasedAt: r.released_at || undefined, releaseReason: r.release_reason || undefined,
+});
+
+const dbToReserveMovement = (r: any): ReserveMovement => ({
+  id: r.id, reserveId: r.reserve_id, movementType: r.movement_type,
+  amount: Number(r.amount), reason: r.reason || undefined,
+  settlementId: r.settlement_id || undefined, createdAt: r.created_at,
+});
+
+const dbToFinSettings = (r: any): FinancialSettings => ({
+  horizonDays: r.default_commitment_horizon_days,
+  includeOverduePayables: r.include_overdue_payables,
+  includeApprovedRequisitions: r.include_approved_requisitions,
+  includeArchivedAccounts: r.include_archived_accounts,
+  minimumCashBuffer: Number(r.minimum_cash_buffer),
+});
+
+const dbToTrueAvailable = (r: any): TrueAvailableCash => ({
+  currentCashBalance: Number(r.current_cash_balance),
+  activeReservesTotal: Number(r.active_reserves_total),
+  minimumCashBuffer: Number(r.minimum_cash_buffer),
+  overduePayablesTotal: Number(r.overdue_payables_total),
+  upcomingPayablesTotal: Number(r.upcoming_payables_total),
+  approvedRequisitionsTotal: Number(r.approved_requisitions_total),
+  coveredObligationsTotal: Number(r.covered_obligations_total),
+  uncoveredCommitmentsTotal: Number(r.uncovered_commitments_total),
+  trueAvailableCash: Number(r.true_available_cash),
+  calculationDate: r.calculation_date, horizonDays: r.horizon_days,
+  horizonEndDate: r.horizon_end_date, safetyState: r.safety_state,
+  breakdown: r.breakdown || { accounts: [], reserves: [], obligations: [], requisitions: [] },
 });
 
 const dbToContact = (r: any): Contact => ({
@@ -271,6 +326,11 @@ const defaultProfile: UserProfile = {
   lastActive: new Date().toISOString().slice(0, 10),
 };
 
+const defaultFinSettings: FinancialSettings = {
+  horizonDays: 7, includeOverduePayables: true, includeApprovedRequisitions: true,
+  includeArchivedAccounts: false, minimumCashBuffer: 0,
+};
+
 // ---- Provider ----
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -286,6 +346,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [rawObligations, setRawObligations] = useState<Obligation[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [collectionInteractions, setCollectionInteractions] = useState<CollectionInteraction[]>([]);
+  const [reserves, setReserves] = useState<FinancialReserve[]>([]);
+  const [reserveCategories, setReserveCategories] = useState<ReserveCategory[]>([]);
+  const [reserveMovements, setReserveMovements] = useState<ReserveMovement[]>([]);
+  const [finSettings, setFinSettings] = useState<FinancialSettings>(defaultFinSettings);
+  const [trueAvailable, setTrueAvailable] = useState<TrueAvailableCash | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [badges, setBadges] = useState<Badge[]>(seedBadges);
@@ -333,6 +398,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (data) setJournalEntries(data.map(dbToJournalEntry));
   }, []);
 
+  const refreshAvailable = useCallback(async (horizonDays?: number) => {
+    const supabase = createClient();
+    const id = orgIdRef.current;
+    if (!id) return;
+    const { data, error } = await supabase.rpc("get_true_available_cash", { p_org_id: id, p_horizon_days: horizonDays ?? null });
+    if (!error && data) setTrueAvailable(dbToTrueAvailable(data));
+  }, []);
+
+  const refreshReserves = useCallback(async (oid?: string) => {
+    const supabase = createClient();
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    const [rRes, mRes] = await Promise.all([
+      supabase.from("financial_reserves").select("*").eq("organization_id", id).order("created_at", { ascending: false }),
+      supabase.from("reserve_movements").select("*").eq("organization_id", id).order("created_at", { ascending: false }),
+    ]);
+    if (rRes.data) setReserves(rRes.data.map(dbToReserve));
+    if (mRes.data) setReserveMovements(mRes.data.map(dbToReserveMovement));
+    await refreshAvailable();
+  }, [refreshAvailable]);
+
   const refreshObligations = useCallback(async (oid?: string) => {
     const supabase = createClient();
     const id = oid || orgIdRef.current;
@@ -344,12 +430,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (obRes.data) setRawObligations(obRes.data.map(dbToObligation));
     if (stRes.data) setSettlements(stRes.data.map(dbToSettlement));
     await refreshEntries(id); // pagamentos afetam o livro/saldos
-  }, [refreshEntries]);
+    await refreshReserves(id); // pagamentos podem consumir reservas + recalcular disponível
+  }, [refreshEntries, refreshReserves]);
 
   // ---- Auth & data loading ----
   const loadOrgData = useCallback(async (oid: string) => {
     const supabase = createClient();
-    const [compRes, accRes, entryRes, catRes, conRes, rqRes, obRes, stRes, ciRes] = await Promise.all([
+    const [compRes, accRes, entryRes, catRes, conRes, rqRes, obRes, stRes, ciRes, resRes, rcatRes, rmovRes, fsRes, tacRes] = await Promise.all([
       supabase.from("companies").select("*").eq("organization_id", oid).single(),
       supabase.from("accounts").select("*").eq("organization_id", oid).eq("is_archived", false).order("created_at"),
       supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
@@ -359,6 +446,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       supabase.from("obligation_status").select("*").eq("organization_id", oid).order("due_date"),
       supabase.from("settlements").select("*, settlement_allocations(*)").eq("organization_id", oid).order("payment_date", { ascending: false }),
       supabase.from("collection_interactions").select("*").eq("organization_id", oid).order("performed_at", { ascending: false }),
+      supabase.from("financial_reserves").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
+      supabase.from("reserve_categories").select("*").eq("organization_id", oid).eq("is_active", true).order("name"),
+      supabase.from("reserve_movements").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
+      supabase.from("organization_financial_settings").select("*").eq("organization_id", oid).maybeSingle(),
+      supabase.rpc("get_true_available_cash", { p_org_id: oid, p_horizon_days: null }),
     ]);
     if (compRes.data) setCompany(dbToCompany(compRes.data));
     if (accRes.data) setRawAccounts(accRes.data.map(dbToAccount));
@@ -369,6 +461,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (obRes.data) setRawObligations(obRes.data.map(dbToObligation));
     if (stRes.data) setSettlements(stRes.data.map(dbToSettlement));
     if (ciRes.data) setCollectionInteractions(ciRes.data.map(dbToInteraction));
+    if (resRes.data) setReserves(resRes.data.map(dbToReserve));
+    if (rcatRes.data) setReserveCategories(rcatRes.data.map(dbToReserveCategory));
+    if (rmovRes.data) setReserveMovements(rmovRes.data.map(dbToReserveMovement));
+    setFinSettings(fsRes.data ? dbToFinSettings(fsRes.data) : defaultFinSettings);
+    if (tacRes.data) setTrueAvailable(dbToTrueAvailable(tacRes.data));
   }, []);
 
   useEffect(() => {
@@ -399,6 +496,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setRawAccounts([]); setJournalEntries([]); setCategories([]);
         setContacts([]); setRequisitions([]); setCompany(defaultCompany);
         setRawObligations([]); setSettlements([]); setCollectionInteractions([]);
+        setReserves([]); setReserveCategories([]); setReserveMovements([]);
+        setFinSettings(defaultFinSettings); setTrueAvailable(null);
       }
     });
     return () => subscription.unsubscribe();
@@ -445,13 +544,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       supabase.from("companies").update({ name: companyName }).eq("organization_id", newOrgId),
       supabase.from("profiles").update({ full_name: userName }).eq("id", userIdRef.current!),
       supabase.rpc("seed_default_categories", { p_org_id: newOrgId }),
+      supabase.rpc("seed_reserve_categories", { p_org_id: newOrgId }),
     ]);
     setProfile(p => ({ ...p, name: userName }));
     setOrgId(newOrgId);
     setCompany(prev => ({ ...prev, name: companyName }));
     // Load categories that were just seeded
-    const { data: cats } = await supabase.from("financial_categories").select("*").eq("organization_id", newOrgId).eq("is_active", true).order("name");
+    const [{ data: cats }, { data: rcats }] = await Promise.all([
+      supabase.from("financial_categories").select("*").eq("organization_id", newOrgId).eq("is_active", true).order("name"),
+      supabase.from("reserve_categories").select("*").eq("organization_id", newOrgId).eq("is_active", true).order("name"),
+    ]);
     if (cats) setCategories(cats.map(dbToCategory));
+    if (rcats) setReserveCategories(rcats.map(dbToReserveCategory));
   };
 
   // ---- Company ----
@@ -643,6 +747,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       p_payment_date: d.paymentDate || new Date().toISOString().slice(0, 10),
       p_payment_method: d.paymentMethod || null, p_reference: d.reference || null,
       p_notes: d.notes || null, p_idempotency_key: crypto.randomUUID(),
+      p_reserve_id: d.reserveId || null,
     });
     if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     toast(`Pagamento ${(data as any)?.internal_number || ""} registado`, "ok");
@@ -693,6 +798,62 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     if (data) setCollectionInteractions(prev => [dbToInteraction(data), ...prev]);
     toast("Cobrança registada", "ok");
+    return null;
+  };
+
+  // ---- Reservas / Disponível de verdade (Fase 4) ----
+  const createReserve: Store["createReserve"] = async (d) => {
+    const { error } = await sb().rpc("create_reserve", {
+      p_org_id: orgIdRef.current!, p_category_id: d.categoryId, p_name: d.name, p_amount: d.amount,
+      p_reserve_type: d.reserveType || "general",
+      p_account_id: d.accountId || null, p_obligation_id: d.obligationId || null,
+      p_target_amount: d.targetAmount || null, p_target_date: d.targetDate || null,
+      p_priority: d.priority || "normal", p_description: d.description || null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Reserva criada", "ok");
+    gainXp(20, "Reserva criada");
+    await refreshReserves();
+    return null;
+  };
+
+  const increaseReserve: Store["increaseReserve"] = async (reserveId, amount, reason) => {
+    const { error } = await sb().rpc("increase_reserve", { p_reserve_id: reserveId, p_amount: amount, p_reason: reason || null });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Reserva reforçada", "ok");
+    await refreshReserves();
+    return null;
+  };
+
+  const releaseReserve: Store["releaseReserve"] = async (reserveId, amount, reason) => {
+    const { error } = await sb().rpc("release_reserve", { p_reserve_id: reserveId, p_amount: amount, p_reason: reason });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Reserva libertada", "ok");
+    await refreshReserves();
+    return null;
+  };
+
+  const cancelReserve: Store["cancelReserve"] = async (reserveId, reason) => {
+    const { error } = await sb().rpc("cancel_reserve", { p_reserve_id: reserveId, p_reason: reason });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Reserva cancelada", "ok");
+    await refreshReserves();
+    return null;
+  };
+
+  const updateFinSettings: Store["updateFinSettings"] = async (p) => {
+    const { error } = await sb().rpc("update_financial_settings", {
+      p_org_id: orgIdRef.current!,
+      p_horizon_days: p.horizonDays ?? null,
+      p_include_overdue: p.includeOverduePayables ?? null,
+      p_include_requisitions: p.includeApprovedRequisitions ?? null,
+      p_include_archived: p.includeArchivedAccounts ?? null,
+      p_minimum_cash_buffer: p.minimumCashBuffer ?? null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    setFinSettings(prev => ({ ...prev, ...p }));
+    toast("Configurações atualizadas", "ok");
+    await refreshAvailable();
     return null;
   };
 
@@ -853,6 +1014,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       journalEntries, categories,
       obligations, settlements, collectionInteractions,
       createObligation, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
+      reserves, reserveCategories, reserveMovements, finSettings, trueAvailable,
+      refreshAvailable, createReserve, increaseReserve, releaseReserve, cancelReserve, updateFinSettings,
       updateCompany, addAccount, editAccount, deleteAccount,
       addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
       addContact, editContact, removeContact,

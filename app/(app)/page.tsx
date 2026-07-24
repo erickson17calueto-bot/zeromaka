@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, daysUntil, Obligation } from "@/lib/data";
 import { Landmark, Smartphone, Banknote, TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, BellRing, Receipt, Scale, ArrowDownLeft, ArrowUpRight, HandCoins } from "lucide-react";
+import TrueAvailableBlock from "@/components/TrueAvailableBlock";
 
 const ACC_STYLE = {
   bank: { icon: Landmark, bg: "bg-maka-500/10 border-maka-500/30", tint: "text-maka-400", label: "Conta bancária" },
@@ -76,6 +77,8 @@ export default function Dashboard() {
         </div>
         <Link href="/transacoes" className="btn-primary">Novo lançamento <ArrowRight size={15} /></Link>
       </header>
+
+      <TrueAvailableBlock />
 
       {liquidityRisk && (
         <div className="card border-red-500/40 bg-red-500/5 p-4 flex gap-3 items-start">

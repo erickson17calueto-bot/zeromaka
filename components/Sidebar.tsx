@@ -5,7 +5,7 @@ import { useStore } from "@/lib/store";
 import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
-  Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins, Receipt
+  Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins, Receipt, PiggyBank
 } from "lucide-react";
 
 const SECTIONS = [
@@ -15,7 +15,8 @@ const SECTIONS = [
     { href: "/transacoes", label: "Transações", icon: ArrowLeftRight },
     { href: "/faturas", label: "A receber", icon: FileText, badge: "overdue" },
     { href: "/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
-    { href: "/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" }
+    { href: "/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" },
+    { href: "/reservas", label: "Reservas", icon: PiggyBank }
   ]},
   { title: "Operações", items: [
     { href: "/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
