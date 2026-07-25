@@ -268,7 +268,7 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className={`card w-full p-6 max-h-[90vh] overflow-y-auto ${wide ? "max-w-2xl" : "max-w-md"}`}>
-        <div className="flex items-center justify-between mb-5"><h3 className="font-display text-lg">{title}</h3><button onClick={onClose} className="text-ink-400 hover:text-white"><X size={18} /></button></div>
+        <div className="flex items-center justify-between mb-5"><h3 className="font-display text-lg">{title}</h3><button onClick={onClose} className="text-ink-400 hover:text-ink-100"><X size={18} /></button></div>
         {children}
       </div>
     </div>

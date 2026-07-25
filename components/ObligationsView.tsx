@@ -186,7 +186,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-display text-lg">{isRec ? "Nova conta a receber" : "Nova conta a pagar"}</h3>
-              <button onClick={() => setShowNew(false)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShowNew(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               <div>
@@ -242,7 +242,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
           <div className="card max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-display text-lg">Registar {isRec ? "recebimento" : "pagamento"}</h3>
-              <button onClick={() => setPayFor(null)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setPayFor(null)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <p className="text-sm text-ink-300 mb-1">{contactName(payFor.contactId)} · <span className="text-ink-500">{payFor.internalNumber}</span></p>
             <p className="text-sm text-ink-300 mb-4">Saldo pendente: <span className="font-semibold">{fmtKz(payFor.outstandingAmount)}</span></p>

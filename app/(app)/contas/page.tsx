@@ -176,7 +176,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       <div className="card max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-display text-lg">{title}</h3>
-          <button onClick={onClose} className="text-ink-400 hover:text-white"><X size={18} /></button>
+          <button onClick={onClose} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
         </div>
         {children}
       </div>

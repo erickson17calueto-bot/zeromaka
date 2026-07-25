@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
   Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins, Receipt, PiggyBank
 } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const SECTIONS = [
   { title: "Finanças", items: [
@@ -45,7 +46,7 @@ export default function Sidebar() {
   return (
     <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-ink-800 bg-ink-950 p-4 sticky top-0 h-screen overflow-y-auto">
       <div className="flex items-center gap-2 px-2 pb-4">
-        <div className="h-9 w-9 rounded-lg bg-maka-500 flex items-center justify-center font-display text-ink-950 text-lg">Z</div>
+        <div className="h-9 w-9 rounded-lg bg-maka-500 flex items-center justify-center font-display text-onbrand text-lg">Z</div>
         <div>
           <div className="font-display text-lg leading-none tracking-tight">ZERO<span className="text-maka-500">MAKA</span></div>
           <div className="text-[10px] text-ink-500 tracking-widest uppercase">Sem maka, só lucro</div>
@@ -79,7 +80,7 @@ export default function Sidebar() {
                 const bv = badgeVal(badge);
                 return (
                   <Link key={href} href={href}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${active ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-white"}`}>
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${active ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-ink-100"}`}>
                     <Icon size={17} />
                     <span className="flex-1">{label}</span>
                     {bv > 0 && <span className="rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5">{bv}</span>}
@@ -92,13 +93,14 @@ export default function Sidebar() {
       </nav>
 
       <div className="mt-4 pt-3 border-t border-ink-800 space-y-0.5">
-        <Link href="/empresa" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${path === "/empresa" ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-white"}`}>
+        <div className="px-1 pb-2"><ThemeToggle /></div>
+        <Link href="/empresa" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${path === "/empresa" ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-ink-100"}`}>
           <Building2 size={17} /> Empresa
         </Link>
-        <Link href="/perfil" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${path === "/perfil" ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-white"}`}>
+        <Link href="/perfil" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${path === "/perfil" ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-ink-100"}`}>
           <UserCircle size={17} /> Meu perfil
         </Link>
-        <button onClick={async () => { await logout(); router.push("/login"); router.refresh(); }} className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-400 hover:bg-ink-900 hover:text-white transition-colors">
+        <button onClick={async () => { await logout(); router.push("/login"); router.refresh(); }} className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-400 hover:bg-ink-900 hover:text-ink-100 transition-colors">
           <LogOut size={17} /> Sair
         </button>
       </div>

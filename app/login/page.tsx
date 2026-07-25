@@ -60,15 +60,15 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-between bg-maka-600 p-12 text-ink-950">
-        <div className="font-display text-2xl">ZERO<span className="text-ink-950/60">MAKA</span></div>
+      <div className="hidden lg:flex flex-col justify-between bg-maka-600 p-12 text-onbrand">
+        <div className="font-display text-2xl">ZERO<span className="text-onbrand/60">MAKA</span></div>
         <div>
           <h1 className="font-display text-4xl leading-tight">Gestão financeira<br />sem maka.</h1>
-          <p className="mt-4 max-w-md text-ink-950/80 font-medium">
+          <p className="mt-4 max-w-md text-onbrand/80 font-medium">
             Contas, faturas e caixa do teu negócio — tudo em Kwanzas, feito para a realidade angolana. BAI, Unitel Money, caixa físico: o teu dinheiro todo num só lugar.
           </p>
         </div>
-        <div className="text-[12px] text-ink-950/60 font-medium">© 2026 ZeroMaka · Luanda, Angola</div>
+        <div className="text-[12px] text-onbrand/60 font-medium">© 2026 ZeroMaka · Luanda, Angola</div>
       </div>
 
       <div className="flex items-center justify-center p-6">

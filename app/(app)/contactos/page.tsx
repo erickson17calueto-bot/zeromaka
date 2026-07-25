@@ -97,7 +97,7 @@ export default function ContactosPage() {
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-display text-lg">{editing ? "Editar" : "Novo"} {tab}</h3>
-              <button onClick={() => setShow(false)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShow(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               <div>

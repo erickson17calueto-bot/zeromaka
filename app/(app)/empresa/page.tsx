@@ -83,7 +83,7 @@ export default function EmpresaPage() {
               <button key={r} onClick={() => setRegime(r)} className={`w-full text-left rounded-lg border p-3 transition-colors ${regime === r ? "border-maka-500 bg-maka-500/10" : "border-ink-700 hover:border-ink-500"}`}>
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-sm">{REGIMES[r].label}</span>
-                  <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${regime === r ? "bg-maka-500 text-ink-950" : "bg-ink-800 text-ink-300"}`}>{REGIMES[r].tax}</span>
+                  <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${regime === r ? "bg-maka-500 text-onbrand" : "bg-ink-800 text-ink-300"}`}>{REGIMES[r].tax}</span>
                 </div>
               </button>
             ))}

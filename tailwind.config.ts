@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
@@ -10,9 +11,12 @@ const config: Config = {
           800: "#9a3412", 900: "#7c2d12"
         },
         ink: {
-          950: "#0c0a09", 900: "#1c1917", 800: "#292524", 700: "#44403c",
-          600: "#57534e", 500: "#78716c", 400: "#a8a29e", 300: "#d6d3d1"
-        }
+          950: "var(--ink-950)", 900: "var(--ink-900)", 800: "var(--ink-800)", 700: "var(--ink-700)",
+          600: "var(--ink-600)", 500: "var(--ink-500)", 400: "var(--ink-400)", 300: "var(--ink-300)",
+          200: "var(--ink-200)", 100: "var(--ink-100)"
+        },
+        // Texto/ícone sobre o laranja da marca — fixo escuro nos dois temas (não inverte).
+        onbrand: "#1c1917"
       },
       fontFamily: {
         display: ["Archivo Black", "Arial Black", "sans-serif"],

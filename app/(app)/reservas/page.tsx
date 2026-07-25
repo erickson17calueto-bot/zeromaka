@@ -160,7 +160,7 @@ export default function ReservasPage() {
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-display text-lg">Nova reserva</h3>
-              <button onClick={() => setShow(false)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShow(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               <div><label className="label">Nome</label><input className="input" placeholder="Ex.: Salários de julho" value={name} onChange={e => setName(e.target.value)} /></div>

@@ -2,15 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-body { background: #0c0a09; color: #fafaf9; }
+/* Paleta neutra por variáveis — permite modo claro/escuro sem reescrever componentes.
+   O laranja da marca (maka) é fixo. A escala "ink" inverte o significado entre temas:
+   ink-950 = fundo da página, ink-100 = texto mais forte. */
+:root {
+  color-scheme: dark;
+  --ink-950: #0c0a09; --ink-900: #1c1917; --ink-800: #292524; --ink-700: #44403c;
+  --ink-600: #57534e; --ink-500: #78716c; --ink-400: #a8a29e; --ink-300: #d6d3d1;
+  --ink-200: #e7e5e4; --ink-100: #f5f5f4;
+  --scroll: #44403c;
+}
+:root.light {
+  color-scheme: light;
+  --ink-950: #f7f6f4; --ink-900: #ffffff; --ink-800: #e7e5e4; --ink-700: #d6d3d1;
+  --ink-600: #a8a29e; --ink-500: #78716c; --ink-400: #57534e; --ink-300: #292524;
+  --ink-200: #1c1917; --ink-100: #0c0a09;
+  --scroll: #d6d3d1;
+}
+
+body { background: var(--ink-950); color: var(--ink-100); }
 
 ::-webkit-scrollbar { height: 6px; width: 6px; }
-::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
 
 .card { @apply bg-ink-900 border border-ink-800 rounded-xl; }
 .btn { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors; }
-.btn-primary { @apply btn bg-maka-500 text-ink-950 hover:bg-maka-400; }
-.btn-ghost { @apply btn border border-ink-700 text-ink-300 hover:bg-ink-800 hover:text-white; }
+/* texto sobre laranja fixo escuro em ambos os temas (bom contraste no laranja) */
+.btn-primary { @apply btn bg-maka-500 hover:bg-maka-400; color: #1c1917; }
+.btn-ghost { @apply btn border border-ink-700 text-ink-300 hover:bg-ink-800 hover:text-ink-100; }
 .input { @apply w-full rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-sm outline-none focus:border-maka-500 transition-colors placeholder:text-ink-500; }
 .label { @apply block text-[11px] font-bold uppercase tracking-wider text-ink-400 mb-1.5; }

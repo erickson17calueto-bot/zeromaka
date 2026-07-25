@@ -152,7 +152,7 @@ export default function CobrancasPage() {
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-display text-lg">Registar cobrança</h3>
-              <button onClick={() => setLogFor(null)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setLogFor(null)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <p className="text-sm text-ink-300 mb-4">{contact(logFor.contactId)?.name} · {logFor.internalNumber} · saldo {fmtKz(logFor.outstandingAmount)}</p>
             <div className="space-y-4">

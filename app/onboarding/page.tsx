@@ -62,7 +62,7 @@ export default function OnboardingPage() {
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         <button type="submit" disabled={loading}
-          className="w-full rounded-lg bg-maka-500 hover:bg-maka-600 disabled:opacity-50 text-white font-medium py-2.5 text-sm transition-colors">
+          className="w-full rounded-lg bg-maka-500 hover:bg-maka-600 disabled:opacity-50 text-onbrand font-medium py-2.5 text-sm transition-colors">
           {loading ? "A criar…" : "Criar organização"}
         </button>
       </form>

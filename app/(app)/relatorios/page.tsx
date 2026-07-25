@@ -137,8 +137,8 @@ export default function RelatoriosPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 rounded-lg border border-ink-700 p-1">
-            <button onClick={() => setPeriod("month")} className={`px-3 py-1 text-[12px] rounded ${period === "month" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Este mês</button>
-            <button onClick={() => setPeriod("all")} className={`px-3 py-1 text-[12px] rounded ${period === "all" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Acumulado</button>
+            <button onClick={() => setPeriod("month")} className={`px-3 py-1 text-[12px] rounded ${period === "month" ? "bg-maka-500 text-onbrand font-semibold" : "text-ink-400"}`}>Este mês</button>
+            <button onClick={() => setPeriod("all")} className={`px-3 py-1 text-[12px] rounded ${period === "all" ? "bg-maka-500 text-onbrand font-semibold" : "text-ink-400"}`}>Acumulado</button>
           </div>
           {TAB_REPORT[tab] && period === "month" && (
             <select value={cmp} onChange={(e) => setCmp(e.target.value as Cmp)} className="input text-[12px] py-1.5 w-auto">

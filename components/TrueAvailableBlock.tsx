@@ -91,7 +91,7 @@ export default function TrueAvailableBlock() {
           <div className="card max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-display text-lg">Como chegámos a este valor</h3>
-              <button onClick={() => setShowCalc(false)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShowCalc(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-1.5 text-sm">
               {rows.map(([label, val, neg]) => (
@@ -145,7 +145,7 @@ export default function TrueAvailableBlock() {
           <div className="card max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-display text-lg">Simular decisão</h3>
-              <button onClick={() => setShowSim(false)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShowSim(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <p className="text-[11px] text-ink-500 mb-4">Simulação instantânea — não cria movimentos nem altera dados.</p>
             <div className="space-y-4">

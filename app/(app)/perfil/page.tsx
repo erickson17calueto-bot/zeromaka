@@ -38,7 +38,7 @@ export default function PerfilPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-start">
         <div className="card p-6 md:col-span-2 md:sticky md:top-6 text-center">
-          <div className="h-20 w-20 mx-auto rounded-full bg-maka-500 flex items-center justify-center font-display text-2xl text-ink-950">{initials}</div>
+          <div className="h-20 w-20 mx-auto rounded-full bg-maka-500 flex items-center justify-center font-display text-2xl text-onbrand">{initials}</div>
           <div className="mt-3 font-display text-lg">{name}</div>
           <div className="text-[12px] text-ink-400">{email}</div>
           <div className="mt-3 inline-flex rounded-full bg-maka-500/15 border border-maka-500/40 text-maka-300 text-[11px] font-bold uppercase tracking-wider px-3 py-1">Plano {profile.plan}</div>

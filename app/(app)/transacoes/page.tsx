@@ -165,7 +165,7 @@ export default function TransacoesPage() {
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-display text-lg">Novo lançamento</h3>
-              <button onClick={() => setShow(false)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShow(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-2">
@@ -203,9 +203,9 @@ export default function TransacoesPage() {
           <div className="card max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-display text-lg text-red-400">Reverter movimento</h3>
-              <button onClick={() => setShowReverse(null)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShowReverse(null)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
-            <p className="text-sm text-ink-300 mb-2">Reverter <span className="font-semibold text-white">{showReverse.entryNumber}</span> — {showReverse.description}</p>
+            <p className="text-sm text-ink-300 mb-2">Reverter <span className="font-semibold text-ink-100">{showReverse.entryNumber}</span> — {showReverse.description}</p>
             <p className="text-sm text-ink-300 mb-4">Valor: <span className="font-semibold">{fmtKz(entryAmount(showReverse))}</span></p>
             <p className="text-[11px] text-ink-500 mb-3">O lançamento original fica no histórico como revertido. Será criado um contra-lançamento para anular o efeito.</p>
             <div className="mb-4"><label className="label">Motivo da reversão</label><input className="input" placeholder="Ex.: Erro no valor, duplicado..." value={reverseReason} onChange={e => setReverseReason(e.target.value)} /></div>

@@ -184,7 +184,7 @@ export default function Dashboard() {
           <div className="card max-w-md w-full p-6 border-maka-500/40">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3"><div className="h-10 w-10 rounded-full bg-maka-500/15 flex items-center justify-center text-maka-400"><BellRing size={19} /></div><h3 className="font-display text-lg">Vencimentos próximos</h3></div>
-              <button onClick={() => setShowAlert(false)} className="text-ink-400 hover:text-white"><X size={18} /></button>
+              <button onClick={() => setShowAlert(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <p className="text-sm text-ink-300 mt-3">Tens {dueSoon.length} documento{dueSoon.length !== 1 ? "s" : ""} a vencer nos próximos 3 dias:</p>
             <div className="mt-3 space-y-2">
