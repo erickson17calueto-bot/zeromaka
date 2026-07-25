@@ -2,14 +2,48 @@
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { fmtKz, REGIMES } from "@/lib/data";
-import { FileBarChart, TrendingUp, Scale, Receipt } from "lucide-react";
+import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2 } from "lucide-react";
 
 type Tab = "dre" | "dfc" | "impostos" | "balanco";
 
+const TAB_REPORT: Record<Tab, string | null> = {
+  dre: "income_statement", dfc: "cash_flow_statement", impostos: "tax_control", balanco: null,
+};
+
 export default function RelatoriosPage() {
-  const { transactions, obligations, accounts, company } = useStore();
+  const { transactions, obligations, accounts, company, orgId } = useStore();
   const [tab, setTab] = useState<Tab>("dre");
   const [period, setPeriod] = useState<"month" | "all">("month");
+  const [exporting, setExporting] = useState(false);
+
+  const periodDates = () => {
+    if (period === "all") return { start: "2000-01-01", end: new Date().toISOString().slice(0, 10) };
+    const y = now.getFullYear(), m = now.getMonth();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const last = new Date(y, m + 1, 0).getDate();
+    return { start: `${y}-${pad(m + 1)}-01`, end: `${y}-${pad(m + 1)}-${pad(last)}` };
+  };
+
+  const exportPdf = async () => {
+    const reportType = TAB_REPORT[tab];
+    if (!reportType || !orgId) return;
+    setExporting(true);
+    try {
+      const { start, end } = periodDates();
+      const res = await fetch("/api/reports/export/pdf", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportType, organizationId: orgId, startDate: start, endDate: end }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert("Erro na exportação: " + (e.error || res.status)); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const cd = res.headers.get("Content-Disposition") || "";
+      const name = /filename="([^"]+)"/.exec(cd)?.[1] || "relatorio.pdf";
+      const a = document.createElement("a");
+      a.href = url; a.download = name; document.body.appendChild(a); a.click();
+      a.remove(); URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
 
   const now = new Date();
   const inPeriod = (iso: string) => {
@@ -74,9 +108,16 @@ export default function RelatoriosPage() {
           <h1 className="font-display text-2xl md:text-3xl tracking-tight">Relatórios</h1>
           <p className="text-sm text-ink-400 mt-1">{company.name} · {REGIMES[company.regime].short}</p>
         </div>
-        <div className="flex gap-1 rounded-lg border border-ink-700 p-1">
-          <button onClick={() => setPeriod("month")} className={`px-3 py-1 text-[12px] rounded ${period === "month" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Este mês</button>
-          <button onClick={() => setPeriod("all")} className={`px-3 py-1 text-[12px] rounded ${period === "all" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Acumulado</button>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 rounded-lg border border-ink-700 p-1">
+            <button onClick={() => setPeriod("month")} className={`px-3 py-1 text-[12px] rounded ${period === "month" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Este mês</button>
+            <button onClick={() => setPeriod("all")} className={`px-3 py-1 text-[12px] rounded ${period === "all" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Acumulado</button>
+          </div>
+          {TAB_REPORT[tab] && (
+            <button onClick={exportPdf} disabled={exporting} className="btn-ghost text-sm px-3 py-1.5 disabled:opacity-50" title="Exportar PDF (calculado no servidor)">
+              {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} PDF
+            </button>
+          )}
         </div>
       </header>
 
