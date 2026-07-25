@@ -12,7 +12,9 @@ const TAB_REPORT: Record<Tab, keyof typeof REPORT_RPC | null> = {
   dre: "income_statement", dfc: "cash_flow_statement", impostos: "tax_control", balanco: null,
 };
 const pad = (n: number) => String(n).padStart(2, "0");
-const money = (v: number) => (v === 0 ? "—" : fmtKz(v));
+// Demonstração formal: linhas presentes mostram sempre o valor (incl. 0 Kz).
+// Só as células de comparação genuinamente inexistentes (null) ficam com "—".
+const money = (v: number) => fmtKz(v);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function RelatoriosPage() {
