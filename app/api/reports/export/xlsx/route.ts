@@ -1,0 +1,86 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+import { NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { buildWorkbook } from "@/lib/reports/excel/ReportWorkbook";
+import { REPORT_RPC, REPORT_LABEL, isReportType, ReportResult } from "@/lib/reports/types";
+import { exportFileName } from "@/lib/reports/format";
+import { REGIMES, TaxRegime } from "@/lib/data";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function bad(status: number, message: string) {
+  return new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } });
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return bad(401, "Não autenticado");
+
+  let body: Record<string, unknown>;
+  try { body = await req.json(); } catch { return bad(400, "Corpo inválido"); }
+
+  const reportType = body.reportType;
+  const organizationId = String(body.organizationId || "");
+  const startDate = String(body.startDate || "");
+  const endDate = String(body.endDate || "");
+  const includeReversed = body.includeReversed === true;
+
+  if (!isReportType(reportType)) return bad(400, "Tipo de relatório desconhecido");
+  if (!UUID_RE.test(organizationId)) return bad(400, "Organização inválida");
+  if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return bad(400, "Datas inválidas");
+  if (startDate > endDate) return bad(400, "Intervalo de datas invertido");
+
+  const rpcArgs: Record<string, unknown> =
+    reportType === "income_statement"
+      ? { p_org_id: organizationId, p_start: startDate, p_end: endDate, p_include_reversed: includeReversed }
+      : { p_org_id: organizationId, p_start: startDate, p_end: endDate };
+
+  const { data: report, error } = await supabase.rpc(REPORT_RPC[reportType], rpcArgs);
+  if (error) {
+    const denied = /permiss|acesso|autenticado/i.test(error.message);
+    return bad(denied ? 403 : 400, denied ? "Sem acesso a esta organização" : "Falha ao calcular o relatório");
+  }
+  const result = report as ReportResult;
+
+  const { data: company } = await supabase
+    .from("companies").select("name, nif, regime").eq("organization_id", organizationId).single();
+
+  const { count } = await supabase
+    .from("report_exports").select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId).eq("report_type", reportType);
+  const version = (count || 0) + 1;
+
+  const { data: logRow } = await supabase
+    .from("report_exports")
+    .insert({
+      organization_id: organizationId, report_type: reportType, format: "xlsx",
+      filters_json: { startDate, endDate, includeReversed }, version,
+    })
+    .select("id").single();
+  const exportId = logRow?.id || "00000000";
+
+  const regimeLabel = company?.regime ? REGIMES[company.regime as TaxRegime]?.short : undefined;
+  const buffer = await buildWorkbook(result, {
+    companyName: company?.name || "Empresa",
+    companyNif: company?.nif || undefined,
+    regimeLabel,
+    generatedByEmail: user.email || "—",
+    generatedAt: new Date().toISOString(),
+    exportId, version, startDate, endDate, includeReversed,
+  });
+
+  const filename = exportFileName(company?.name || "empresa", REPORT_LABEL[reportType], startDate, endDate, version, "xlsx");
+  return new Response(new Uint8Array(buffer), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store, private",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
