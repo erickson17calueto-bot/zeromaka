@@ -30,7 +30,7 @@ interface Store {
   releaseReserve: (reserveId: string, amount: number, reason: string) => Promise<string | null>;
   cancelReserve: (reserveId: string, reason: string) => Promise<string | null>;
   updateFinSettings: (p: Partial<FinancialSettings>) => Promise<string | null>;
-  createObligation: (d: { direction: ObligationDirection; contactId: string; dueDate: string; amount: number; documentKind?: ObligationDocumentKind; externalDocumentNumber?: string; issueDate?: string; description?: string; notes?: string; categoryId?: string }) => Promise<string | null>;
+  createObligation: (d: { direction: ObligationDirection; contactId: string; dueDate: string; amount: number; documentKind?: ObligationDocumentKind; externalDocumentNumber?: string; issueDate?: string; description?: string; notes?: string; categoryId?: string; isSale?: boolean }) => Promise<string | null>;
   postSettlement: (d: { direction: SettlementDirection; contactId: string; accountId: string; allocations: { obligationId: string; amount: number }[]; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string; reserveId?: string }) => Promise<string | null>;
   reverseSettlement: (settlementId: string, reason: string) => Promise<string | null>;
   cancelObligation: (obligationId: string, reason: string) => Promise<string | null>;
@@ -113,6 +113,7 @@ const dbToObligation = (r: any): Obligation => ({
   originalAmount: Number(r.original_amount), currencyCode: r.currency_code,
   description: r.description || undefined, notes: r.notes || undefined,
   lifecycleStatus: r.lifecycle_status, categoryId: r.category_id || undefined,
+  isSale: r.is_sale ?? undefined, taxAmount: r.tax_amount != null ? Number(r.tax_amount) : undefined,
   paidAmount: Number(r.paid_amount), outstandingAmount: Number(r.outstanding_amount),
   daysOverdue: Number(r.days_overdue), financialStatus: r.financial_status,
 });
@@ -731,6 +732,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       p_issue_date: d.issueDate || new Date().toISOString().slice(0, 10),
       p_description: d.description || null, p_notes: d.notes || null,
       p_category_id: d.categoryId || null,
+      p_is_sale: d.isSale ?? null,
     });
     if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     toast(`${d.direction === "receivable" ? "Conta a receber" : "Conta a pagar"} ${(data as any)?.internal_number || ""} criada`, "ok");

@@ -4,6 +4,7 @@ import { useStore } from "@/lib/store";
 import {
   fmtKz, fmtDate, daysUntil, Obligation, ObligationDirection,
   FinancialStatus, FIN_STATUS_LABEL, OBLIGATION_KIND_LABEL, ObligationDocumentKind,
+  taxIncluded, taxRateFor, REGIMES,
 } from "@/lib/data";
 import { Plus, X, RotateCcw, Ban, Wallet } from "lucide-react";
 
@@ -18,7 +19,8 @@ const STATUS_STYLE: Record<FinancialStatus, string> = {
 };
 
 export default function ObligationsView({ direction }: { direction: ObligationDirection }) {
-  const { obligations, contacts, accounts, categories, settlements, reserves, createObligation, postSettlement, reverseSettlement, cancelObligation } = useStore();
+  const { obligations, contacts, accounts, categories, settlements, reserves, company, createObligation, postSettlement, reverseSettlement, cancelObligation } = useStore();
+  const taxRate = taxRateFor(company.regime);
   const reservedFor = (obligationId: string) => reserves
     .filter(r => r.obligationId === obligationId && (r.status === "active" || r.status === "partially_released"))
     .reduce((s, r) => s + r.reservedAmount, 0);
@@ -57,17 +59,19 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
   const [nExtRef, setNExtRef] = useState("");
   const [nDesc, setNDesc] = useState("");
   const [nCat, setNCat] = useState("");
+  const [nIsSale, setNIsSale] = useState(true);
   const openNew = () => {
     setNContact(contactPool[0]?.id ?? ""); setNAmount(""); setNDesc(""); setNExtRef(""); setNCat("");
     setNIssue(new Date().toISOString().slice(0, 10)); setNDue(new Date().toISOString().slice(0, 10));
-    setNKind(isRec ? "invoice_reference" : "supplier_invoice"); setShowNew(true);
+    setNKind(isRec ? "invoice_reference" : "supplier_invoice"); setNIsSale(true); setShowNew(true);
   };
+  const nTaxPreview = isRec && nIsSale && Number(nAmount) > 0 ? taxIncluded(Number(nAmount), taxRate) : 0;
   const submitNew = async () => {
     if (!nContact || !nAmount || !nDue) return;
     const err = await createObligation({
       direction, contactId: nContact, amount: Number(nAmount), dueDate: nDue, issueDate: nIssue,
       documentKind: nKind, externalDocumentNumber: nExtRef || undefined, description: nDesc || undefined,
-      categoryId: nCat || undefined,
+      categoryId: nCat || undefined, isSale: isRec ? nIsSale : false,
     });
     if (!err) setShowNew(false);
   };
@@ -215,6 +219,18 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                 </select>
               </div>
               <div><label className="label">Descrição</label><input className="input" placeholder="opcional" value={nDesc} onChange={e => setNDesc(e.target.value)} /></div>
+              {isRec && (
+                <label className="flex items-start gap-2 text-sm text-ink-300 rounded-lg border border-ink-800 p-3 cursor-pointer">
+                  <input type="checkbox" checked={nIsSale} onChange={e => setNIsSale(e.target.checked)} className="mt-0.5" />
+                  <span>
+                    É uma venda (produto ou serviço) — calcula imposto
+                    <span className="block text-[11px] text-ink-500 mt-0.5">
+                      Regime {REGIMES[company.regime].tax}, por dentro do valor.
+                      {nTaxPreview > 0 ? <> Imposto: <span className="text-yellow-400 font-semibold">{fmtKz(nTaxPreview)}</span> · líquido: {fmtKz(Number(nAmount) - nTaxPreview)}</> : null}
+                    </span>
+                  </span>
+                </label>
+              )}
               <button onClick={submitNew} disabled={!nContact || !nAmount || !nDue} className="btn-primary w-full justify-center disabled:opacity-40">Criar documento</button>
             </div>
           </div>

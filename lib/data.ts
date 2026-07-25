@@ -80,7 +80,7 @@ export interface Obligation {
   documentKind: ObligationDocumentKind; externalDocumentNumber?: string;
   issueDate: string; dueDate: string; originalAmount: number; currencyCode: string;
   description?: string; notes?: string; lifecycleStatus: ObligationLifecycle;
-  categoryId?: string;
+  categoryId?: string; isSale?: boolean; taxAmount?: number;
   paidAmount: number; outstandingAmount: number; daysOverdue: number;
   financialStatus: FinancialStatus;
 }
