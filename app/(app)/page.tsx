@@ -3,13 +3,18 @@ import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, daysUntil, Obligation } from "@/lib/data";
-import { Landmark, Smartphone, Banknote, TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, BellRing, Receipt, Scale, ArrowDownLeft, ArrowUpRight, HandCoins } from "lucide-react";
+import {
+  Landmark, Smartphone, Banknote, TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight,
+  BellRing, Receipt, Scale, ArrowDownLeft, ArrowUpRight, HandCoins, Wallet, PiggyBank, CalendarClock,
+} from "lucide-react";
 import TrueAvailableBlock from "@/components/TrueAvailableBlock";
+import StatCard, { SectionHead } from "@/components/StatCard";
+import GettingStarted from "@/components/GettingStarted";
 
 const ACC_STYLE = {
-  bank: { icon: Landmark, bg: "bg-maka-500/10 border-maka-500/30", tint: "text-maka-400", label: "Conta bancária" },
-  mobile_money: { icon: Smartphone, bg: "bg-emerald-500/10 border-emerald-500/30", tint: "text-emerald-400", label: "Carteira móvel" },
-  cash: { icon: Banknote, bg: "bg-yellow-500/10 border-yellow-500/30", tint: "text-yellow-400", label: "Caixa físico" }
+  bank: { icon: Landmark, tint: "text-maka-400", chip: "bg-maka-500/10", label: "Conta bancária" },
+  mobile_money: { icon: Smartphone, tint: "text-emerald-400", chip: "bg-emerald-500/10", label: "Carteira móvel" },
+  cash: { icon: Banknote, tint: "text-yellow-400", chip: "bg-yellow-500/10", label: "Caixa físico" }
 } as const;
 
 function DirTag({ direction }: { direction: "receivable" | "payable" }) {
@@ -47,7 +52,8 @@ export default function Dashboard() {
   const openPayables = pay.reduce((s, o) => s + o.outstandingAmount, 0);
   const overdueReceivable = rec.filter(isOverdue);
   const overdueReceivableSum = overdueReceivable.reduce((s, o) => s + o.outstandingAmount, 0);
-  const payable7 = pay.filter(o => daysUntil(o.dueDate) <= 7).reduce((s, o) => s + o.outstandingAmount, 0);
+  const payable7List = pay.filter(o => daysUntil(o.dueDate) <= 7);
+  const payable7 = payable7List.reduce((s, o) => s + o.outstandingAmount, 0);
 
   // Pagamentos do mês (liquidações posted)
   const monthSettlements = settlements.filter(s => s.status === "posted" && new Date(s.paymentDate).getMonth() === now.getMonth() && new Date(s.paymentDate).getFullYear() === now.getFullYear());
@@ -60,6 +66,7 @@ export default function Dashboard() {
   const passivo = openPayables + (capIn - capOut) + taxOwed;
   const liquidityRisk = payable7 > totalBalance;
   const liquidoReal = totalBalance - taxOwed;
+  const resultadoMes = income - expense;
 
   const upcoming = useMemo(() => [...open].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 5), [open]);
   const topOverdueClients = useMemo(() => {
@@ -68,8 +75,10 @@ export default function Dashboard() {
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3);
   }, [overdueReceivable]);
 
+  const docs = (n: number) => `${n} documento${n !== 1 ? "s" : ""}`;
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-8">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-2xl md:text-3xl tracking-tight">Bom dia, {profile.name.split(" ")[0]}</h1>
@@ -78,63 +87,125 @@ export default function Dashboard() {
         <Link href="/transacoes" className="btn-primary">Novo lançamento <ArrowRight size={15} /></Link>
       </header>
 
+      <GettingStarted />
+
       <TrueAvailableBlock />
 
       {liquidityRisk && (
         <div className="card border-red-500/40 bg-red-500/5 p-4 flex gap-3 items-start">
           <AlertTriangle className="text-red-400 shrink-0 mt-0.5" size={19} />
           <div className="text-sm">
-            <div className="font-semibold text-red-300">Risco de liquidez</div>
+            <div className="font-semibold text-red-400">Risco de liquidez</div>
             <p className="text-ink-300 mt-0.5">Tens {fmtKz(payable7)} a pagar em 7 dias e {fmtKz(totalBalance)} em caixa. Cobra as {overdueReceivable.length} contas atrasadas ({fmtKz(overdueReceivableSum)}) ou reduz despesas esta semana.</p>
           </div>
         </div>
       )}
 
+      {/* ─────────── Onde está o dinheiro ─────────── */}
       <section>
+        <SectionHead
+          title="Onde está o dinheiro"
+          hint="Saldo de cada conta. É dinheiro que já tens na mão, hoje."
+          action={<Link href="/contas" className="text-xs text-maka-400 hover:underline font-semibold">Gerir contas</Link>}
+        />
         <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
           {accounts.map((a) => {
             const st = ACC_STYLE[a.type]; const Icon = st.icon;
             return (
-              <div key={a.id} className={`card min-w-[210px] border p-4 ${st.bg}`}>
-                <div className={`flex items-center gap-2 text-xs ${st.tint}`}><Icon size={15} /> {st.label}</div>
-                <div className="mt-2 font-semibold text-sm">{a.name}</div>
-                <div className="mt-1 font-display text-lg">{fmtKz(a.currentBalance)}</div>
+              <div key={a.id} className="card min-w-[200px] p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">{st.label}</div>
+                  <div className={`h-7 w-7 rounded-lg flex items-center justify-center ${st.chip} ${st.tint}`}><Icon size={14} /></div>
+                </div>
+                <div className="mt-2 text-sm font-semibold truncate">{a.name}</div>
+                <div className="mt-1 font-display text-xl">{fmtKz(a.currentBalance)}</div>
               </div>
             );
           })}
-          <div className="card min-w-[210px] p-4 border-ink-700">
-            <div className="text-xs text-ink-400">Total geral</div>
-            <div className="mt-2 font-semibold text-sm">Todas as contas</div>
-            <div className="mt-1 font-display text-lg text-maka-400">{fmtKz(totalBalance)}</div>
+          <div className="card min-w-[200px] p-4 border-maka-500/40 bg-maka-500/[0.06]">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-wider text-maka-400 font-bold">Total geral</div>
+              <div className="h-7 w-7 rounded-lg bg-maka-500/15 flex items-center justify-center text-maka-400"><Wallet size={14} /></div>
+            </div>
+            <div className="mt-2 text-sm font-semibold">Todas as contas</div>
+            <div className="mt-1 font-display text-xl text-maka-400">{fmtKz(totalBalance)}</div>
+            <p className="mt-2 text-[11px] leading-snug text-ink-500">Soma de todas as contas. Não inclui o que tens a receber.</p>
           </div>
+          {accounts.length === 0 && (
+            <Link href="/contas" className="card min-w-[200px] p-4 border-dashed flex flex-col items-center justify-center text-center hover:border-maka-500/50 transition-colors">
+              <PiggyBank size={20} className="text-ink-500" />
+              <div className="text-sm font-medium mt-2">Criar a primeira conta</div>
+              <p className="text-[11px] text-ink-500 mt-1">Banco, carteira móvel ou caixa</p>
+            </Link>
+          )}
         </div>
       </section>
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Receitas do mês</div><div className="mt-1.5 font-display text-lg text-emerald-400 flex items-center gap-1.5"><TrendingUp size={16} />{fmtKz(income)}</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Despesas do mês</div><div className="mt-1.5 font-display text-lg text-red-400 flex items-center gap-1.5"><TrendingDown size={16} />{fmtKz(expense)}</div></div>
-        <div className="card p-4 border-yellow-500/30"><div className="text-[11px] uppercase tracking-wider text-yellow-500/80 font-bold flex items-center gap-1"><Receipt size={12} /> Imposto do Estado</div><div className="mt-1.5 font-display text-lg text-yellow-400">{fmtKz(taxOwed)}</div><div className="text-[10px] text-ink-500 mt-0.5">Contido nas vendas — não é teu</div></div>
-        <div className="card p-4 border-maka-500/30"><div className="text-[11px] uppercase tracking-wider text-maka-400/90 font-bold">Líquido real teu</div><div className="mt-1.5 font-display text-lg text-maka-400">{fmtKz(liquidoReal)}</div><div className="text-[10px] text-ink-500 mt-0.5">Caixa − imposto</div></div>
+      {/* ─────────── Movimento do mês ─────────── */}
+      <section>
+        <SectionHead
+          title="Movimento deste mês"
+          hint="Dinheiro que entrou e saiu desde o dia 1 do mês corrente."
+          action={<Link href="/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver lançamentos</Link>}
+        />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard label="Receitas do mês" value={fmtKz(income)} tone="pos" icon={TrendingUp}
+            hint="Tudo o que entrou este mês: vendas e outras entradas de dinheiro." />
+          <StatCard label="Despesas do mês" value={fmtKz(expense)} tone="neg" icon={TrendingDown}
+            hint="Tudo o que saiu este mês: compras, salários, rendas e outros gastos." />
+          <StatCard label="Resultado do mês" value={fmtKz(resultadoMes)} tone={resultadoMes >= 0 ? "pos" : "neg"} icon={Scale}
+            hint="Receitas menos despesas. Positivo significa que o mês está a dar lucro em caixa." />
+          <StatCard label="Recebido de clientes" value={fmtKz(receivedMonth)} tone="pos" icon={HandCoins}
+            hint="Faturas que clientes pagaram este mês. Este dinheiro já entrou nas tuas contas." />
+        </div>
       </section>
 
-      {/* Contas a receber / pagar — separadas do saldo disponível */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Link href="/faturas" className="card p-4 hover:border-ink-600 transition-colors"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold flex items-center gap-1"><ArrowDownLeft size={12} /> A receber</div><div className="mt-1.5 font-display text-lg text-emerald-400">{fmtKz(openReceivables)}</div></Link>
-        <Link href="/cobrancas" className="card p-4 hover:border-ink-600 transition-colors"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold flex items-center gap-1"><HandCoins size={12} /> Vencido a receber</div><div className="mt-1.5 font-display text-lg text-red-400">{fmtKz(overdueReceivableSum)}</div></Link>
-        <Link href="/contas-a-pagar" className="card p-4 hover:border-ink-600 transition-colors"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold flex items-center gap-1"><ArrowUpRight size={12} /> A pagar</div><div className="mt-1.5 font-display text-lg">{fmtKz(openPayables)}</div></Link>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">A pagar em 7 dias</div><div className="mt-1.5 font-display text-lg text-amber-400">{fmtKz(payable7)}</div></div>
+      {/* ─────────── A receber e a pagar ─────────── */}
+      <section>
+        <SectionHead
+          title="A receber e a pagar"
+          hint="Dinheiro que ainda não está na tua conta — promessas de entrada e de saída. Nunca é somado ao saldo."
+        />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard label="Total a receber" value={fmtKz(openReceivables)} tone="pos" icon={ArrowDownLeft} href="/faturas"
+            footer={docs(rec.length)}
+            hint="Tudo o que os clientes ainda te devem, esteja ou não vencido. Ainda NÃO é dinheiro teu — só conta quando pagarem." />
+          <StatCard label="Vencido a receber" value={fmtKz(overdueReceivableSum)} tone="neg" icon={HandCoins} href="/cobrancas"
+            footer={docs(overdueReceivable.length)}
+            hint="A parte do 'Total a receber' que já passou da data combinada. É aqui que deves cobrar primeiro." />
+          <StatCard label="Total a pagar" value={fmtKz(openPayables)} tone="neutral" icon={ArrowUpRight} href="/contas-a-pagar"
+            footer={docs(pay.length)}
+            hint="Tudo o que ainda deves a fornecedores, esteja ou não vencido." />
+          <StatCard label="A pagar em 7 dias" value={fmtKz(payable7)} tone="warn" icon={CalendarClock}
+            footer={docs(payable7List.length)}
+            hint="Do total a pagar, o que vence nesta semana. Compara com o teu saldo para não ficares apertado." />
+        </div>
       </section>
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Recebido no mês</div><div className="mt-1.5 font-display text-lg text-emerald-400">{fmtKz(receivedMonth)}</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Pago no mês</div><div className="mt-1.5 font-display text-lg text-red-400">{fmtKz(paidMonth)}</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold flex items-center gap-1"><Scale size={12} /> Ativo</div><div className="mt-1.5 font-display text-lg text-emerald-400">{fmtKz(ativo)}</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Passivo</div><div className="mt-1.5 font-display text-lg text-red-400">{fmtKz(passivo)}</div></div>
+      {/* ─────────── Imposto e posição ─────────── */}
+      <section>
+        <SectionHead
+          title="Imposto e posição do negócio"
+          hint="Quanto do teu caixa é realmente teu, e como está o balanço geral."
+          action={<Link href="/relatorios" className="text-xs text-maka-400 hover:underline font-semibold">Ver relatórios</Link>}
+        />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard label="Imposto do Estado" value={fmtKz(taxOwed)} tone="warn" icon={Receipt}
+            hint="Imposto já incluído no preço das tuas vendas. Este dinheiro NÃO é teu — guarda-o para entregar ao Estado." />
+          <StatCard label="Líquido real teu" value={fmtKz(liquidoReal)} tone="brand" icon={Wallet}
+            hint="O saldo das contas menos o imposto a entregar. É o que sobra mesmo para o negócio." />
+          <StatCard label="Ativo" value={fmtKz(ativo)} tone="pos" icon={Scale}
+            hint="O que o negócio tem: dinheiro em caixa mais o que tens a receber dos clientes." />
+          <StatCard label="Passivo" value={fmtKz(passivo)} tone="neg" icon={Scale}
+            hint="O que o negócio deve: fornecedores, capital dos sócios e imposto por entregar." />
+        </div>
       </section>
 
+      {/* ─────────── Listas ─────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div className="card p-5 lg:col-span-3">
-          <div className="flex items-center justify-between mb-4"><h2 className="font-semibold">Últimos lançamentos</h2><Link href="/transacoes" className="text-xs text-maka-400 hover:underline">Ver todos</Link></div>
+          <div className="flex items-center justify-between mb-1"><h2 className="font-semibold text-[15px]">Últimos lançamentos</h2><Link href="/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver todos</Link></div>
+          <p className="text-[12px] text-ink-500 mb-3">As entradas e saídas mais recentes das tuas contas.</p>
           <div className="divide-y divide-ink-800">
             {transactions.slice(0, 6).map((t) => {
               const isIn = t.type === "income" || t.type === "transfer_in" || t.type === "capital_in";
@@ -150,7 +221,8 @@ export default function Dashboard() {
           </div>
           {topOverdueClients.length > 0 && (
             <div className="mt-4 pt-4 border-t border-ink-800">
-              <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold mb-2">Principais clientes em atraso</div>
+              <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Principais clientes em atraso</div>
+              <p className="text-[11px] text-ink-500 mt-0.5 mb-2">Quem te deve há mais tempo — começa a cobrança por aqui.</p>
               <div className="space-y-1.5">
                 {topOverdueClients.map(([cid, val]) => (
                   <div key={cid} className="flex justify-between text-sm"><span className="text-ink-300">{contactName(cid)}</span><span className="font-semibold text-red-400">{fmtKz(val)}</span></div>
@@ -160,12 +232,13 @@ export default function Dashboard() {
           )}
         </div>
         <div className="card p-5 lg:col-span-2">
-          <h2 className="font-semibold mb-4">Próximos vencimentos</h2>
+          <h2 className="font-semibold text-[15px]">Próximos vencimentos</h2>
+          <p className="text-[12px] text-ink-500 mb-3 mt-0.5">Faturas a receber e contas a pagar com data mais próxima.</p>
           <div className="space-y-2.5">
             {upcoming.map((o) => {
               const d = daysUntil(o.dueDate);
               return (
-                <Link key={o.id} href={o.direction === "receivable" ? "/faturas" : "/contas-a-pagar"} className="block rounded-lg border border-ink-800 p-3 hover:border-ink-600 transition-colors">
+                <Link key={o.id} href={o.direction === "receivable" ? "/faturas" : "/contas-a-pagar"} className="block rounded-lg border border-ink-800 p-3 hover:border-maka-500/50 transition-colors">
                   <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1"><div className="text-sm font-medium truncate">{contactName(o.contactId)}</div><div className={`text-[11px] ${isOverdue(o) ? "text-red-400" : d <= 3 ? "text-yellow-400" : "text-ink-500"}`}>{d < 0 ? `Venceu há ${Math.abs(d)} dia${Math.abs(d) !== 1 ? "s" : ""}` : `Vence em ${d} dia${d !== 1 ? "s" : ""}`}</div></div>
                     <div className={`text-sm font-semibold ${o.direction === "receivable" ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(o.outstandingAmount)}</div>

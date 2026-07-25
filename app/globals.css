@@ -14,13 +14,27 @@
 }
 :root.light {
   color-scheme: light;
-  --ink-950: #f7f6f4; --ink-900: #ffffff; --ink-800: #e7e5e4; --ink-700: #d6d3d1;
-  --ink-600: #a8a29e; --ink-500: #78716c; --ink-400: #57534e; --ink-300: #292524;
-  --ink-200: #1c1917; --ink-100: #0c0a09;
-  --scroll: #d6d3d1;
+  /* Fundo levemente quente (não branco puro) para os cartões brancos ganharem
+     definição e o texto não "fuscar". Cinzas mais escuros = mais legível. */
+  --ink-950: #efece7; --ink-900: #ffffff; --ink-800: #ddd8d1; --ink-700: #c7c1b8;
+  --ink-600: #8a827a; --ink-500: #6b6259; --ink-400: #4a433c; --ink-300: #2b2622;
+  --ink-200: #1c1917; --ink-100: #14110f;
+  --scroll: #c7c1b8;
 }
 
 body { background: var(--ink-950); color: var(--ink-100); }
+
+/* Os tons -300/-400 das cores semânticas foram escolhidos para fundo escuro;
+   sobre branco perdem contraste. Em modo claro usamos as variantes escuras.
+   Só o TEXTO muda — os fundos translúcidos continuam iguais. */
+:root.light .text-emerald-400, :root.light .text-emerald-300 { color: #047857; }
+:root.light .text-red-400, :root.light .text-red-300 { color: #b91c1c; }
+:root.light .text-amber-400 { color: #b45309; }
+:root.light .text-yellow-400 { color: #a16207; }
+:root.light .text-maka-400 { color: #c2410c; }
+:root.light .text-maka-300 { color: #9a3412; }
+/* Cartão ganha sombra suave em vez de depender só da borda */
+:root.light .card { box-shadow: 0 1px 2px rgb(28 25 23 / 0.06), 0 1px 3px rgb(28 25 23 / 0.04); }
 
 ::-webkit-scrollbar { height: 6px; width: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
