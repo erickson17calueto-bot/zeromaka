@@ -52,14 +52,14 @@ begin
       'warnings', json_build_array('Base de caixa: reconhece receitas/gastos quando o dinheiro entra ou sai (não por competência). Relatório interno de gestão — não substitui demonstrações certificadas.')),
     'sections', json_build_array(
       json_build_object('title','Receitas',
-        'lines', coalesce((select json_agg(json_build_object('label',category,'current',cur,'comparison',case when v_cmp then cmp else null end,'difference',case when v_cmp then cur-cmp else null end) order by cur desc)
+        'lines', coalesce((select json_agg(json_build_object('label',category,'key','income:'||category,'current',cur,'comparison',case when v_cmp then cmp else null end,'difference',case when v_cmp then cur-cmp else null end) order by cur desc)
           from (select category, coalesce(sum(rev_net) filter (where bucket='cur'),0) cur, coalesce(sum(rev_net) filter (where bucket='cmp'),0) cmp from t where entry_type='income' group by category having coalesce(sum(rev_net) filter (where bucket='cur'),0)<>0 or coalesce(sum(rev_net) filter (where bucket='cmp'),0)<>0) r),'[]'::json),
         'subtotal', json_build_object('label','Receita total',
           'current',(select coalesce(sum(rev_net) filter (where bucket='cur'),0) from t),
           'comparison',case when v_cmp then (select coalesce(sum(rev_net) filter (where bucket='cmp'),0) from t) else null end,
           'difference',case when v_cmp then (select coalesce(sum(rev_net) filter (where bucket='cur'),0)-coalesce(sum(rev_net) filter (where bucket='cmp'),0) from t) else null end)),
       json_build_object('title','Despesas',
-        'lines', coalesce((select json_agg(json_build_object('label',category,'current',-cur,'comparison',case when v_cmp then -cmp else null end,'difference',case when v_cmp then -(cur-cmp) else null end) order by cur desc)
+        'lines', coalesce((select json_agg(json_build_object('label',category,'key','expense:'||category,'current',-cur,'comparison',case when v_cmp then -cmp else null end,'difference',case when v_cmp then -(cur-cmp) else null end) order by cur desc)
           from (select category, coalesce(sum(exp_amt) filter (where bucket='cur'),0) cur, coalesce(sum(exp_amt) filter (where bucket='cmp'),0) cmp from t where entry_type='expense' group by category having coalesce(sum(exp_amt) filter (where bucket='cur'),0)<>0 or coalesce(sum(exp_amt) filter (where bucket='cmp'),0)<>0) x),'[]'::json),
         'subtotal', json_build_object('label','Total de despesas',
           'current',(select -coalesce(sum(exp_amt) filter (where bucket='cur'),0) from t),

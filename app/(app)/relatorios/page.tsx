@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import { fmtKz, REGIMES } from "@/lib/data";
+import { fmtKz, fmtDate, REGIMES } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
-import { REPORT_RPC, StatementResult, StmtLine } from "@/lib/reports/types";
-import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock } from "lucide-react";
+import { REPORT_RPC, StatementResult, StmtLine, DrillResult } from "@/lib/reports/types";
+import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2 } from "lucide-react";
 
 type Tab = "dre" | "dfc" | "impostos" | "aging" | "balanco";
 type Cmp = "none" | "prev" | "year";
@@ -111,6 +111,22 @@ export default function RelatoriosPage() {
   const hasCmp = !!srv?.meta?.has_comparison;
   const warnings: string[] = srv?.meta?.warnings || [];
 
+  // ---- Detalhe da linha (drill-down) ----
+  const [drill, setDrill] = useState<{ line: StmtLine; data: DrillResult | null; loading: boolean; err: string | null } | null>(null);
+
+  const openDrill = async (line: StmtLine) => {
+    const reportType = TAB_REPORT[tab];
+    if (!reportType || !orgId || !line.key) return;
+    setDrill({ line, data: null, loading: true, err: null });
+    const { start, end } = periodDates();
+    const { data, error } = await createClient().rpc("report_drilldown", {
+      p_org_id: orgId, p_report: reportType, p_key: line.key, p_start: start, p_end: end,
+    });
+    setDrill(d => d && d.line.key === line.key
+      ? { ...d, loading: false, data: (data as DrillResult) ?? null, err: error?.message ?? null }
+      : d);
+  };
+
   const BalRow = ({ label, value, bold, tone }: { label: string; value: number; bold?: boolean; tone?: "pos" | "neg" }) => (
     <div className={`flex justify-between py-2 ${bold ? "border-t border-ink-700 mt-1 font-semibold" : "border-b border-ink-800/60"}`}>
       <span>{label}</span>
@@ -123,14 +139,29 @@ export default function RelatoriosPage() {
       {v === null ? "—" : money(v)}
     </div>
   );
-  const StmtRow = ({ l, variant }: { l: StmtLine; variant: "line" | "sub" | "total" }) => (
-    <div className={`flex items-center gap-2 px-3 ${variant === "total" ? "py-3 mt-2 rounded-lg bg-emerald-500/10 font-semibold" : variant === "sub" ? "py-2 bg-maka-500/5 font-semibold border-t border-ink-700" : "py-1.5 border-b border-ink-800/50"}`}>
-      <div className={`flex-1 ${variant === "total" ? "text-base" : "text-sm"}`}>{l.label}</div>
-      {numCell(l.current)}
-      {hasCmp && numCell(l.comparison, true)}
-      {hasCmp && numCell(l.difference)}
-    </div>
-  );
+  const StmtRow = ({ l, variant }: { l: StmtLine; variant: "line" | "sub" | "total" }) => {
+    const base = `flex items-center gap-2 px-3 ${variant === "total" ? "py-3 mt-2 rounded-lg bg-emerald-500/10 font-semibold" : variant === "sub" ? "py-2 bg-maka-500/5 font-semibold border-t border-ink-700" : "py-1.5 border-b border-ink-800/50"}`;
+    const body = (
+      <>
+        <div className={`flex-1 flex items-center gap-1.5 ${variant === "total" ? "text-base" : "text-sm"}`}>
+          {l.label}
+          {l.key && <Search size={11} className="text-ink-600 shrink-0" />}
+        </div>
+        {numCell(l.current)}
+        {hasCmp && numCell(l.comparison, true)}
+        {hasCmp && numCell(l.difference)}
+      </>
+    );
+    // Só as linhas com chave abrem detalhe — e só quando têm valor.
+    if (!l.key || l.current === 0) return <div className={base}>{body}</div>;
+    return (
+      <button onClick={() => openDrill(l)}
+        title={`Ver os documentos que compõem "${l.label}"`}
+        className={`${base} w-full text-left hover:bg-maka-500/10 transition-colors cursor-pointer`}>
+        {body}
+      </button>
+    );
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -241,6 +272,92 @@ export default function RelatoriosPage() {
         <div className="card p-4 text-[11px] text-ink-500 space-y-1">
           <div className="font-semibold text-ink-400">Notas metodológicas</div>
           {warnings.map((w, i) => <div key={i}>• {w}</div>)}
+        </div>
+      )}
+
+      {/* ---------- Detalhe da linha: de onde vem este número ---------- */}
+      {drill && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setDrill(null)}>
+          <div className="card max-w-2xl w-full p-6 max-h-[85vh] flex flex-col pop" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-display text-lg leading-tight">{drill.line.label}</h3>
+                <p className="text-[12px] text-ink-500 mt-1">
+                  Documentos que compõem este valor · {periodDates().start} a {periodDates().end}
+                </p>
+              </div>
+              <button onClick={() => setDrill(null)} className="text-ink-500 hover:text-ink-300 shrink-0"><X size={18} /></button>
+            </div>
+
+            {drill.loading && (
+              <div className="flex items-center gap-2 text-sm text-ink-500 py-10 justify-center">
+                <Loader2 size={15} className="animate-spin" /> A procurar os documentos…
+              </div>
+            )}
+            {drill.err && <p className="text-sm text-red-400 py-6">{drill.err}</p>}
+
+            {drill.data && !drill.loading && (
+              <>
+                <div className="mt-4 overflow-y-auto flex-1 -mx-1 px-1">
+                  {drill.data.rows.length === 0 ? (
+                    <p className="text-sm text-ink-500 text-center py-8">Sem documentos neste período.</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-ink-900">
+                        <tr className="text-[10px] uppercase tracking-wider text-ink-500">
+                          <th className="text-left font-bold py-2">Data</th>
+                          <th className="text-left font-bold py-2">Documento</th>
+                          <th className="text-left font-bold py-2">Contacto</th>
+                          <th className="text-right font-bold py-2">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {drill.data.rows.map((r, i) => (
+                          <tr key={i} className="border-b border-ink-800/60">
+                            <td className="py-2 text-ink-400 whitespace-nowrap">{fmtDate(r.data)}</td>
+                            <td className="py-2">
+                              <div className="truncate max-w-[220px]">{r.descricao}</div>
+                              <div className="text-[11px] text-ink-500">
+                                {r.numero}
+                                {typeof r.dias === "number" && (
+                                  <span className={r.dias > 0 ? "text-red-400" : "text-emerald-400"}>
+                                    {" · "}{r.dias > 0 ? `${r.dias}d em atraso` : "em dia"}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2 text-ink-400 truncate max-w-[140px]">{r.contacto}</td>
+                            <td className="py-2 text-right font-mono whitespace-nowrap">{fmtKz(r.valor)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* Prova de que o detalhe bate certo com o relatório */}
+                <div className="mt-4 pt-3 border-t border-ink-700 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-ink-400">Soma dos {drill.data.rows.length} documento{drill.data.rows.length !== 1 ? "s" : ""}</span>
+                    <span className="font-mono font-semibold">{fmtKz(drill.data.total)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-ink-400">Valor no relatório</span>
+                    <span className="font-mono font-semibold">{fmtKz(Math.abs(drill.line.current))}</span>
+                  </div>
+                  {Math.abs(Math.abs(drill.line.current) - drill.data.total) < 0.005 ? (
+                    <div className="flex items-center gap-1.5 text-[12px] text-emerald-400 font-medium pt-1">
+                      <CheckCircle2 size={13} /> Os valores conferem.
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[12px] text-amber-400 font-medium pt-1">
+                      <AlertTriangle size={13} /> Diferença de {fmtKz(Math.abs(Math.abs(drill.line.current) - drill.data.total))} — verifica documentos estornados ou fora do período.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -57,13 +57,13 @@ begin
         'Escalões calculados pelos dias decorridos desde a data de vencimento. Relatório interno de gestão.')),
     'sections', json_build_array(
       json_build_object('title','A receber de clientes — por antiguidade',
-        'lines', (select json_agg(json_build_object('label',label,'current',total,'comparison',null,'difference',null) order by ord)
+        'lines', (select json_agg(json_build_object('label',label,'key','receivable:'||ord,'current',total,'comparison',null,'difference',null) order by ord)
                   from agg where direction='receivable'),
         'subtotal', json_build_object('label','Total a receber',
           'current',(select coalesce(sum(total),0) from agg where direction='receivable'),
           'comparison',null,'difference',null)),
       json_build_object('title','A pagar a fornecedores — por antiguidade',
-        'lines', (select json_agg(json_build_object('label',label,'current',total,'comparison',null,'difference',null) order by ord)
+        'lines', (select json_agg(json_build_object('label',label,'key','payable:'||ord,'current',total,'comparison',null,'difference',null) order by ord)
                   from agg where direction='payable'),
         'subtotal', json_build_object('label','Total a pagar',
           'current',(select coalesce(sum(total),0) from agg where direction='payable'),

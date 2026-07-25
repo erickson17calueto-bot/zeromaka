@@ -57,6 +57,25 @@ export interface StmtLine {
   comparison: number | null;
   difference: number | null;
   emphasis?: boolean;
+  /** Chave estável da linha; quando existe, permite abrir o detalhe (drill-down). */
+  key?: string;
+}
+
+/** Um documento que compõe uma linha de relatório. */
+export interface DrillRow {
+  data: string;
+  numero: string;
+  descricao: string;
+  contacto: string;
+  valor: number;
+  imposto?: number;
+  dias?: number;
+}
+export interface DrillResult {
+  rows: DrillRow[];
+  total: number;
+  report: string;
+  key: string;
 }
 export interface StmtSection {
   title: string;
