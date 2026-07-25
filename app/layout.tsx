@@ -10,7 +10,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-AO">
+    // suppressHydrationWarning: o script anti-flash escreve a classe do tema
+    // no <html> antes da hidratação, o que o React veria como atributo extra.
+    <html lang="pt-AO" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

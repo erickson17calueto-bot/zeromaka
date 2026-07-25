@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useStore } from "@/lib/store";
 import {
   Building2, Wallet, Users, ArrowLeftRight, FileText, Check, X,
-  ChevronRight, Rocket, ArrowRight, Sparkles,
+  ChevronRight, Rocket, ArrowRight, Sparkles, ShieldCheck,
 } from "lucide-react";
 
 type Step = {
@@ -41,7 +41,7 @@ export default function GettingStarted() {
     },
     {
       id: "contactos", title: "Registar contactos", icon: Users,
-      why: "Clientes, fornecedores e sócios. Precisas deles para emitir faturas a receber e registar contas a pagar.",
+      why: "Clientes, fornecedores e sócios. Precisas deles para registar o que tens a receber e o que tens a pagar.",
       href: "/contactos", cta: "Adicionar contacto", done: contacts.length > 0,
     },
     {
@@ -50,9 +50,9 @@ export default function GettingStarted() {
       href: "/transacoes", cta: "Novo lançamento", done: transactions.length > 0,
     },
     {
-      id: "fatura", title: "Emitir a primeira fatura", icon: FileText,
-      why: "Vendas a crédito e compras a fornecedores. Marca como venda para o imposto ser calculado automaticamente.",
-      href: "/faturas", cta: "Nova fatura", done: obligations.length > 0,
+      id: "fatura", title: "Registar a primeira fatura", icon: FileText,
+      why: "Regista aqui as faturas que já emitiste ao cliente e as que recebeste do fornecedor. Marca como venda para o imposto ser calculado.",
+      href: "/faturas", cta: "Registar fatura", done: obligations.length > 0,
     },
   ], [company.nif, accounts.length, contacts.length, transactions.length, obligations.length]);
 
@@ -79,7 +79,7 @@ export default function GettingStarted() {
   const SLIDES = [
     {
       icon: Rocket, title: `Bem-vindo ao ZeroMaka, ${profile.name.split(" ")[0]}`,
-      body: "Vamos pôr as finanças do teu negócio em ordem. Em poucos minutos ficas a saber exatamente quanto tens, quanto te devem e quanto deves.",
+      body: "É a tua folha de Excel do dia a dia, mas mais robusta, organizada e sem contas erradas. Em poucos minutos ficas a saber exatamente quanto tens, quanto te devem e quanto deves.",
     },
     {
       icon: Wallet, title: "Primeiro: onde está o dinheiro",
@@ -87,11 +87,15 @@ export default function GettingStarted() {
     },
     {
       icon: FileText, title: "Depois: quem te deve e a quem deves",
-      body: "Regista clientes e fornecedores, e emite faturas. O ZeroMaka separa sempre o dinheiro que já tens do dinheiro que ainda vais receber.",
+      body: "Regista os teus clientes e fornecedores e as faturas de cada um. O ZeroMaka separa sempre o dinheiro que já tens do dinheiro que ainda vais receber.",
     },
     {
-      icon: Sparkles, title: "E o imposto fica tratado",
-      body: "Ao marcar uma fatura como venda, o imposto do teu regime é calculado automaticamente e mostrado à parte — para não gastares dinheiro que é do Estado.",
+      icon: Sparkles, title: "E o imposto fica à vista",
+      body: "Ao marcar uma fatura como venda, o imposto do teu regime é calculado e mostrado à parte — para não gastares dinheiro que é do Estado.",
+    },
+    {
+      icon: ShieldCheck, title: "Uma nota importante",
+      body: "O ZeroMaka é uma ferramenta de gestão financeira: ajuda-te a controlar e a decidir. Não emite faturas nem documentos certificados, e não comunica com a AGT — isso continua a ser feito onde já fazes hoje.",
     },
   ];
 

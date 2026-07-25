@@ -39,7 +39,38 @@ body { background: var(--ink-950); color: var(--ink-100); }
 ::-webkit-scrollbar { height: 6px; width: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
 
-.card { @apply bg-ink-900 border border-ink-800 rounded-xl; }
+/* ---------------- Animação e interação ----------------
+   Discreta e funcional: dá vida sem distrair de números financeiros. */
+@keyframes slideIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes riseIn  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn   { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+
+/* Entrada das secções; .stagger escalona os filhos */
+.rise { animation: riseIn .45s cubic-bezier(.16, 1, .3, 1) both; }
+.pop  { animation: popIn .25s cubic-bezier(.16, 1, .3, 1) both; }
+.stagger > * { animation: riseIn .45s cubic-bezier(.16, 1, .3, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: .04s; }
+.stagger > *:nth-child(2) { animation-delay: .08s; }
+.stagger > *:nth-child(3) { animation-delay: .12s; }
+.stagger > *:nth-child(4) { animation-delay: .16s; }
+.stagger > *:nth-child(5) { animation-delay: .20s; }
+.stagger > *:nth-child(6) { animation-delay: .24s; }
+
+.card { @apply bg-ink-900 border border-ink-800 rounded-xl;
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+/* Só cartões acionáveis levantam ao passar o cursor */
+a.card:hover, button.card:hover, .card-hover:hover { transform: translateY(-2px); }
+:root.light a.card:hover, :root.light button.card:hover, :root.light .card-hover:hover {
+  box-shadow: 0 6px 16px rgb(28 25 23 / 0.10), 0 2px 6px rgb(28 25 23 / 0.06); }
+
+/* Acessibilidade: quem pede menos movimento não leva animação nenhuma. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}
 .btn { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors; }
 /* texto sobre laranja fixo escuro em ambos os temas (bom contraste no laranja) */
 .btn-primary { @apply btn bg-maka-500 hover:bg-maka-400; color: #1c1917; }

@@ -108,7 +108,7 @@ export default function Dashboard() {
           hint="Saldo de cada conta. É dinheiro que já tens na mão, hoje."
           action={<Link href="/contas" className="text-xs text-maka-400 hover:underline font-semibold">Gerir contas</Link>}
         />
-        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 stagger">
           {accounts.map((a) => {
             const st = ACC_STYLE[a.type]; const Icon = st.icon;
             return (
@@ -148,7 +148,7 @@ export default function Dashboard() {
           hint="Dinheiro que entrou e saiu desde o dia 1 do mês corrente."
           action={<Link href="/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver lançamentos</Link>}
         />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <StatCard label="Receitas do mês" value={fmtKz(income)} tone="pos" icon={TrendingUp}
             hint="Tudo o que entrou este mês: vendas e outras entradas de dinheiro." />
           <StatCard label="Despesas do mês" value={fmtKz(expense)} tone="neg" icon={TrendingDown}
@@ -166,7 +166,7 @@ export default function Dashboard() {
           title="A receber e a pagar"
           hint="Dinheiro que ainda não está na tua conta — promessas de entrada e de saída. Nunca é somado ao saldo."
         />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <StatCard label="Total a receber" value={fmtKz(openReceivables)} tone="pos" icon={ArrowDownLeft} href="/faturas"
             footer={docs(rec.length)}
             hint="Tudo o que os clientes ainda te devem, esteja ou não vencido. Ainda NÃO é dinheiro teu — só conta quando pagarem." />
@@ -189,7 +189,7 @@ export default function Dashboard() {
           hint="Quanto do teu caixa é realmente teu, e como está o balanço geral."
           action={<Link href="/relatorios" className="text-xs text-maka-400 hover:underline font-semibold">Ver relatórios</Link>}
         />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <StatCard label="Imposto do Estado" value={fmtKz(taxOwed)} tone="warn" icon={Receipt}
             hint="Imposto já incluído no preço das tuas vendas. Este dinheiro NÃO é teu — guarda-o para entregar ao Estado." />
           <StatCard label="Líquido real teu" value={fmtKz(liquidoReal)} tone="brand" icon={Wallet}
@@ -202,7 +202,7 @@ export default function Dashboard() {
       </section>
 
       {/* ─────────── Listas ─────────── */}
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4 rise">
         <div className="card p-5 lg:col-span-3">
           <div className="flex items-center justify-between mb-1"><h2 className="font-semibold text-[15px]">Últimos lançamentos</h2><Link href="/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver todos</Link></div>
           <p className="text-[12px] text-ink-500 mb-3">As entradas e saídas mais recentes das tuas contas.</p>

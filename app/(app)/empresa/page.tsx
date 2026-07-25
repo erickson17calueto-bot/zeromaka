@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { REGIMES, TaxRegime, CommissionMember } from "@/lib/data";
 import { Loader2, Building2, Upload, Percent, Plus, Trash2, Users } from "lucide-react";
+import DangerZone from "@/components/DangerZone";
 
 export default function EmpresaPage() {
   const { company, updateCompany } = useStore();
@@ -139,6 +140,8 @@ export default function EmpresaPage() {
       <button onClick={save} disabled={saving} className="btn-primary w-full justify-center disabled:opacity-60">
         {saving ? <><Loader2 size={15} className="animate-spin" /> A guardar…</> : saved ? "Guardado com sucesso!" : "Guardar definições"}
       </button>
+
+      <DangerZone />
     </div>
   );
 }

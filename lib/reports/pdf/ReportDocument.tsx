@@ -23,17 +23,29 @@ const s = StyleSheet.create({
   page: { paddingTop: 42, paddingBottom: 54, paddingHorizontal: 36, fontSize: 8.5, color: C.ink, fontFamily: "Helvetica" },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8,
     borderBottomWidth: 1, borderBottomColor: C.line, paddingBottom: 6 },
-  brand: { fontSize: 13, fontFamily: "Helvetica-Bold", color: C.brand },
+  brand: { fontSize: 11, fontFamily: "Helvetica-Bold", color: C.ink },
   headerRight: { textAlign: "right", color: C.muted, fontSize: 8 },
-  // cover
-  cover: { marginTop: 110, alignItems: "center" },
-  coverBrand: { fontSize: 28, fontFamily: "Helvetica-Bold", color: C.brand },
-  coverTitleBar: { marginTop: 30, backgroundColor: C.hdr, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 4 },
-  coverTitle: { fontSize: 17, fontFamily: "Helvetica-Bold", color: "#fff", textAlign: "center" },
-  coverMeta: { fontSize: 10, color: C.muted, marginTop: 8 },
-  coverBox: { marginTop: 34, borderWidth: 1, borderColor: C.line, borderRadius: 4, padding: 16, width: 340 },
-  coverLine: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 },
-  coverKey: { color: C.muted }, coverVal: { fontFamily: "Helvetica-Bold" },
+  // ---- capa: sem caixas, informação distribuída na folha ----
+  cover: { flex: 1 },
+  coverAccent: { height: 4, width: 88, backgroundColor: C.brand, marginBottom: 24 },
+  coverCompany: { fontSize: 19, fontFamily: "Helvetica-Bold", color: C.ink },
+  coverCompanyMeta: { fontSize: 9, color: C.muted, marginTop: 5 },
+  coverTitleWrap: { marginTop: 96 },
+  coverKicker: { fontSize: 7.5, letterSpacing: 2.4, color: C.muted, fontFamily: "Helvetica-Bold" },
+  coverTitle: { fontSize: 25, fontFamily: "Helvetica-Bold", color: C.ink, marginTop: 10, lineHeight: 1.25 },
+  coverRule: { height: 1, backgroundColor: C.line, marginTop: 24, marginBottom: 20 },
+  periodBlock: { flexDirection: "row" },
+  periodItem: { marginRight: 44 },
+  periodLabel: { fontSize: 7, letterSpacing: 1.6, color: C.muted, fontFamily: "Helvetica-Bold" },
+  periodValue: { fontSize: 11.5, marginTop: 4 },
+  coverNote: { marginTop: "auto", fontSize: 7.5, color: C.muted, lineHeight: 1.5, maxWidth: 380 },
+  // grelha de metadados encostada ao fundo da capa
+  metaGrid: { marginTop: 14, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 14, flexDirection: "row" },
+  metaCol: { flex: 1, paddingRight: 18 },
+  metaRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 3.5,
+    borderBottomWidth: 0.5, borderBottomColor: "#f1f5f9" },
+  metaKey: { color: C.muted, fontSize: 8 },
+  metaVal: { fontFamily: "Helvetica-Bold", fontSize: 8 },
   // statement title band
   titleBand: { backgroundColor: C.hdr, paddingVertical: 7, paddingHorizontal: 8, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
   titleBandText: { color: C.hdrText, fontFamily: "Helvetica-Bold", fontSize: 11 },
@@ -65,16 +77,17 @@ function num(v: number | null, opts?: { muted?: boolean; strong?: boolean }) {
 function Header({ ctx, title, period }: { ctx: PdfContext; title: string; period: string }) {
   return (
     <View style={s.headerRow} fixed>
-      <View><Text style={s.brand}>ZERO<Text style={{ color: C.ink }}>MAKA</Text></Text>
-        <Text style={{ fontSize: 8, color: C.muted }}>{ctx.companyName}</Text></View>
+      <View><Text style={s.brand}>{ctx.companyName}</Text>
+        {ctx.companyNif ? <Text style={{ fontSize: 8, color: C.muted }}>NIF {ctx.companyNif}</Text> : null}</View>
       <View style={s.headerRight}><Text>{title}</Text><Text>{period}</Text></View>
     </View>
   );
 }
+// O ZeroMaka é identificado aqui, no rodapé — não na capa nem no cabeçalho.
 function Footer({ ctx }: { ctx: PdfContext }) {
   return (
     <View style={s.footer} fixed>
-      <Text>{ctx.confidentiality || "Confidencial"} · {fmtDatePt(ctx.generatedAt.slice(0, 10))} · ID {ctx.exportId.slice(0, 8)} · v{ctx.version}</Text>
+      <Text>Processado por ZeroMaka · {ctx.confidentiality || "Confidencial"} · ID {ctx.exportId.slice(0, 8)} · v{ctx.version}</Text>
       <Text render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} />
     </View>
   );
@@ -103,18 +116,44 @@ export function ReportDocument({ report, ctx }: { report: StatementResult; ctx: 
       <Page size="A4" style={s.page}>
         <Footer ctx={ctx} />
         <View style={s.cover}>
-          <Text style={s.coverBrand}>ZERO<Text style={{ color: C.ink }}>MAKA</Text></Text>
-          <View style={s.coverTitleBar}><Text style={s.coverTitle}>{m.title}</Text></View>
-          <Text style={s.coverMeta}>{period}{cmp ? `  ·  comparação: ${cmpPeriod}` : ""}</Text>
-          <View style={s.coverBox}>
-            <View style={s.coverLine}><Text style={s.coverKey}>Empresa</Text><Text style={s.coverVal}>{ctx.companyName}</Text></View>
-            {ctx.companyNif ? <View style={s.coverLine}><Text style={s.coverKey}>NIF</Text><Text style={s.coverVal}>{ctx.companyNif}</Text></View> : null}
-            {ctx.regimeLabel ? <View style={s.coverLine}><Text style={s.coverKey}>Regime</Text><Text style={s.coverVal}>{ctx.regimeLabel}</Text></View> : null}
-            <View style={s.coverLine}><Text style={s.coverKey}>Moeda</Text><Text style={s.coverVal}>{m.currency}</Text></View>
-            {m.basis ? <View style={s.coverLine}><Text style={s.coverKey}>Base</Text><Text style={s.coverVal}>{m.basis === "cash" ? "Caixa" : m.basis}</Text></View> : null}
-            <View style={s.coverLine}><Text style={s.coverKey}>Gerado em</Text><Text style={s.coverVal}>{fmtDatePt(ctx.generatedAt.slice(0, 10))}</Text></View>
-            <View style={s.coverLine}><Text style={s.coverKey}>Por</Text><Text style={s.coverVal}>{ctx.generatedByEmail}</Text></View>
-            <View style={s.coverLine}><Text style={s.coverKey}>Versão / ID</Text><Text style={s.coverVal}>v{ctx.version} · {ctx.exportId.slice(0, 8)}</Text></View>
+          {/* A empresa é o sujeito do documento — o ZeroMaka identifica-se no rodapé. */}
+          <View style={s.coverAccent} />
+          <Text style={s.coverCompany}>{ctx.companyName}</Text>
+          <Text style={s.coverCompanyMeta}>
+            {[ctx.companyNif ? `NIF ${ctx.companyNif}` : null, ctx.regimeLabel].filter(Boolean).join("   ·   ")}
+          </Text>
+
+          <View style={s.coverTitleWrap}>
+            <Text style={s.coverKicker}>RELATÓRIO DE GESTÃO</Text>
+            <Text style={s.coverTitle}>{m.title}</Text>
+            <View style={s.coverRule} />
+            <View style={s.periodBlock}>
+              <View style={s.periodItem}>
+                <Text style={s.periodLabel}>PERÍODO</Text>
+                <Text style={s.periodValue}>{period}</Text>
+              </View>
+              {cmp && cmpPeriod ? (
+                <View style={s.periodItem}>
+                  <Text style={s.periodLabel}>COMPARAÇÃO</Text>
+                  <Text style={s.periodValue}>{cmpPeriod}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          <Text style={s.coverNote}>{AVISO_LEGAL}</Text>
+
+          <View style={s.metaGrid}>
+            <View style={s.metaCol}>
+              <View style={s.metaRow}><Text style={s.metaKey}>Moeda</Text><Text style={s.metaVal}>{m.currency} (Kz)</Text></View>
+              {m.basis ? <View style={s.metaRow}><Text style={s.metaKey}>Base de preparação</Text><Text style={s.metaVal}>{m.basis === "cash" ? "Caixa" : m.basis}</Text></View> : null}
+              <View style={s.metaRow}><Text style={s.metaKey}>Classificação</Text><Text style={s.metaVal}>{ctx.confidentiality || "Confidencial"}</Text></View>
+            </View>
+            <View style={s.metaCol}>
+              <View style={s.metaRow}><Text style={s.metaKey}>Gerado em</Text><Text style={s.metaVal}>{fmtDatePt(ctx.generatedAt.slice(0, 10))}</Text></View>
+              <View style={s.metaRow}><Text style={s.metaKey}>Gerado por</Text><Text style={s.metaVal}>{ctx.generatedByEmail}</Text></View>
+              <View style={s.metaRow}><Text style={s.metaKey}>Documento</Text><Text style={s.metaVal}>v{ctx.version} · {ctx.exportId.slice(0, 8)}</Text></View>
+            </View>
           </View>
         </View>
       </Page>
