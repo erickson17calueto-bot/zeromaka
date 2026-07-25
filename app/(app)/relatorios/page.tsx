@@ -3,20 +3,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { fmtKz, REGIMES } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
-import { REPORT_RPC } from "@/lib/reports/types";
+import { REPORT_RPC, StatementResult, StmtLine } from "@/lib/reports/types";
 import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle } from "lucide-react";
 
 type Tab = "dre" | "dfc" | "impostos" | "balanco";
+type Cmp = "none" | "prev" | "year";
 const TAB_REPORT: Record<Tab, keyof typeof REPORT_RPC | null> = {
   dre: "income_statement", dfc: "cash_flow_statement", impostos: "tax_control", balanco: null,
 };
+const pad = (n: number) => String(n).padStart(2, "0");
+const money = (v: number) => (v === 0 ? "—" : fmtKz(v));
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function RelatoriosPage() {
   const { obligations, accounts, transactions, company, orgId } = useStore();
   const [tab, setTab] = useState<Tab>("dre");
   const [period, setPeriod] = useState<"month" | "all">("month");
-  const [srv, setSrv] = useState<any>(null);
+  const [cmp, setCmp] = useState<Cmp>("none");
+  const [srv, setSrv] = useState<StatementResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
@@ -25,28 +29,38 @@ export default function RelatoriosPage() {
   const periodDates = useCallback(() => {
     if (period === "all") return { start: "2000-01-01", end: new Date().toISOString().slice(0, 10) };
     const y = now.getFullYear(), m = now.getMonth();
-    const pad = (n: number) => String(n).padStart(2, "0");
     const last = new Date(y, m + 1, 0).getDate();
     return { start: `${y}-${pad(m + 1)}-01`, end: `${y}-${pad(m + 1)}-${pad(last)}` };
   }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ecrã consome o MESMO cálculo do servidor que o PDF/Excel
+  const cmpDates = useCallback((): { start: string; end: string } | null => {
+    if (cmp === "none" || period === "all") return null;
+    const y = now.getFullYear(), m = now.getMonth();
+    if (cmp === "prev") {
+      const py = m === 0 ? y - 1 : y, pm = m === 0 ? 11 : m - 1;
+      const last = new Date(py, pm + 1, 0).getDate();
+      return { start: `${py}-${pad(pm + 1)}-01`, end: `${py}-${pad(pm + 1)}-${pad(last)}` };
+    }
+    const last = new Date(y - 1, m + 1, 0).getDate();
+    return { start: `${y - 1}-${pad(m + 1)}-01`, end: `${y - 1}-${pad(m + 1)}-${pad(last)}` };
+  }, [cmp, period]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const reportType = TAB_REPORT[tab];
     if (!reportType || !orgId) { setSrv(null); return; }
     let cancelled = false;
     setLoading(true); setErr(null);
     const { start, end } = periodDates();
-    const args: any = reportType === "income_statement"
-      ? { p_org_id: orgId, p_start: start, p_end: end, p_include_reversed: false }
-      : { p_org_id: orgId, p_start: start, p_end: end };
+    const c = cmpDates();
+    const args: any = { p_org_id: orgId, p_start: start, p_end: end, p_cmp_start: c?.start ?? null, p_cmp_end: c?.end ?? null };
+    if (reportType === "income_statement") args.p_include_reversed = false;
     createClient().rpc(REPORT_RPC[reportType], args).then(({ data, error }) => {
       if (cancelled) return;
-      if (error) setErr(error.message); else setSrv(data);
+      if (error) setErr(error.message); else setSrv(data as StatementResult);
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [tab, period, orgId, periodDates]);
+  }, [tab, period, cmp, orgId, periodDates, cmpDates]);
 
   const exportFile = async (format: "pdf" | "xlsx") => {
     const reportType = TAB_REPORT[tab];
@@ -54,9 +68,10 @@ export default function RelatoriosPage() {
     setExporting(format);
     try {
       const { start, end } = periodDates();
+      const c = cmpDates();
       const res = await fetch(`/api/reports/export/${format}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportType, organizationId: orgId, startDate: start, endDate: end }),
+        body: JSON.stringify({ reportType, organizationId: orgId, startDate: start, endDate: end, cmpStartDate: c?.start ?? null, cmpEndDate: c?.end ?? null }),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert("Erro na exportação: " + (e.error || res.status)); return; }
       const blob = await res.blob();
@@ -68,7 +83,7 @@ export default function RelatoriosPage() {
     } finally { setExporting(null); }
   };
 
-  // Balanço de gestão (rascunho) — ainda calculado no cliente, claramente assinalado
+  // Balanço de gestão (rascunho) — cliente, assinalado
   const bal = useMemo(() => {
     const totalBalance = accounts.reduce((s, a) => s + a.currentBalance, 0);
     const openObl = obligations.filter((o) => o.lifecycleStatus === "open" && o.outstandingAmount > 0);
@@ -89,27 +104,49 @@ export default function RelatoriosPage() {
     { id: "balanco" as Tab, label: "Balanço (gestão)", icon: Scale },
   ];
 
-  const Row = ({ label, value, bold, tone, indent }: { label: string; value: number; bold?: boolean; tone?: "pos" | "neg" | "muted"; indent?: boolean }) => (
-    <div className={`flex justify-between py-2 ${bold ? "border-t border-ink-700 mt-1 font-semibold" : "border-b border-ink-800/60"} ${indent ? "pl-4" : ""}`}>
-      <span className={tone === "muted" ? "text-ink-400" : ""}>{label}</span>
-      <span className={`font-mono ${tone === "pos" ? "text-emerald-400" : tone === "neg" ? "text-red-400" : bold ? "" : "text-ink-200"}`}>{fmtKz(value)}</span>
+  const hasCmp = !!srv?.meta?.has_comparison;
+  const warnings: string[] = srv?.meta?.warnings || [];
+
+  const BalRow = ({ label, value, bold, tone }: { label: string; value: number; bold?: boolean; tone?: "pos" | "neg" }) => (
+    <div className={`flex justify-between py-2 ${bold ? "border-t border-ink-700 mt-1 font-semibold" : "border-b border-ink-800/60"}`}>
+      <span>{label}</span>
+      <span className={`font-mono ${tone === "pos" ? "text-emerald-400" : tone === "neg" ? "text-red-400" : ""}`}>{fmtKz(value)}</span>
     </div>
   );
 
-  const warnings: string[] = srv?.meta?.warnings || [];
+  const numCell = (v: number | null, muted?: boolean) => (
+    <div className={`w-28 text-right font-mono text-sm ${v === null ? "text-ink-600" : muted ? "text-ink-400" : v < 0 ? "text-red-400" : v > 0 ? "text-emerald-400" : "text-ink-300"}`}>
+      {v === null ? "—" : money(v)}
+    </div>
+  );
+  const StmtRow = ({ l, variant }: { l: StmtLine; variant: "line" | "sub" | "total" }) => (
+    <div className={`flex items-center gap-2 px-3 ${variant === "total" ? "py-3 mt-2 rounded-lg bg-emerald-500/10 font-semibold" : variant === "sub" ? "py-2 bg-maka-500/5 font-semibold border-t border-ink-700" : "py-1.5 border-b border-ink-800/50"}`}>
+      <div className={`flex-1 ${variant === "total" ? "text-base" : "text-sm"}`}>{l.label}</div>
+      {numCell(l.current)}
+      {hasCmp && numCell(l.comparison, true)}
+      {hasCmp && numCell(l.difference)}
+    </div>
+  );
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-2xl md:text-3xl tracking-tight">Relatórios</h1>
           <p className="text-sm text-ink-400 mt-1">{company.name} · {REGIMES[company.regime].short} · base de caixa</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 rounded-lg border border-ink-700 p-1">
             <button onClick={() => setPeriod("month")} className={`px-3 py-1 text-[12px] rounded ${period === "month" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Este mês</button>
             <button onClick={() => setPeriod("all")} className={`px-3 py-1 text-[12px] rounded ${period === "all" ? "bg-maka-500 text-ink-950 font-semibold" : "text-ink-400"}`}>Acumulado</button>
           </div>
+          {TAB_REPORT[tab] && period === "month" && (
+            <select value={cmp} onChange={(e) => setCmp(e.target.value as Cmp)} className="input text-[12px] py-1.5 w-auto">
+              <option value="none">Sem comparação</option>
+              <option value="prev">vs. mês anterior</option>
+              <option value="year">vs. mesmo mês do ano anterior</option>
+            </select>
+          )}
           {TAB_REPORT[tab] && (
             <>
               <button onClick={() => exportFile("pdf")} disabled={!!exporting} className="btn-ghost text-sm px-3 py-1.5 disabled:opacity-50" title="Exportar PDF (servidor)">
@@ -142,55 +179,27 @@ export default function RelatoriosPage() {
         <div className="card p-6 border-red-500/40 bg-red-500/5 text-sm text-red-300 flex gap-2"><AlertTriangle size={16} /> Erro ao calcular: {err}</div>
       )}
 
-      {tab === "dre" && srv && !loading && (
-        <div className="card p-6">
-          <h2 className="font-semibold mb-1">{srv.meta.title}</h2>
-          <p className="text-[12px] text-ink-500 mb-4">Calculado no servidor. O imposto das vendas não entra como receita — é dinheiro do Estado.</p>
-          {(srv.revenue.lines || []).map((l: any) => <Row key={l.category} label={l.category} value={Number(l.amount)} tone="pos" indent />)}
-          <Row label="Receita total" value={Number(srv.revenue.total_revenue)} bold />
-          <div className="h-3" />
-          {(srv.expenses.lines || []).map((l: any) => <Row key={l.category} label={l.category} value={-Number(l.amount)} tone="neg" indent />)}
-          <Row label="Total de despesas" value={-Number(srv.expenses.total)} bold tone="neg" />
-          <div className={`flex justify-between py-3 px-4 rounded-lg mt-3 ${Number(srv.net_result) >= 0 ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
-            <span className="font-semibold">Resultado do período</span>
-            <span className={`font-display text-lg ${Number(srv.net_result) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(Number(srv.net_result))}</span>
+      {TAB_REPORT[tab] && srv && !loading && (
+        <div className="card overflow-hidden">
+          <div className="bg-maka-500/10 border-b border-ink-800 px-4 py-3">
+            <h2 className="font-semibold">{srv.meta.title}</h2>
+            <p className="text-[11px] text-ink-500">Calculado no servidor · {srv.meta.start} a {srv.meta.end}{hasCmp ? ` · comparação ${srv.meta.cmp_start} a ${srv.meta.cmp_end}` : ""}</p>
           </div>
-        </div>
-      )}
-
-      {tab === "dfc" && srv && !loading && (
-        <div className="card p-6">
-          <h2 className="font-semibold mb-1">{srv.meta.title}</h2>
-          <p className="text-[12px] text-ink-500 mb-4">Método direto. Transferências internas não entram como fluxo.</p>
-          <div className="text-[11px] uppercase tracking-wider text-ink-500 font-bold mt-1 mb-1">Operacional</div>
-          <Row label="Recebimentos" value={Number(srv.operating.receipts)} tone="pos" indent />
-          <Row label="Pagamentos" value={-Number(srv.operating.payments)} tone="neg" indent />
-          <Row label="Fluxo operacional" value={Number(srv.operating.net)} bold />
-          <div className="text-[11px] uppercase tracking-wider text-ink-500 font-bold mt-3 mb-1">Financiamento</div>
-          <Row label="Entradas de capital" value={Number(srv.financing.capital_in)} tone="pos" indent />
-          <Row label="Retiradas" value={-Number(srv.financing.capital_out)} tone="neg" indent />
-          <Row label="Fluxo de financiamento" value={Number(srv.financing.net)} bold />
-          <div className="text-[11px] uppercase tracking-wider text-ink-500 font-bold mt-3 mb-1">Reconciliação</div>
-          <Row label="Saldo inicial" value={Number(srv.opening_balance)} />
-          <Row label="Saldos iniciais e outros no período" value={Number(srv.other.net)} tone="muted" />
-          <Row label="Variação líquida" value={Number(srv.net_change)} bold />
-          <div className="flex justify-between py-3 px-4 rounded-lg bg-maka-500/10 mt-3">
-            <span className="font-semibold">Saldo final em caixa e bancos</span>
-            <span className="font-display text-lg text-maka-400">{fmtKz(Number(srv.closing_balance))}</span>
+          <div className="flex items-center gap-2 px-3 py-2 bg-ink-900/40 border-b border-ink-800 text-[10px] uppercase tracking-wider text-ink-500 font-bold">
+            <div className="flex-1">Rubrica</div>
+            <div className="w-28 text-right">Atual</div>
+            {hasCmp && <div className="w-28 text-right">Anterior</div>}
+            {hasCmp && <div className="w-28 text-right">Diferença</div>}
           </div>
-        </div>
-      )}
-
-      {tab === "impostos" && srv && !loading && (
-        <div className="card p-6">
-          <h2 className="font-semibold mb-1">Controlo fiscal sobre vendas</h2>
-          <p className="text-[12px] text-ink-500 mb-4">Regime: {REGIMES[company.regime].label} — {REGIMES[company.regime].tax}. Só as vendas geram imposto.</p>
-          <Row label="Base de vendas tributáveis" value={Number(srv.taxable_base)} />
-          <Row label="Imposto sobre vendas (por dentro)" value={Number(srv.tax_collected)} tone="muted" />
-          <Row label="Receitas não-venda (sem imposto)" value={Number(srv.non_sale_income)} tone="muted" />
-          <div className="flex justify-between py-3 px-4 rounded-lg bg-yellow-500/10 mt-3">
-            <div><span className="font-semibold text-yellow-300">A entregar ao Estado (estimativa)</span><div className="text-[11px] text-ink-400 mt-0.5">Separa este valor — não é teu lucro.</div></div>
-            <span className="font-display text-lg text-yellow-400">{fmtKz(Number(srv.estimated_payable))}</span>
+          <div className="p-2">
+            {srv.sections.map((sec, i) => (
+              <div key={i} className="mb-1">
+                <div className="px-3 py-1.5 bg-blue-500/10 text-blue-300 text-[11px] font-bold uppercase tracking-wide rounded">{sec.title}</div>
+                {sec.lines.map((l, j) => <StmtRow key={j} l={l} variant="line" />)}
+                {sec.subtotal && <StmtRow l={sec.subtotal} variant="sub" />}
+              </div>
+            ))}
+            {srv.totals.map((tl, i) => <StmtRow key={i} l={tl} variant="total" />)}
           </div>
         </div>
       )}
@@ -203,21 +212,21 @@ export default function RelatoriosPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="card p-5">
               <h3 className="font-semibold text-emerald-400 mb-3">Ativo</h3>
-              <Row label="Caixa e bancos" value={bal.totalBalance} />
-              <Row label="Contas a receber (clientes)" value={bal.openReceivables} />
-              <Row label="Total do ativo" value={bal.ativo} bold tone="pos" />
+              <BalRow label="Caixa e bancos" value={bal.totalBalance} />
+              <BalRow label="Contas a receber (clientes)" value={bal.openReceivables} />
+              <BalRow label="Total do ativo" value={bal.ativo} bold tone="pos" />
             </div>
             <div className="card p-5">
               <h3 className="font-semibold text-red-400 mb-3">Passivo</h3>
-              <Row label="Contas a pagar (fornecedores)" value={bal.openPayables} />
-              <Row label="Capital dos sócios (suprimentos)" value={bal.shareholderLoans} />
-              <Row label="Impostos a entregar" value={bal.taxOwed} />
-              <Row label="Total do passivo" value={bal.passivo} bold tone="neg" />
+              <BalRow label="Contas a pagar (fornecedores)" value={bal.openPayables} />
+              <BalRow label="Capital dos sócios (suprimentos)" value={bal.shareholderLoans} />
+              <BalRow label="Impostos a entregar" value={bal.taxOwed} />
+              <BalRow label="Total do passivo" value={bal.passivo} bold tone="neg" />
             </div>
           </div>
           <div className="card p-5">
             <div className={`flex justify-between py-3 px-4 rounded-lg ${bal.patrimonio >= 0 ? "bg-maka-500/10" : "bg-red-500/10"}`}>
-              <div><span className="font-semibold">Património líquido (Ativo − Passivo)</span></div>
+              <span className="font-semibold">Património líquido (Ativo − Passivo)</span>
               <span className={`font-display text-lg ${bal.patrimonio >= 0 ? "text-maka-400" : "text-red-400"}`}>{fmtKz(bal.patrimonio)}</span>
             </div>
           </div>

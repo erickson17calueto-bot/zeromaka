@@ -48,5 +48,35 @@ export interface ReportResult {
   [key: string]: unknown;
 }
 
+// Forma uniforme dos relatórios v2 (secções + totais, com comparação)
+export interface StmtLine {
+  label: string;
+  current: number;
+  comparison: number | null;
+  difference: number | null;
+  emphasis?: boolean;
+}
+export interface StmtSection {
+  title: string;
+  lines: StmtLine[];
+  subtotal: StmtLine | null;
+}
+export interface StatementResult {
+  meta: ReportMeta & { has_comparison: boolean; cmp_start?: string | null; cmp_end?: string | null };
+  sections: StmtSection[];
+  totals: StmtLine[];
+}
+
+export interface ReportRequestBody {
+  reportType: ReportType;
+  organizationId: string;
+  startDate: string;
+  endDate: string;
+  cmpStartDate?: string | null;
+  cmpEndDate?: string | null;
+  includeReversed?: boolean;
+  format?: "pdf" | "xlsx";
+}
+
 export const AVISO_LEGAL =
   "Relatório interno de gestão. Não substitui demonstrações financeiras certificadas nem declarações fiscais oficiais.";

@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildWorkbook } from "@/lib/reports/excel/ReportWorkbook";
-import { REPORT_RPC, REPORT_LABEL, isReportType, ReportResult } from "@/lib/reports/types";
+import { REPORT_RPC, REPORT_LABEL, isReportType, StatementResult } from "@/lib/reports/types";
 import { exportFileName } from "@/lib/reports/format";
 import { REGIMES, TaxRegime } from "@/lib/data";
 
@@ -28,23 +28,31 @@ export async function POST(req: NextRequest) {
   const startDate = String(body.startDate || "");
   const endDate = String(body.endDate || "");
   const includeReversed = body.includeReversed === true;
+  const cmpStartDate = body.cmpStartDate ? String(body.cmpStartDate) : null;
+  const cmpEndDate = body.cmpEndDate ? String(body.cmpEndDate) : null;
 
   if (!isReportType(reportType)) return bad(400, "Tipo de relatório desconhecido");
   if (!UUID_RE.test(organizationId)) return bad(400, "Organização inválida");
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return bad(400, "Datas inválidas");
   if (startDate > endDate) return bad(400, "Intervalo de datas invertido");
+  const hasCmp = !!(cmpStartDate && cmpEndDate);
+  if (hasCmp) {
+    if (!DATE_RE.test(cmpStartDate!) || !DATE_RE.test(cmpEndDate!)) return bad(400, "Datas de comparação inválidas");
+    if (cmpStartDate! > cmpEndDate!) return bad(400, "Comparação com datas invertidas");
+  }
 
-  const rpcArgs: Record<string, unknown> =
-    reportType === "income_statement"
-      ? { p_org_id: organizationId, p_start: startDate, p_end: endDate, p_include_reversed: includeReversed }
-      : { p_org_id: organizationId, p_start: startDate, p_end: endDate };
+  const rpcArgs: Record<string, unknown> = {
+    p_org_id: organizationId, p_start: startDate, p_end: endDate,
+    p_cmp_start: hasCmp ? cmpStartDate : null, p_cmp_end: hasCmp ? cmpEndDate : null,
+  };
+  if (reportType === "income_statement") rpcArgs.p_include_reversed = includeReversed;
 
   const { data: report, error } = await supabase.rpc(REPORT_RPC[reportType], rpcArgs);
   if (error) {
     const denied = /permiss|acesso|autenticado/i.test(error.message);
     return bad(denied ? 403 : 400, denied ? "Sem acesso a esta organização" : "Falha ao calcular o relatório");
   }
-  const result = report as ReportResult;
+  const result = report as StatementResult;
 
   const { data: company } = await supabase
     .from("companies").select("name, nif, regime").eq("organization_id", organizationId).single();
@@ -71,6 +79,7 @@ export async function POST(req: NextRequest) {
     generatedByEmail: user.email || "—",
     generatedAt: new Date().toISOString(),
     exportId, version, startDate, endDate, includeReversed,
+    cmpStartDate: hasCmp ? cmpStartDate : null, cmpEndDate: hasCmp ? cmpEndDate : null,
   });
 
   const filename = exportFileName(company?.name || "empresa", REPORT_LABEL[reportType], startDate, endDate, version, "xlsx");
