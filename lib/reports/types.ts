@@ -1,21 +1,23 @@
 // Camada de domínio de relatórios — partilhada por UI, API, PDF e Excel.
 // O cálculo é feito no servidor (funções PostgreSQL); aqui só definimos contratos.
 
-export type ReportType = "income_statement" | "cash_flow_statement" | "tax_control";
+export type ReportType = "income_statement" | "cash_flow_statement" | "tax_control" | "aging";
 
 export const REPORT_RPC: Record<ReportType, string> = {
   income_statement: "report_income_cash",
   cash_flow_statement: "report_cash_flow",
   tax_control: "report_tax_control",
+  aging: "report_aging",
 };
 
 export const REPORT_LABEL: Record<ReportType, string> = {
   income_statement: "Demonstração de Resultado de Caixa",
   cash_flow_statement: "Demonstração do Fluxo de Caixa",
   tax_control: "Controlo Fiscal (interno)",
+  aging: "Mapa de Antiguidade de Saldos",
 };
 
-export const REPORT_TYPES: ReportType[] = ["income_statement", "cash_flow_statement", "tax_control"];
+export const REPORT_TYPES: ReportType[] = ["income_statement", "cash_flow_statement", "tax_control", "aging"];
 
 export function isReportType(v: unknown): v is ReportType {
   return typeof v === "string" && (REPORT_TYPES as string[]).includes(v);

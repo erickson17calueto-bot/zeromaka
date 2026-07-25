@@ -4,12 +4,13 @@ import { useStore } from "@/lib/store";
 import { fmtKz, REGIMES } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import { REPORT_RPC, StatementResult, StmtLine } from "@/lib/reports/types";
-import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle } from "lucide-react";
+import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock } from "lucide-react";
 
-type Tab = "dre" | "dfc" | "impostos" | "balanco";
+type Tab = "dre" | "dfc" | "impostos" | "aging" | "balanco";
 type Cmp = "none" | "prev" | "year";
 const TAB_REPORT: Record<Tab, keyof typeof REPORT_RPC | null> = {
-  dre: "income_statement", dfc: "cash_flow_statement", impostos: "tax_control", balanco: null,
+  dre: "income_statement", dfc: "cash_flow_statement", impostos: "tax_control",
+  aging: "aging", balanco: null,
 };
 const pad = (n: number) => String(n).padStart(2, "0");
 // Demonstração formal: linhas presentes mostram sempre o valor (incl. 0 Kz).
@@ -103,6 +104,7 @@ export default function RelatoriosPage() {
     { id: "dre" as Tab, label: "Resultado de Caixa", icon: TrendingUp },
     { id: "dfc" as Tab, label: "Fluxo de Caixa", icon: FileBarChart },
     { id: "impostos" as Tab, label: "Impostos", icon: Receipt },
+    { id: "aging" as Tab, label: "Antiguidade de saldos", icon: CalendarClock },
     { id: "balanco" as Tab, label: "Balanço (gestão)", icon: Scale },
   ];
 
