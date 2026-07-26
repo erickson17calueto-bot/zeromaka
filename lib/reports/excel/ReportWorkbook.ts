@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { excelSafeText } from "../format";
-import { AVISO_LEGAL, StatementResult, StmtLine } from "../types";
+import { AVISO_LEGAL, StatementResult, StmtLine, LedgerResult } from "../types";
 
 export interface DocContext {
   companyName: string; companyNif?: string; regimeLabel?: string;
@@ -130,6 +130,113 @@ export async function buildWorkbook(report: StatementResult, ctx: DocContext): P
   pk("startDate", ctx.startDate); pk("endDate", ctx.endDate);
   if (cmp) { pk("cmpStartDate", ctx.cmpStartDate || ""); pk("cmpEndDate", ctx.cmpEndDate || ""); }
   pk("includeReversed", String(ctx.includeReversed));
+  pk("exportId", ctx.exportId); pk("version", String(ctx.version));
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+/* ─────────────── Extrato de conta ───────────────
+   Forma própria (saldo corrido), com as mesmas regras de formatação:
+   tabela estruturada, painéis congelados, autofiltro e proteção contra
+   injeção de fórmulas nos campos de texto. */
+export async function buildLedgerWorkbook(report: LedgerResult, ctx: DocContext): Promise<Buffer> {
+  const m = report.meta;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "ZeroMaka"; wb.created = new Date(ctx.generatedAt);
+  wb.title = `${m.title} — ${report.account.name} — ${ctx.companyName}`;
+
+  const ext = wb.addWorksheet("Extrato", { views: [{ state: "frozen", ySplit: 3 }] });
+  ext.getColumn(1).width = 12;  // data
+  ext.getColumn(2).width = 18;  // nº documento
+  ext.getColumn(3).width = 44;  // descrição
+  ext.getColumn(4).width = 24;  // contacto
+  ext.getColumn(5).width = 16;  // entrada
+  ext.getColumn(6).width = 16;  // saída
+  ext.getColumn(7).width = 18;  // saldo
+  ext.getColumn(8).width = 14;  // estado
+
+  ext.mergeCells("A1:H1");
+  const t = ext.getCell("A1");
+  t.value = `${m.title}  —  ${report.account.name}  —  ${ctx.companyName}`;
+  t.font = { bold: true, size: 13, color: { argb: HDR_TXT } };
+  t.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HDR } };
+  t.alignment = { vertical: "middle" };
+  ext.getRow(1).height = 22;
+
+  ext.mergeCells("A2:H2");
+  const p = ext.getCell("A2");
+  p.value = `Período: ${ctx.startDate} a ${ctx.endDate}`;
+  p.font = { color: { argb: "FF6B7280" }, size: 10 };
+
+  const head = ["Data", "Documento", "Descrição", "Contacto", "Entrada (Kz)", "Saída (Kz)", "Saldo (Kz)", "Estado"];
+  const hr = ext.addRow(head); // linha 3
+  hr.eachCell((c) => {
+    c.font = { bold: true, color: { argb: "FF374151" } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY } };
+    c.border = borderAll();
+  });
+  for (let i = 5; i <= 7; i++) hr.getCell(i).alignment = { horizontal: "right" };
+  ext.autoFilter = "A3:H3";
+
+  // saldo inicial
+  const open = ext.addRow(["", "", `Saldo inicial em ${ctx.startDate}`, "", null, null, report.opening, ""]);
+  open.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SUB } }; c.border = borderAll(); });
+  open.getCell(3).font = { bold: true };
+  open.getCell(7).numFmt = KZ; open.getCell(7).font = { bold: true };
+
+  for (const r of report.rows) {
+    const anulado = r.estado === "reversed" || r.tipo === "reversal";
+    const estado = r.estado === "reversed" ? "Estornado" : r.tipo === "reversal" ? "Estorno" : "Normal";
+    const row = ext.addRow([
+      r.data, excelSafeText(r.numero), excelSafeText(r.descricao), excelSafeText(r.contacto),
+      r.entrada || null, r.saida || null, r.saldo, estado,
+    ]);
+    row.eachCell((c) => { c.border = borderAll(); });
+    for (let i = 5; i <= 7; i++) row.getCell(i).numFmt = KZ;
+    row.getCell(7).font = { bold: true };
+    if (anulado) row.eachCell((c) => { c.font = { ...(c.font || {}), color: { argb: "FF9CA3AF" }, strike: r.estado === "reversed" }; });
+  }
+
+  // saldo final
+  const close = ext.addRow(["", "", `Saldo final em ${ctx.endDate}`, "", report.inflow, report.outflow, report.closing, ""]);
+  close.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL } }; c.border = borderAll(); c.font = { bold: true }; });
+  for (let i = 5; i <= 7; i++) close.getCell(i).numFmt = KZ;
+
+  // ---------- Resumo ----------
+  const resumo = wb.addWorksheet("Resumo");
+  resumo.columns = [{ width: 30 }, { width: 44 }];
+  const kv = (k: string, v: string | number) => {
+    const r = resumo.addRow([k, typeof v === "string" ? excelSafeText(v) : v]);
+    r.getCell(1).font = { bold: true, color: { argb: "FF6B7280" } };
+    return r;
+  };
+  kv("Empresa", ctx.companyName);
+  if (ctx.companyNif) kv("NIF", ctx.companyNif);
+  if (ctx.regimeLabel) kv("Regime", ctx.regimeLabel);
+  kv("Relatório", m.title);
+  kv("Conta", report.account.name);
+  kv("Período", `${ctx.startDate} a ${ctx.endDate}`);
+  kv("Moeda", m.currency);
+  kv("Gerado em", ctx.generatedAt.slice(0, 10));
+  kv("Gerado por", ctx.generatedByEmail);
+  kv("Versão / ID", `v${ctx.version} · ${ctx.exportId.slice(0, 8)}`);
+  resumo.addRow([]);
+  const ind = resumo.addRow(["Indicadores principais", ""]); ind.getCell(1).font = { bold: true };
+  ([["Saldo inicial", report.opening], ["Entradas", report.inflow],
+    ["Saídas", report.outflow], ["Saldo final", report.closing]] as [string, number][])
+    .forEach(([k, v]) => { const r = resumo.addRow([k, v]); r.getCell(1).font = { bold: true }; r.getCell(2).numFmt = KZ; });
+  resumo.addRow([]);
+  (m.warnings || []).forEach((w) => resumo.addRow(["Aviso", excelSafeText(w)]));
+  resumo.addRow(["Aviso", AVISO_LEGAL]);
+
+  // ---------- Parâmetros ----------
+  const par = wb.addWorksheet("Parâmetros");
+  par.columns = [{ width: 26 }, { width: 44 }];
+  const pk = (k: string, v: string) => { const r = par.addRow([k, excelSafeText(v)]); r.getCell(1).font = { bold: true, color: { argb: "FF6B7280" } }; };
+  pk("reportType", m.report);
+  pk("accountId", m.account_id); pk("accountName", report.account.name);
+  pk("startDate", ctx.startDate); pk("endDate", ctx.endDate);
   pk("exportId", ctx.exportId); pk("version", String(ctx.version));
 
   const buf = await wb.xlsx.writeBuffer();

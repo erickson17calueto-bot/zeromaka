@@ -4,8 +4,8 @@ export const dynamic = "force-dynamic";
 import { NextRequest } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
-import { ReportDocument } from "@/lib/reports/pdf/ReportDocument";
-import { REPORT_RPC, REPORT_LABEL, isReportType, StatementResult } from "@/lib/reports/types";
+import { ReportDocument, LedgerDocument } from "@/lib/reports/pdf/ReportDocument";
+import { REPORT_RPC, REPORT_LABEL, isReportType, isLedgerReport, StatementResult, LedgerResult } from "@/lib/reports/types";
 import { exportFileName } from "@/lib/reports/format";
 import { REGIMES, TaxRegime } from "@/lib/data";
 
@@ -31,8 +31,11 @@ export async function POST(req: NextRequest) {
   const includeReversed = body.includeReversed === true;
   const cmpStartDate = body.cmpStartDate ? String(body.cmpStartDate) : null;
   const cmpEndDate = body.cmpEndDate ? String(body.cmpEndDate) : null;
+  const accountId = body.accountId ? String(body.accountId) : null;
 
   if (!isReportType(reportType)) return bad(400, "Tipo de relatório desconhecido");
+  // o extrato é sempre de uma conta concreta
+  if (isLedgerReport(reportType) && !UUID_RE.test(accountId || "")) return bad(400, "Conta inválida");
   if (!UUID_RE.test(organizationId)) return bad(400, "Organização inválida");
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return bad(400, "Datas inválidas");
   if (startDate > endDate) return bad(400, "Intervalo de datas invertido");
@@ -43,10 +46,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Cálculo no servidor (RPC SECURITY INVOKER → valida auth + org + RLS)
-  const rpcArgs: Record<string, unknown> = {
-    p_org_id: organizationId, p_start: startDate, p_end: endDate,
-    p_cmp_start: hasCmp ? cmpStartDate : null, p_cmp_end: hasCmp ? cmpEndDate : null,
-  };
+  // o extrato tem outra assinatura (conta, sem comparação)
+  const rpcArgs: Record<string, unknown> = isLedgerReport(reportType)
+    ? { p_org_id: organizationId, p_start: startDate, p_end: endDate, p_account_id: accountId }
+    : {
+        p_org_id: organizationId, p_start: startDate, p_end: endDate,
+        p_cmp_start: hasCmp ? cmpStartDate : null, p_cmp_end: hasCmp ? cmpEndDate : null,
+      };
   if (reportType === "income_statement") rpcArgs.p_include_reversed = includeReversed;
 
   const { data: report, error } = await supabase.rpc(REPORT_RPC[reportType], rpcArgs);
@@ -55,7 +61,6 @@ export async function POST(req: NextRequest) {
     const denied = /permiss|acesso|autenticado/i.test(error.message);
     return bad(denied ? 403 : 400, denied ? "Sem acesso a esta organização" : "Falha ao calcular o relatório");
   }
-  const result = report as StatementResult;
 
   // Empresa (RLS: só a org do utilizador)
   const { data: company } = await supabase
@@ -78,20 +83,20 @@ export async function POST(req: NextRequest) {
   const exportId = logRow?.id || "00000000";
 
   const regimeLabel = company?.regime ? REGIMES[company.regime as TaxRegime]?.short : undefined;
+  const pdfCtx = {
+    companyName: company?.name || "Empresa",
+    companyNif: company?.nif || undefined,
+    regimeLabel,
+    generatedByEmail: user.email || "—",
+    generatedAt: new Date().toISOString(),
+    exportId,
+    version,
+    confidentiality: "Confidencial",
+  };
   const buffer = await renderToBuffer(
-    ReportDocument({
-      report: result,
-      ctx: {
-        companyName: company?.name || "Empresa",
-        companyNif: company?.nif || undefined,
-        regimeLabel,
-        generatedByEmail: user.email || "—",
-        generatedAt: new Date().toISOString(),
-        exportId,
-        version,
-        confidentiality: "Confidencial",
-      },
-    })
+    isLedgerReport(reportType)
+      ? LedgerDocument({ report: report as LedgerResult, ctx: pdfCtx })
+      : ReportDocument({ report: report as StatementResult, ctx: pdfCtx })
   );
 
   const filename = exportFileName(company?.name || "empresa", REPORT_LABEL[reportType], startDate, endDate, version, "pdf");

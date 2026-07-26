@@ -1,13 +1,14 @@
 // Camada de domínio de relatórios — partilhada por UI, API, PDF e Excel.
 // O cálculo é feito no servidor (funções PostgreSQL); aqui só definimos contratos.
 
-export type ReportType = "income_statement" | "cash_flow_statement" | "tax_control" | "aging";
+export type ReportType = "income_statement" | "cash_flow_statement" | "tax_control" | "aging" | "account_ledger";
 
 export const REPORT_RPC: Record<ReportType, string> = {
   income_statement: "report_income_cash",
   cash_flow_statement: "report_cash_flow",
   tax_control: "report_tax_control",
   aging: "report_aging",
+  account_ledger: "report_account_ledger",
 };
 
 export const REPORT_LABEL: Record<ReportType, string> = {
@@ -15,9 +16,13 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   cash_flow_statement: "Demonstração do Fluxo de Caixa",
   tax_control: "Controlo Fiscal (interno)",
   aging: "Mapa de Antiguidade de Saldos",
+  account_ledger: "Extrato de Conta",
 };
 
-export const REPORT_TYPES: ReportType[] = ["income_statement", "cash_flow_statement", "tax_control", "aging"];
+export const REPORT_TYPES: ReportType[] = ["income_statement", "cash_flow_statement", "tax_control", "aging", "account_ledger"];
+
+/** O extrato tem forma própria (saldo corrido) em vez de secções/totais. */
+export const isLedgerReport = (t: ReportType) => t === "account_ledger";
 
 export function isReportType(v: unknown): v is ReportType {
   return typeof v === "string" && (REPORT_TYPES as string[]).includes(v);

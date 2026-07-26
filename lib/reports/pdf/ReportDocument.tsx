@@ -2,7 +2,7 @@
 import React from "react";
 import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 import { fmtMoney, fmtDatePt } from "../format";
-import { AVISO_LEGAL, StatementResult, StmtLine } from "../types";
+import { AVISO_LEGAL, StatementResult, StmtLine, LedgerResult } from "../types";
 
 export interface PdfContext {
   companyName: string; companyNif?: string; regimeLabel?: string;
@@ -106,6 +106,62 @@ function LineRow({ l, cmp, variant }: { l: StmtLine; cmp: boolean; variant: "lin
   );
 }
 
+/** Capa partilhada por todos os relatórios. `extra` acrescenta pares na grelha. */
+function Cover({ ctx, title, period, cmpPeriod, currency, basis, extra }: {
+  ctx: PdfContext; title: string; period: string; cmpPeriod?: string;
+  currency: string; basis?: string; extra?: { k: string; v: string }[];
+}) {
+  return (
+    <View style={s.cover}>
+      {/* A empresa é o sujeito do documento — o ZeroMaka identifica-se no rodapé. */}
+      <View style={s.coverAccent} />
+      <Text style={s.coverCompany}>{ctx.companyName}</Text>
+      <Text style={s.coverCompanyMeta}>
+        {[ctx.companyNif ? `NIF ${ctx.companyNif}` : null, ctx.regimeLabel].filter(Boolean).join("   ·   ")}
+      </Text>
+
+      <View style={s.coverTitleWrap}>
+        <Text style={s.coverKicker}>RELATÓRIO DE GESTÃO</Text>
+        <Text style={s.coverTitle}>{title}</Text>
+        <View style={s.coverRule} />
+        <View style={s.periodBlock}>
+          <View style={s.periodItem}>
+            <Text style={s.periodLabel}>PERÍODO</Text>
+            <Text style={s.periodValue}>{period}</Text>
+          </View>
+          {cmpPeriod ? (
+            <View style={s.periodItem}>
+              <Text style={s.periodLabel}>COMPARAÇÃO</Text>
+              <Text style={s.periodValue}>{cmpPeriod}</Text>
+            </View>
+          ) : null}
+          {(extra || []).map((e, i) => (
+            <View key={i} style={s.periodItem}>
+              <Text style={s.periodLabel}>{e.k}</Text>
+              <Text style={s.periodValue}>{e.v}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <Text style={s.coverNote}>{AVISO_LEGAL}</Text>
+
+      <View style={s.metaGrid}>
+        <View style={s.metaCol}>
+          <View style={s.metaRow}><Text style={s.metaKey}>Moeda</Text><Text style={s.metaVal}>{currency} (Kz)</Text></View>
+          {basis ? <View style={s.metaRow}><Text style={s.metaKey}>Base de preparação</Text><Text style={s.metaVal}>{basis === "cash" ? "Caixa" : basis}</Text></View> : null}
+          <View style={s.metaRow}><Text style={s.metaKey}>Classificação</Text><Text style={s.metaVal}>{ctx.confidentiality || "Confidencial"}</Text></View>
+        </View>
+        <View style={s.metaCol}>
+          <View style={s.metaRow}><Text style={s.metaKey}>Gerado em</Text><Text style={s.metaVal}>{fmtDatePt(ctx.generatedAt.slice(0, 10))}</Text></View>
+          <View style={s.metaRow}><Text style={s.metaKey}>Gerado por</Text><Text style={s.metaVal}>{ctx.generatedByEmail}</Text></View>
+          <View style={s.metaRow}><Text style={s.metaKey}>Documento</Text><Text style={s.metaVal}>v{ctx.version} · {ctx.exportId.slice(0, 8)}</Text></View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export function ReportDocument({ report, ctx }: { report: StatementResult; ctx: PdfContext }) {
   const m = report.meta;
   const cmp = !!m.has_comparison;
@@ -115,47 +171,8 @@ export function ReportDocument({ report, ctx }: { report: StatementResult; ctx: 
     <Document title={`${m.title} — ${ctx.companyName}`} author="ZeroMaka" subject={m.title} creator="ZeroMaka" language="pt-AO">
       <Page size="A4" style={s.page}>
         <Footer ctx={ctx} />
-        <View style={s.cover}>
-          {/* A empresa é o sujeito do documento — o ZeroMaka identifica-se no rodapé. */}
-          <View style={s.coverAccent} />
-          <Text style={s.coverCompany}>{ctx.companyName}</Text>
-          <Text style={s.coverCompanyMeta}>
-            {[ctx.companyNif ? `NIF ${ctx.companyNif}` : null, ctx.regimeLabel].filter(Boolean).join("   ·   ")}
-          </Text>
-
-          <View style={s.coverTitleWrap}>
-            <Text style={s.coverKicker}>RELATÓRIO DE GESTÃO</Text>
-            <Text style={s.coverTitle}>{m.title}</Text>
-            <View style={s.coverRule} />
-            <View style={s.periodBlock}>
-              <View style={s.periodItem}>
-                <Text style={s.periodLabel}>PERÍODO</Text>
-                <Text style={s.periodValue}>{period}</Text>
-              </View>
-              {cmp && cmpPeriod ? (
-                <View style={s.periodItem}>
-                  <Text style={s.periodLabel}>COMPARAÇÃO</Text>
-                  <Text style={s.periodValue}>{cmpPeriod}</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-
-          <Text style={s.coverNote}>{AVISO_LEGAL}</Text>
-
-          <View style={s.metaGrid}>
-            <View style={s.metaCol}>
-              <View style={s.metaRow}><Text style={s.metaKey}>Moeda</Text><Text style={s.metaVal}>{m.currency} (Kz)</Text></View>
-              {m.basis ? <View style={s.metaRow}><Text style={s.metaKey}>Base de preparação</Text><Text style={s.metaVal}>{m.basis === "cash" ? "Caixa" : m.basis}</Text></View> : null}
-              <View style={s.metaRow}><Text style={s.metaKey}>Classificação</Text><Text style={s.metaVal}>{ctx.confidentiality || "Confidencial"}</Text></View>
-            </View>
-            <View style={s.metaCol}>
-              <View style={s.metaRow}><Text style={s.metaKey}>Gerado em</Text><Text style={s.metaVal}>{fmtDatePt(ctx.generatedAt.slice(0, 10))}</Text></View>
-              <View style={s.metaRow}><Text style={s.metaKey}>Gerado por</Text><Text style={s.metaVal}>{ctx.generatedByEmail}</Text></View>
-              <View style={s.metaRow}><Text style={s.metaKey}>Documento</Text><Text style={s.metaVal}>v{ctx.version} · {ctx.exportId.slice(0, 8)}</Text></View>
-            </View>
-          </View>
-        </View>
+        <Cover ctx={ctx} title={m.title} period={period} cmpPeriod={cmpPeriod}
+          currency={m.currency} basis={m.basis} />
       </Page>
 
       <Page size="A4" style={s.page}>
@@ -181,6 +198,104 @@ export function ReportDocument({ report, ctx }: { report: StatementResult; ctx: 
         ))}
 
         {report.totals.map((tl, i) => <LineRow key={i} l={tl} cmp={cmp} variant="total" />)}
+
+        <View style={s.warn}>
+          <Text style={[s.warnText, s.bold]}>Notas metodológicas</Text>
+          {(m.warnings || []).map((w, i) => <Text key={i} style={s.warnText}>• {w}</Text>)}
+          <Text style={s.warnText}>• {AVISO_LEGAL}</Text>
+        </View>
+      </Page>
+    </Document>
+  );
+}
+
+/* ─────────────── Extrato de conta ───────────────
+   Forma própria: saldo corrido por linha, em vez de secções/totais. */
+const l = StyleSheet.create({
+  colHead: { flexDirection: "row", backgroundColor: "#f3f4f6", paddingVertical: 5, paddingHorizontal: 6,
+    borderBottomWidth: 1, borderBottomColor: C.line },
+  row: { flexDirection: "row", paddingVertical: 3.5, paddingHorizontal: 6,
+    borderBottomWidth: 0.5, borderBottomColor: C.line },
+  openRow: { flexDirection: "row", paddingVertical: 5, paddingHorizontal: 6, backgroundColor: "#f8fafc",
+    borderBottomWidth: 1, borderBottomColor: C.line },
+  closeRow: { flexDirection: "row", paddingVertical: 6, paddingHorizontal: 6, backgroundColor: C.totalBg,
+    marginTop: 3, borderRadius: 2 },
+  cDate: { width: 52 },
+  cDoc: { flex: 1, paddingRight: 6 },
+  cNum: { width: 74, textAlign: "right" },
+  cBal: { width: 82, textAlign: "right" },
+  docNum: { fontSize: 6.5, color: C.muted },
+  strike: { textDecoration: "line-through" },
+  faded: { color: C.muted },
+});
+
+export function LedgerDocument({ report, ctx }: { report: LedgerResult; ctx: PdfContext }) {
+  const m = report.meta;
+  const period = `${fmtDatePt(m.start)} — ${fmtDatePt(m.end)}`;
+  const title = `${m.title} — ${report.account.name}`;
+  const bal = (v: number) => fmtMoney(v);
+  return (
+    <Document title={`${title} — ${ctx.companyName}`} author="ZeroMaka" subject={m.title} creator="ZeroMaka" language="pt-AO">
+      <Page size="A4" style={s.page}>
+        <Footer ctx={ctx} />
+        <Cover ctx={ctx} title={m.title} period={period} currency={m.currency} basis={m.basis}
+          extra={[{ k: "CONTA", v: report.account.name }]} />
+      </Page>
+
+      <Page size="A4" style={s.page}>
+        <Header ctx={ctx} title={title} period={period} />
+        <Footer ctx={ctx} />
+        <View style={s.titleBand}>
+          <Text style={s.titleBandText}>{m.title} · {report.account.name}</Text>
+          <Text style={s.titleBandSub}>{ctx.companyName} · {period}</Text>
+        </View>
+
+        <View style={l.colHead} fixed>
+          <Text style={[s.th, l.cDate]}>Data</Text>
+          <Text style={[s.th, l.cDoc]}>Documento</Text>
+          <Text style={[s.th, l.cNum]}>Entrada</Text>
+          <Text style={[s.th, l.cNum]}>Saída</Text>
+          <Text style={[s.th, l.cBal]}>Saldo</Text>
+        </View>
+
+        <View style={l.openRow}>
+          <Text style={[l.cDate, s.bold]}>—</Text>
+          <Text style={[l.cDoc, s.bold]}>Saldo inicial em {fmtDatePt(m.start)}</Text>
+          <Text style={l.cNum}>—</Text>
+          <Text style={l.cNum}>—</Text>
+          <Text style={[l.cBal, s.bold]}>{bal(report.opening)}</Text>
+        </View>
+
+        {report.rows.map((r, i) => {
+          const anulado = r.estado === "reversed" || r.tipo === "reversal";
+          return (
+            <View key={i} style={l.row} wrap={false}>
+              <Text style={anulado ? [l.cDate, l.faded] : [l.cDate]}>{fmtDatePt(r.data)}</Text>
+              <View style={l.cDoc}>
+                <Text style={r.estado === "reversed" ? [l.strike, l.faded] : anulado ? [l.faded] : []}>{r.descricao}</Text>
+                <Text style={l.docNum}>
+                  {r.numero}{r.contacto && r.contacto !== "—" ? ` · ${r.contacto}` : ""}
+                  {r.estado === "reversed" ? " · ESTORNADO" : ""}{r.tipo === "reversal" ? " · ESTORNO" : ""}
+                </Text>
+              </View>
+              <Text style={anulado ? [l.cNum, l.faded] : [l.cNum, { color: C.pos }]}>{r.entrada ? bal(r.entrada) : "—"}</Text>
+              <Text style={anulado ? [l.cNum, l.faded] : [l.cNum, { color: C.neg }]}>{r.saida ? bal(r.saida) : "—"}</Text>
+              <Text style={[l.cBal, s.bold]}>{bal(r.saldo)}</Text>
+            </View>
+          );
+        })}
+
+        {report.rows.length === 0 && (
+          <View style={l.row}><Text style={[l.cDoc, l.faded]}>Sem movimentos neste período.</Text></View>
+        )}
+
+        <View style={l.closeRow}>
+          <Text style={[l.cDate, s.bold]}>—</Text>
+          <Text style={[l.cDoc, s.bold]}>Saldo final em {fmtDatePt(m.end)}</Text>
+          <Text style={[l.cNum, s.bold, { color: C.pos }]}>{bal(report.inflow)}</Text>
+          <Text style={[l.cNum, s.bold, { color: C.neg }]}>{bal(report.outflow)}</Text>
+          <Text style={[l.cBal, s.bold, { fontSize: 10 }]}>{bal(report.closing)}</Text>
+        </View>
 
         <View style={s.warn}>
           <Text style={[s.warnText, s.bold]}>Notas metodológicas</Text>

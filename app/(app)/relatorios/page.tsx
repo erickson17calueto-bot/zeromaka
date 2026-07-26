@@ -67,15 +67,21 @@ export default function RelatoriosPage() {
   }, [tab, period, cmp, orgId, periodDates, cmpDates]);
 
   const exportFile = async (format: "pdf" | "xlsx") => {
-    const reportType = TAB_REPORT[tab];
+    // o extrato não está no mapa TAB_REPORT (tem forma própria), por isso é tratado à parte
+    const reportType = tab === "extrato" ? "account_ledger" : TAB_REPORT[tab];
     if (!reportType || !orgId) return;
+    if (reportType === "account_ledger" && !ledgerAcc) return;
     setExporting(format);
     try {
       const { start, end } = periodDates();
       const c = cmpDates();
       const res = await fetch(`/api/reports/export/${format}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportType, organizationId: orgId, startDate: start, endDate: end, cmpStartDate: c?.start ?? null, cmpEndDate: c?.end ?? null }),
+        body: JSON.stringify({
+          reportType, organizationId: orgId, startDate: start, endDate: end,
+          cmpStartDate: c?.start ?? null, cmpEndDate: c?.end ?? null,
+          accountId: reportType === "account_ledger" ? ledgerAcc : null,
+        }),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert("Erro na exportação: " + (e.error || res.status)); return; }
       const blob = await res.blob();
@@ -210,12 +216,12 @@ export default function RelatoriosPage() {
               <option value="year">vs. mesmo mês do ano anterior</option>
             </select>
           )}
-          {TAB_REPORT[tab] && (
+          {(TAB_REPORT[tab] || tab === "extrato") && (
             <>
-              <button onClick={() => exportFile("pdf")} disabled={!!exporting} className="btn-ghost text-sm px-3 py-1.5 disabled:opacity-50" title="Exportar PDF (servidor)">
+              <button onClick={() => exportFile("pdf")} disabled={!!exporting || (tab === "extrato" && !ledger)} className="btn-ghost text-sm px-3 py-1.5 disabled:opacity-50" title="Exportar PDF (servidor)">
                 {exporting === "pdf" ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} PDF
               </button>
-              <button onClick={() => exportFile("xlsx")} disabled={!!exporting} className="btn-ghost text-sm px-3 py-1.5 disabled:opacity-50" title="Exportar Excel (servidor)">
+              <button onClick={() => exportFile("xlsx")} disabled={!!exporting || (tab === "extrato" && !ledger)} className="btn-ghost text-sm px-3 py-1.5 disabled:opacity-50" title="Exportar Excel (servidor)">
                 {exporting === "xlsx" ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Excel
               </button>
             </>
