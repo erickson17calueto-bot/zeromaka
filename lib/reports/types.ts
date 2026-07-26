@@ -88,6 +88,28 @@ export interface StatementResult {
   totals: StmtLine[];
 }
 
+/** Extrato de conta: tem forma própria (saldo corrido), não secções/totais. */
+export interface LedgerRow {
+  data: string;
+  numero: string;
+  descricao: string;
+  contacto: string;
+  tipo: string;
+  estado: string;
+  entrada: number;
+  saida: number;
+  saldo: number;
+}
+export interface LedgerResult {
+  meta: ReportMeta & { account_id: string; account_name: string; has_comparison: boolean };
+  account: { id: string; name: string };
+  opening: number;
+  rows: LedgerRow[];
+  inflow: number;
+  outflow: number;
+  closing: number;
+}
+
 export interface ReportRequestBody {
   reportType: ReportType;
   organizationId: string;

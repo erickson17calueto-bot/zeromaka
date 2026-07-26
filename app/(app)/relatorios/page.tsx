@@ -3,14 +3,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, REGIMES } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
-import { REPORT_RPC, StatementResult, StmtLine, DrillResult } from "@/lib/reports/types";
-import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2 } from "lucide-react";
+import { REPORT_RPC, StatementResult, StmtLine, DrillResult, LedgerResult } from "@/lib/reports/types";
+import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2, BookOpen } from "lucide-react";
 
-type Tab = "dre" | "dfc" | "impostos" | "aging" | "balanco";
+type Tab = "dre" | "dfc" | "impostos" | "aging" | "extrato" | "balanco";
 type Cmp = "none" | "prev" | "year";
+// extrato e balanço não usam a forma secções/totais — têm renderização própria
 const TAB_REPORT: Record<Tab, keyof typeof REPORT_RPC | null> = {
   dre: "income_statement", dfc: "cash_flow_statement", impostos: "tax_control",
-  aging: "aging", balanco: null,
+  aging: "aging", extrato: null, balanco: null,
 };
 const pad = (n: number) => String(n).padStart(2, "0");
 // Demonstração formal: linhas presentes mostram sempre o valor (incl. 0 Kz).
@@ -105,11 +106,38 @@ export default function RelatoriosPage() {
     { id: "dfc" as Tab, label: "Fluxo de Caixa", icon: FileBarChart },
     { id: "impostos" as Tab, label: "Impostos", icon: Receipt },
     { id: "aging" as Tab, label: "Antiguidade de saldos", icon: CalendarClock },
+    { id: "extrato" as Tab, label: "Extrato de conta", icon: BookOpen },
     { id: "balanco" as Tab, label: "Balanço (gestão)", icon: Scale },
   ];
 
   const hasCmp = !!srv?.meta?.has_comparison;
   const warnings: string[] = srv?.meta?.warnings || [];
+
+  // ---- Extrato de conta ----
+  const [ledgerAcc, setLedgerAcc] = useState<string>("");
+  const [ledger, setLedger] = useState<LedgerResult | null>(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerErr, setLedgerErr] = useState<string | null>(null);
+
+  // escolhe a primeira conta assim que se abre o separador
+  useEffect(() => {
+    if (tab === "extrato" && !ledgerAcc && accounts.length > 0) setLedgerAcc(accounts[0].id);
+  }, [tab, ledgerAcc, accounts]);
+
+  useEffect(() => {
+    if (tab !== "extrato" || !orgId || !ledgerAcc) { setLedger(null); return; }
+    let cancelled = false;
+    setLedgerLoading(true); setLedgerErr(null);
+    const { start, end } = periodDates();
+    createClient().rpc("report_account_ledger", {
+      p_org_id: orgId, p_start: start, p_end: end, p_account_id: ledgerAcc,
+    }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) setLedgerErr(error.message); else setLedger(data as LedgerResult);
+      setLedgerLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [tab, orgId, ledgerAcc, period, periodDates]);
 
   // ---- Detalhe da linha (drill-down) ----
   const [drill, setDrill] = useState<{ line: StmtLine; data: DrillResult | null; loading: boolean; err: string | null } | null>(null);
@@ -236,6 +264,137 @@ export default function RelatoriosPage() {
             ))}
             {srv.totals.map((tl, i) => <StmtRow key={i} l={tl} variant="total" />)}
           </div>
+        </div>
+      )}
+
+      {/* ---------- Extrato de conta ---------- */}
+      {tab === "extrato" && (
+        <div className="space-y-4">
+          <div className="card p-4 flex items-end gap-3 flex-wrap">
+            <div className="min-w-[220px]">
+              <label className="label">Conta</label>
+              <select value={ledgerAcc} onChange={e => setLedgerAcc(e.target.value)} className="input">
+                {accounts.length === 0 && <option value="">Sem contas criadas</option>}
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            {ledger && (
+              <p className="text-[12px] text-ink-500 pb-2">
+                Calculado no servidor · {ledger.meta.start} a {ledger.meta.end}
+              </p>
+            )}
+          </div>
+
+          {ledgerLoading && (
+            <div className="card p-10 flex items-center justify-center gap-2 text-sm text-ink-500">
+              <Loader2 size={15} className="animate-spin" /> A montar o extrato…
+            </div>
+          )}
+          {ledgerErr && <div className="card p-4 text-sm text-red-400">{ledgerErr}</div>}
+
+          {ledger && !ledgerLoading && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
+                <div className="card p-4">
+                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Saldo inicial</div>
+                  <div className="mt-1.5 font-display text-xl">{fmtKz(ledger.opening)}</div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Entradas</div>
+                  <div className="mt-1.5 font-display text-xl text-emerald-400">{fmtKz(ledger.inflow)}</div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Saídas</div>
+                  <div className="mt-1.5 font-display text-xl text-red-400">{fmtKz(ledger.outflow)}</div>
+                </div>
+                <div className="card p-4 border-maka-500/40 bg-maka-500/[0.06]">
+                  <div className="text-[11px] uppercase tracking-wider text-maka-400 font-bold">Saldo final</div>
+                  <div className="mt-1.5 font-display text-xl text-maka-400">{fmtKz(ledger.closing)}</div>
+                </div>
+              </div>
+
+              <div className="card overflow-hidden">
+                <div className="bg-maka-500/10 px-4 py-3 border-b border-ink-800">
+                  <h2 className="font-semibold">Extrato de Conta · {ledger.account.name}</h2>
+                  <p className="text-[12px] text-ink-500 mt-0.5">
+                    Cada linha mostra o saldo depois do movimento, como no extrato do banco.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[720px]">
+                    <thead>
+                      <tr className="bg-ink-800/60 text-[10px] uppercase tracking-wider text-ink-400">
+                        <th className="text-left font-bold px-4 py-2">Data</th>
+                        <th className="text-left font-bold px-2 py-2">Documento</th>
+                        <th className="text-left font-bold px-2 py-2">Contacto</th>
+                        <th className="text-right font-bold px-2 py-2">Entrada</th>
+                        <th className="text-right font-bold px-2 py-2">Saída</th>
+                        <th className="text-right font-bold px-4 py-2">Saldo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-ink-800 bg-ink-800/20">
+                        <td className="px-4 py-2 text-ink-400" colSpan={5}>Saldo inicial em {ledger.meta.start}</td>
+                        <td className="px-4 py-2 text-right font-mono font-semibold">{fmtKz(ledger.opening)}</td>
+                      </tr>
+                      {ledger.rows.map((r, i) => {
+                        const anulado = r.estado === "reversed" || r.tipo === "reversal";
+                        return (
+                          <tr key={i} className={`border-b border-ink-800/60 ${anulado ? "opacity-60" : ""}`}>
+                            <td className="px-4 py-2 text-ink-400 whitespace-nowrap">{fmtDate(r.data)}</td>
+                            <td className="px-2 py-2">
+                              <div className={`truncate max-w-[240px] ${r.estado === "reversed" ? "line-through" : ""}`}>{r.descricao}</div>
+                              <div className="text-[11px] text-ink-500">
+                                {r.numero}
+                                {r.estado === "reversed" && <span className="text-amber-400"> · estornado</span>}
+                                {r.tipo === "reversal" && <span className="text-amber-400"> · estorno</span>}
+                              </div>
+                            </td>
+                            <td className="px-2 py-2 text-ink-400 truncate max-w-[140px]">{r.contacto}</td>
+                            <td className="px-2 py-2 text-right font-mono text-emerald-400 whitespace-nowrap">{r.entrada ? fmtKz(r.entrada) : "—"}</td>
+                            <td className="px-2 py-2 text-right font-mono text-red-400 whitespace-nowrap">{r.saida ? fmtKz(r.saida) : "—"}</td>
+                            <td className="px-4 py-2 text-right font-mono font-semibold whitespace-nowrap">{fmtKz(r.saldo)}</td>
+                          </tr>
+                        );
+                      })}
+                      {ledger.rows.length === 0 && (
+                        <tr><td colSpan={6} className="text-center text-ink-500 py-8">Sem movimentos neste período.</td></tr>
+                      )}
+                      <tr className="bg-emerald-500/10 font-semibold">
+                        <td className="px-4 py-3" colSpan={3}>Saldo final em {ledger.meta.end}</td>
+                        <td className="px-2 py-3 text-right font-mono text-emerald-400">{fmtKz(ledger.inflow)}</td>
+                        <td className="px-2 py-3 text-right font-mono text-red-400">{fmtKz(ledger.outflow)}</td>
+                        <td className="px-4 py-3 text-right font-mono">{fmtKz(ledger.closing)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* prova de que o extrato fecha */}
+              <div className="card p-4">
+                <div className="flex items-center gap-1.5 text-[12px] font-medium">
+                  {Math.abs((ledger.opening + ledger.inflow - ledger.outflow) - ledger.closing) < 0.005 ? (
+                    <><CheckCircle2 size={13} className="text-emerald-400" />
+                      <span className="text-emerald-400">O extrato fecha:</span>
+                      <span className="text-ink-400">
+                        {fmtKz(ledger.opening)} + {fmtKz(ledger.inflow)} − {fmtKz(ledger.outflow)} = {fmtKz(ledger.closing)}
+                      </span></>
+                  ) : (
+                    <><AlertTriangle size={13} className="text-amber-400" />
+                      <span className="text-amber-400">O extrato não fecha — verifica os movimentos.</span></>
+                  )}
+                </div>
+              </div>
+
+              {(ledger.meta.warnings || []).length > 0 && (
+                <div className="card p-4 text-[11px] text-ink-500 space-y-1">
+                  <div className="font-semibold text-ink-400">Notas metodológicas</div>
+                  {ledger.meta.warnings.map((w, i) => <div key={i}>• {w}</div>)}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
