@@ -162,6 +162,48 @@ function Cover({ ctx, title, period, cmpPeriod, currency, basis, extra }: {
   );
 }
 
+/** Corpo de uma demonstração (banda de título + tabela). Partilhado pelo
+    relatório individual e pelo pacote financeiro. */
+function StatementBody({ report, ctx, showWarnings = true }:
+  { report: StatementResult; ctx: PdfContext; showWarnings?: boolean }) {
+  const m = report.meta;
+  const cmp = !!m.has_comparison;
+  const period = `${fmtDatePt(m.start)} — ${fmtDatePt(m.end)}`;
+  const cmpPeriod = cmp && m.cmp_start && m.cmp_end ? `${fmtDatePt(m.cmp_start)} — ${fmtDatePt(m.cmp_end)}` : "";
+  return (
+    <>
+      <View style={s.titleBand}>
+        <Text style={s.titleBandText}>{m.title}</Text>
+        <Text style={s.titleBandSub}>{ctx.companyName} · {period}{cmp ? `  |  Comparação: ${cmpPeriod}` : ""}</Text>
+      </View>
+      <View style={s.colHead}>
+        <Text style={[s.th, s.cLabel]}>Rubrica</Text>
+        <Text style={[s.th, s.cNum]}>Atual (Kz)</Text>
+        {cmp && <Text style={[s.th, s.cNum]}>Anterior</Text>}
+        {cmp && <Text style={[s.th, s.cNum]}>Diferença</Text>}
+      </View>
+
+      {report.sections.map((sec, i) => (
+        <View key={i}>
+          <View style={s.sectionBand}><Text style={s.sectionBandText}>{sec.title}</Text></View>
+          {sec.lines.map((l, j) => <LineRow key={j} l={l} cmp={cmp} variant="line" />)}
+          {sec.subtotal && <LineRow l={sec.subtotal} cmp={cmp} variant="sub" />}
+        </View>
+      ))}
+
+      {report.totals.map((tl, i) => <LineRow key={i} l={tl} cmp={cmp} variant="total" />)}
+
+      {showWarnings && (
+        <View style={s.warn}>
+          <Text style={[s.warnText, s.bold]}>Notas metodológicas</Text>
+          {(m.warnings || []).map((w, i) => <Text key={i} style={s.warnText}>• {w}</Text>)}
+          <Text style={s.warnText}>• {AVISO_LEGAL}</Text>
+        </View>
+      )}
+    </>
+  );
+}
+
 export function ReportDocument({ report, ctx }: { report: StatementResult; ctx: PdfContext }) {
   const m = report.meta;
   const cmp = !!m.has_comparison;
@@ -178,32 +220,7 @@ export function ReportDocument({ report, ctx }: { report: StatementResult; ctx: 
       <Page size="A4" style={s.page}>
         <Header ctx={ctx} title={m.title} period={period} />
         <Footer ctx={ctx} />
-        <View style={s.titleBand}>
-          <Text style={s.titleBandText}>{m.title}</Text>
-          <Text style={s.titleBandSub}>{ctx.companyName} · {period}{cmp ? `  |  Comparação: ${cmpPeriod}` : ""}</Text>
-        </View>
-        <View style={s.colHead}>
-          <Text style={[s.th, s.cLabel]}>Rubrica</Text>
-          <Text style={[s.th, s.cNum]}>Atual (Kz)</Text>
-          {cmp && <Text style={[s.th, s.cNum]}>Anterior</Text>}
-          {cmp && <Text style={[s.th, s.cNum]}>Diferença</Text>}
-        </View>
-
-        {report.sections.map((sec, i) => (
-          <View key={i}>
-            <View style={s.sectionBand}><Text style={s.sectionBandText}>{sec.title}</Text></View>
-            {sec.lines.map((l, j) => <LineRow key={j} l={l} cmp={cmp} variant="line" />)}
-            {sec.subtotal && <LineRow l={sec.subtotal} cmp={cmp} variant="sub" />}
-          </View>
-        ))}
-
-        {report.totals.map((tl, i) => <LineRow key={i} l={tl} cmp={cmp} variant="total" />)}
-
-        <View style={s.warn}>
-          <Text style={[s.warnText, s.bold]}>Notas metodológicas</Text>
-          {(m.warnings || []).map((w, i) => <Text key={i} style={s.warnText}>• {w}</Text>)}
-          <Text style={s.warnText}>• {AVISO_LEGAL}</Text>
-        </View>
+        <StatementBody report={report} ctx={ctx} />
       </Page>
     </Document>
   );
@@ -229,26 +246,19 @@ const l = StyleSheet.create({
   faded: { color: C.muted },
 });
 
-export function LedgerDocument({ report, ctx }: { report: LedgerResult; ctx: PdfContext }) {
+/** Corpo do extrato (banda + tabela com saldo corrido). Partilhado pelo extrato
+    individual e pelo pacote financeiro. */
+function LedgerBody({ report, ctx, showWarnings = true }:
+  { report: LedgerResult; ctx: PdfContext; showWarnings?: boolean }) {
   const m = report.meta;
   const period = `${fmtDatePt(m.start)} — ${fmtDatePt(m.end)}`;
-  const title = `${m.title} — ${report.account.name}`;
   const bal = (v: number) => fmtMoney(v);
   return (
-    <Document title={`${title} — ${ctx.companyName}`} author="ZeroMaka" subject={m.title} creator="ZeroMaka" language="pt-AO">
-      <Page size="A4" style={s.page}>
-        <Footer ctx={ctx} />
-        <Cover ctx={ctx} title={m.title} period={period} currency={m.currency} basis={m.basis}
-          extra={[{ k: "CONTA", v: report.account.name }]} />
-      </Page>
-
-      <Page size="A4" style={s.page}>
-        <Header ctx={ctx} title={title} period={period} />
-        <Footer ctx={ctx} />
-        <View style={s.titleBand}>
-          <Text style={s.titleBandText}>{m.title} · {report.account.name}</Text>
-          <Text style={s.titleBandSub}>{ctx.companyName} · {period}</Text>
-        </View>
+    <>
+      <View style={s.titleBand}>
+        <Text style={s.titleBandText}>{m.title} · {report.account.name}</Text>
+        <Text style={s.titleBandSub}>{ctx.companyName} · {period}</Text>
+      </View>
 
         <View style={l.colHead} fixed>
           <Text style={[s.th, l.cDate]}>Data</Text>
@@ -297,12 +307,117 @@ export function LedgerDocument({ report, ctx }: { report: LedgerResult; ctx: Pdf
           <Text style={[l.cBal, s.bold, { fontSize: 10 }]}>{bal(report.closing)}</Text>
         </View>
 
-        <View style={s.warn}>
-          <Text style={[s.warnText, s.bold]}>Notas metodológicas</Text>
-          {(m.warnings || []).map((w, i) => <Text key={i} style={s.warnText}>• {w}</Text>)}
-          <Text style={s.warnText}>• {AVISO_LEGAL}</Text>
+        {showWarnings && (
+          <View style={s.warn}>
+            <Text style={[s.warnText, s.bold]}>Notas metodológicas</Text>
+            {(m.warnings || []).map((w, i) => <Text key={i} style={s.warnText}>• {w}</Text>)}
+            <Text style={s.warnText}>• {AVISO_LEGAL}</Text>
+          </View>
+        )}
+    </>
+  );
+}
+
+export function LedgerDocument({ report, ctx }: { report: LedgerResult; ctx: PdfContext }) {
+  const m = report.meta;
+  const period = `${fmtDatePt(m.start)} — ${fmtDatePt(m.end)}`;
+  const title = `${m.title} — ${report.account.name}`;
+  return (
+    <Document title={`${title} — ${ctx.companyName}`} author="ZeroMaka" subject={m.title} creator="ZeroMaka" language="pt-AO">
+      <Page size="A4" style={s.page}>
+        <Footer ctx={ctx} />
+        <Cover ctx={ctx} title={m.title} period={period} currency={m.currency} basis={m.basis}
+          extra={[{ k: "CONTA", v: report.account.name }]} />
+      </Page>
+      <Page size="A4" style={s.page}>
+        <Header ctx={ctx} title={title} period={period} />
+        <Footer ctx={ctx} />
+        <LedgerBody report={report} ctx={ctx} />
+      </Page>
+    </Document>
+  );
+}
+
+/* ─────────────── Pacote Financeiro ───────────────
+   Todas as demonstrações do período num só PDF, para entregar ao contabilista
+   ou ao banco. Cada relatório continua a ser calculado no servidor pela sua
+   própria função — aqui só se juntam os resultados. */
+const pk = StyleSheet.create({
+  idxTitle: { fontSize: 12, fontFamily: "Helvetica-Bold", marginBottom: 10 },
+  idxRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6,
+    borderBottomWidth: 0.5, borderBottomColor: C.line },
+  idxName: { fontSize: 9.5 },
+  idxNote: { fontSize: 8, color: C.muted },
+  intro: { fontSize: 8.5, color: C.muted, lineHeight: 1.6, marginBottom: 16 },
+});
+
+export interface FinancialPack {
+  statements: StatementResult[];
+  ledgers: LedgerResult[];
+  start: string;
+  end: string;
+}
+
+export function FinancialPackDocument({ pack, ctx }: { pack: FinancialPack; ctx: PdfContext }) {
+  const period = `${fmtDatePt(pack.start)} — ${fmtDatePt(pack.end)}`;
+  const title = "Pacote Financeiro";
+  return (
+    <Document title={`${title} — ${ctx.companyName}`} author="ZeroMaka" subject={title} creator="ZeroMaka" language="pt-AO">
+      <Page size="A4" style={s.page}>
+        <Footer ctx={ctx} />
+        <Cover ctx={ctx} title={title} period={period} currency="AOA" basis="cash" />
+      </Page>
+
+      {/* Índice — quem recebe percebe logo o que tem em mãos */}
+      <Page size="A4" style={s.page}>
+        <Header ctx={ctx} title={title} period={period} />
+        <Footer ctx={ctx} />
+        <View style={s.titleBand}>
+          <Text style={s.titleBandText}>Conteúdo do pacote</Text>
+          <Text style={s.titleBandSub}>{ctx.companyName} · {period}</Text>
+        </View>
+        <View style={{ marginTop: 14 }}>
+          <Text style={pk.intro}>
+            Este pacote reúne as demonstrações de gestão do período indicado, todas
+            preparadas em base de caixa e calculadas a partir dos movimentos registados.
+            Cada demonstração traz as suas próprias notas metodológicas. {AVISO_LEGAL}
+          </Text>
+          <Text style={pk.idxTitle}>Demonstrações</Text>
+          {pack.statements.map((st, i) => (
+            <View key={i} style={pk.idxRow}>
+              <Text style={pk.idxName}>{i + 1}. {st.meta.title}</Text>
+              <Text style={pk.idxNote}>{st.meta.has_comparison ? "com comparação" : "período simples"}</Text>
+            </View>
+          ))}
+          {pack.ledgers.length > 0 && (
+            <>
+              <Text style={[pk.idxTitle, { marginTop: 18 }]}>Extratos de conta</Text>
+              {pack.ledgers.map((lg, i) => (
+                <View key={i} style={pk.idxRow}>
+                  <Text style={pk.idxName}>{pack.statements.length + i + 1}. Extrato — {lg.account.name}</Text>
+                  <Text style={pk.idxNote}>saldo final {fmtMoney(lg.closing)} Kz</Text>
+                </View>
+              ))}
+            </>
+          )}
         </View>
       </Page>
+
+      {pack.statements.map((st, i) => (
+        <Page key={`st${i}`} size="A4" style={s.page}>
+          <Header ctx={ctx} title={st.meta.title} period={period} />
+          <Footer ctx={ctx} />
+          <StatementBody report={st} ctx={ctx} />
+        </Page>
+      ))}
+
+      {pack.ledgers.map((lg, i) => (
+        <Page key={`lg${i}`} size="A4" style={s.page}>
+          <Header ctx={ctx} title={`Extrato — ${lg.account.name}`} period={period} />
+          <Footer ctx={ctx} />
+          <LedgerBody report={lg} ctx={ctx} />
+        </Page>
+      ))}
     </Document>
   );
 }

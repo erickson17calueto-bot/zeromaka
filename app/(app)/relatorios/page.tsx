@@ -4,7 +4,7 @@ import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, REGIMES } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import { REPORT_RPC, StatementResult, StmtLine, DrillResult, LedgerResult } from "@/lib/reports/types";
-import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2, BookOpen } from "lucide-react";
+import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2, BookOpen, Package } from "lucide-react";
 
 type Tab = "dre" | "dfc" | "impostos" | "aging" | "extrato" | "balanco";
 type Cmp = "none" | "prev" | "year";
@@ -65,6 +65,31 @@ export default function RelatoriosPage() {
     });
     return () => { cancelled = true; };
   }, [tab, period, cmp, orgId, periodDates, cmpDates]);
+
+  // Pacote financeiro: todas as demonstrações + extratos num só PDF
+  const [packing, setPacking] = useState(false);
+  const exportPack = async () => {
+    if (!orgId) return;
+    setPacking(true);
+    try {
+      const { start, end } = periodDates();
+      const c = cmpDates();
+      const res = await fetch("/api/reports/export/pack", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizationId: orgId, startDate: start, endDate: end,
+          cmpStartDate: c?.start ?? null, cmpEndDate: c?.end ?? null, includeLedgers: true,
+        }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert("Erro no pacote: " + (e.error || res.status)); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const cd = res.headers.get("Content-Disposition") || "";
+      const name = /filename="([^"]+)"/.exec(cd)?.[1] || "pacote-financeiro.pdf";
+      const a = document.createElement("a");
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } finally { setPacking(false); }
+  };
 
   const exportFile = async (format: "pdf" | "xlsx") => {
     // o extrato não está no mapa TAB_REPORT (tem forma própria), por isso é tratado à parte
@@ -226,6 +251,11 @@ export default function RelatoriosPage() {
               </button>
             </>
           )}
+          <button onClick={exportPack} disabled={packing}
+            className="btn-primary text-sm px-3 py-1.5 disabled:opacity-50"
+            title="Todas as demonstrações e extratos num só PDF, para o contabilista ou o banco">
+            {packing ? <Loader2 size={14} className="animate-spin" /> : <Package size={14} />} Pacote financeiro
+          </button>
         </div>
       </header>
 

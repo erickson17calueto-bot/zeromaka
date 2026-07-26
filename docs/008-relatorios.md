@@ -96,6 +96,27 @@ usa tabelas com painéis congelados, autofiltro e `#,##0.00;(#,##0.00)`.
 
 Ambos usam tema claro fixo, independente do tema da aplicação.
 
+## Pacote financeiro
+
+`POST /api/reports/export/pack` produz **um só PDF** com tudo o que o
+contabilista ou o banco costumam pedir:
+
+1. capa (empresa, período);
+2. **índice** — quem recebe percebe logo o que tem em mãos;
+3. as quatro demonstrações do período;
+4. um extrato por conta não arquivada (`includeLedgers`, ligado por omissão).
+
+Cada demonstração continua a ser calculada pela **sua própria função no
+servidor** — o pacote apenas junta resultados, não recalcula nada. Se um
+relatório e o pacote divergissem, seria sinal de um bug; por construção não
+podem.
+
+Os componentes `StatementBody` e `LedgerBody` são partilhados entre o relatório
+individual e o pacote, pelo que uma correção de formatação aparece nos dois.
+
+Fica registado em `report_exports` como `financial_pack`, com o número de
+demonstrações e de extratos incluídos em `filters_json`.
+
 ## Segurança
 
 Todas as funções de relatório são `SECURITY INVOKER` (respeitam RLS) e validam
