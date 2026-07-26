@@ -20,6 +20,9 @@ delete from contacts               where organization_id in ('a5000000-0000-0000
 delete from organization_members   where organization_id in ('a5000000-0000-0000-0000-0000000000a1','b5000000-0000-0000-0000-0000000000b1');
 delete from companies              where organization_id in ('a5000000-0000-0000-0000-0000000000a1','b5000000-0000-0000-0000-0000000000b1');
 delete from organizations          where id in ('a5000000-0000-0000-0000-0000000000a1','b5000000-0000-0000-0000-0000000000b1');
+-- profiles é criado por trigger em auth.users; sem esta limpeza a segunda
+-- execução falha com chave duplicada em profiles_pkey
+delete from profiles where id in ('15000000-0000-0000-0000-000000000001','25000000-0000-0000-0000-000000000001');
 delete from auth.users where email like '%@t5.test';
 set session_replication_role = origin;
 
@@ -165,6 +168,47 @@ begin
   from json_array_elements(r->'sections'->0->'lines') l where l->>'label' = 'Vendas';
   insert into _tr(name,passed,detail) values
     ('12 linha traz chave de detalhe', t = 'income:Vendas', 'key '||coalesce(t,'null'));
+
+  -- ══════════ Filtros avançados (conta / categoria / contacto) ══════════
+  -- Sem filtro: nada marcado, um só aviso metodológico
+  r := report_income_cash(v_org, s, e);
+  insert into _tr(name,passed,detail) values
+    ('12b sem filtro nao marca filtered', (r->'meta'->>'filtered')::boolean = false,
+     'filtered='||(r->'meta'->>'filtered'));
+
+  -- Filtro por conta: isola os movimentos daquela conta
+  r := report_income_cash(v_org, s, e, null, null, false, v_acc);
+  insert into _tr(name,passed,detail) values
+    ('12c filtro por conta isola', (r->'sections'->0->'subtotal'->>'current')::numeric = 150000,
+     'obtido '||(r->'sections'->0->'subtotal'->>'current')||' esperado 150000');
+  insert into _tr(name,passed,detail) values
+    ('12d filtrado marca meta.filtered', (r->'meta'->>'filtered')::boolean,
+     'filtered='||(r->'meta'->>'filtered'));
+  select count(*) into n from json_array_elements(r->'meta'->'warnings');
+  insert into _tr(name,passed,detail) values
+    ('12e filtrado acrescenta aviso', n = 2, 'avisos '||n||' (metodologico + filtrado)');
+  select string_agg(w::text,' ') into t from json_array_elements(r->'meta'->'warnings') w;
+  insert into _tr(name,passed,detail) values
+    ('12f aviso diz FILTRADO', t ilike '%FILTRADO%', 'o aviso tem de ser explicito');
+
+  -- Filtro por categoria e por contacto
+  r := report_income_cash(v_org, s, e, null, null, false, null, 'Vendas');
+  select count(*) into n from json_array_elements(r->'sections'->0->'lines');
+  insert into _tr(name,passed,detail) values
+    ('12g filtro por categoria deixa 1 rubrica', n = 1, 'rubricas '||n);
+
+  r := report_income_cash(v_org, s, e, null, null, false, null, null, 'c5000000-0000-0000-0000-0000000000c1');
+  insert into _tr(name,passed,detail) values
+    ('12h filtro por contacto', (r->'sections'->0->'subtotal'->>'current')::numeric = 100000,
+     'obtido '||(r->'sections'->0->'subtotal'->>'current')||' esperado 100000');
+
+  -- Conta de outra organização tem de ser rejeitada mesmo como filtro
+  begin
+    r := report_income_cash(v_org, s, e, null, null, false, v_accb);
+    insert into _tr(name,passed,detail) values('12i filtro rejeita conta de outra org', false, 'NAO BLOQUEOU');
+  exception when others then
+    insert into _tr(name,passed,detail) values('12i filtro rejeita conta de outra org', true, left(SQLERRM,45));
+  end;
 
   -- ══════════ Antiguidade de Saldos ══════════
   r := report_aging(v_org, s, e);

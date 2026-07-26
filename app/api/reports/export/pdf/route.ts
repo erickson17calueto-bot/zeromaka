@@ -32,6 +32,9 @@ export async function POST(req: NextRequest) {
   const cmpStartDate = body.cmpStartDate ? String(body.cmpStartDate) : null;
   const cmpEndDate = body.cmpEndDate ? String(body.cmpEndDate) : null;
   const accountId = body.accountId ? String(body.accountId) : null;
+  const filterAccountId = body.filterAccountId ? String(body.filterAccountId) : null;
+  const filterCategory = body.filterCategory ? String(body.filterCategory) : null;
+  const filterContactId = body.filterContactId ? String(body.filterContactId) : null;
 
   if (!isReportType(reportType)) return bad(400, "Tipo de relatório desconhecido");
   // o extrato é sempre de uma conta concreta
@@ -53,7 +56,14 @@ export async function POST(req: NextRequest) {
         p_org_id: organizationId, p_start: startDate, p_end: endDate,
         p_cmp_start: hasCmp ? cmpStartDate : null, p_cmp_end: hasCmp ? cmpEndDate : null,
       };
-  if (reportType === "income_statement") rpcArgs.p_include_reversed = includeReversed;
+  if (reportType === "income_statement") {
+    rpcArgs.p_include_reversed = includeReversed;
+    if (filterAccountId && !UUID_RE.test(filterAccountId)) return bad(400, "Conta de filtro inválida");
+    if (filterContactId && !UUID_RE.test(filterContactId)) return bad(400, "Contacto de filtro inválido");
+    rpcArgs.p_account_id = filterAccountId;
+    rpcArgs.p_category = filterCategory;
+    rpcArgs.p_contact_id = filterContactId;
+  }
 
   const { data: report, error } = await supabase.rpc(REPORT_RPC[reportType], rpcArgs);
   if (error) {

@@ -96,6 +96,29 @@ usa tabelas com painéis congelados, autofiltro e `#,##0.00;(#,##0.00)`.
 
 Ambos usam tema claro fixo, independente do tema da aplicação.
 
+## Filtros
+
+O período aceita **datas livres** além de "este mês" / "acumulado".
+
+O Resultado de Caixa aceita ainda três filtros opcionais — **conta**,
+**categoria** e **contacto** — passados à RPC como `p_account_id`,
+`p_category` e `p_contact_id`. `null` significa "sem filtro", pelo que o
+comportamento por omissão não mudou.
+
+Um relatório filtrado **marca-se a si próprio**: `meta.filtered = true` e um
+aviso adicional a dizer que os totais são de um subconjunto e não representam o
+período completo. O ecrã mostra também um aviso em âmbar. Isto é deliberado —
+um recorte que pareça uma demonstração completa é pior do que não ter filtro
+nenhum.
+
+Os filtros são enviados na exportação (`filterAccountId`, `filterCategory`,
+`filterContactId`), para o PDF e o Excel corresponderem ao que está no ecrã.
+A conta indicada é validada contra a organização, no servidor.
+
+As opções de categoria vêm dos lançamentos, não do relatório: se viessem do
+relatório, ao filtrar a lista colapsava para a categoria escolhida e o
+utilizador ficava sem forma de trocar.
+
 ## Pacote financeiro
 
 `POST /api/reports/export/pack` produz **um só PDF** com tudo o que o

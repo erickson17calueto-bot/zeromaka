@@ -4,7 +4,7 @@ import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, REGIMES } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import { REPORT_RPC, StatementResult, StmtLine, DrillResult, LedgerResult } from "@/lib/reports/types";
-import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2, BookOpen, Package } from "lucide-react";
+import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2, BookOpen, Package, SlidersHorizontal } from "lucide-react";
 
 type Tab = "dre" | "dfc" | "impostos" | "aging" | "extrato" | "balanco";
 type Cmp = "none" | "prev" | "year";
@@ -20,22 +20,31 @@ const money = (v: number) => fmtKz(v);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function RelatoriosPage() {
-  const { obligations, accounts, transactions, company, orgId } = useStore();
+  const { obligations, accounts, transactions, contacts, company, orgId } = useStore();
   const [tab, setTab] = useState<Tab>("dre");
-  const [period, setPeriod] = useState<"month" | "all">("month");
+  const [period, setPeriod] = useState<"month" | "all" | "custom">("month");
   const [cmp, setCmp] = useState<Cmp>("none");
   const [srv, setSrv] = useState<StatementResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
 
+  // Intervalo livre + filtros por conta, categoria e contacto
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [fAccount, setFAccount] = useState("");
+  const [fCategory, setFCategory] = useState("");
+  const [fContact, setFContact] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
   const now = new Date();
   const periodDates = useCallback(() => {
+    if (period === "custom" && customStart && customEnd) return { start: customStart, end: customEnd };
     if (period === "all") return { start: "2000-01-01", end: new Date().toISOString().slice(0, 10) };
     const y = now.getFullYear(), m = now.getMonth();
     const last = new Date(y, m + 1, 0).getDate();
     return { start: `${y}-${pad(m + 1)}-01`, end: `${y}-${pad(m + 1)}-${pad(last)}` };
-  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [period, customStart, customEnd]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cmpDates = useCallback((): { start: string; end: string } | null => {
     if (cmp === "none" || period === "all") return null;
@@ -57,14 +66,20 @@ export default function RelatoriosPage() {
     const { start, end } = periodDates();
     const c = cmpDates();
     const args: any = { p_org_id: orgId, p_start: start, p_end: end, p_cmp_start: c?.start ?? null, p_cmp_end: c?.end ?? null };
-    if (reportType === "income_statement") args.p_include_reversed = false;
+    // Só o Resultado de Caixa aceita filtros por conta/categoria/contacto
+    if (reportType === "income_statement") {
+      args.p_include_reversed = false;
+      args.p_account_id = fAccount || null;
+      args.p_category = fCategory || null;
+      args.p_contact_id = fContact || null;
+    }
     createClient().rpc(REPORT_RPC[reportType], args).then(({ data, error }) => {
       if (cancelled) return;
       if (error) setErr(error.message); else setSrv(data as StatementResult);
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [tab, period, cmp, orgId, periodDates, cmpDates]);
+  }, [tab, period, cmp, orgId, periodDates, cmpDates, fAccount, fCategory, fContact]);
 
   // Pacote financeiro: todas as demonstrações + extratos num só PDF
   const [packing, setPacking] = useState(false);
@@ -106,6 +121,10 @@ export default function RelatoriosPage() {
           reportType, organizationId: orgId, startDate: start, endDate: end,
           cmpStartDate: c?.start ?? null, cmpEndDate: c?.end ?? null,
           accountId: reportType === "account_ledger" ? ledgerAcc : null,
+          // o ficheiro exportado tem de refletir o que está no ecrã
+          ...(reportType === "income_statement"
+            ? { filterAccountId: fAccount || null, filterCategory: fCategory || null, filterContactId: fContact || null }
+            : {}),
         }),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert("Erro na exportação: " + (e.error || res.status)); return; }
@@ -143,6 +162,17 @@ export default function RelatoriosPage() {
 
   const hasCmp = !!srv?.meta?.has_comparison;
   const warnings: string[] = srv?.meta?.warnings || [];
+  const nFilters = [fAccount, fCategory, fContact].filter(Boolean).length;
+  const clearFilters = () => { setFAccount(""); setFCategory(""); setFContact(""); };
+
+  // Categorias vindas dos lançamentos, não do relatório: se as tirássemos do
+  // relatório, ao filtrar a lista colapsava para a categoria escolhida e o
+  // utilizador ficava sem forma de trocar.
+  const categoriaOpcoes = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of transactions) if (t.category) set.add(t.category);
+    return Array.from(set).sort();
+  }, [transactions]);
 
   // ---- Extrato de conta ----
   const [ledgerAcc, setLedgerAcc] = useState<string>("");
@@ -233,7 +263,15 @@ export default function RelatoriosPage() {
           <div className="flex gap-1 rounded-lg border border-ink-700 p-1">
             <button onClick={() => setPeriod("month")} className={`px-3 py-1 text-[12px] rounded ${period === "month" ? "bg-maka-500 text-onbrand font-semibold" : "text-ink-400"}`}>Este mês</button>
             <button onClick={() => setPeriod("all")} className={`px-3 py-1 text-[12px] rounded ${period === "all" ? "bg-maka-500 text-onbrand font-semibold" : "text-ink-400"}`}>Acumulado</button>
+            <button onClick={() => setPeriod("custom")} className={`px-3 py-1 text-[12px] rounded ${period === "custom" ? "bg-maka-500 text-onbrand font-semibold" : "text-ink-400"}`}>Datas livres</button>
           </div>
+          {tab === "dre" && (
+            <button onClick={() => setShowFilters(v => !v)}
+              className={`btn-ghost text-sm px-3 py-1.5 ${nFilters > 0 ? "border-maka-500/50 text-maka-400" : ""}`}
+              title="Filtrar por conta, categoria ou contacto">
+              <SlidersHorizontal size={14} /> Filtros{nFilters > 0 ? ` (${nFilters})` : ""}
+            </button>
+          )}
           {TAB_REPORT[tab] && period === "month" && (
             <select value={cmp} onChange={(e) => setCmp(e.target.value as Cmp)} className="input text-[12px] py-1.5 w-auto">
               <option value="none">Sem comparação</option>
@@ -258,6 +296,65 @@ export default function RelatoriosPage() {
           </button>
         </div>
       </header>
+
+      {period === "custom" && (
+        <div className="card p-4 flex items-end gap-3 flex-wrap pop">
+          <div>
+            <label className="label">De</label>
+            <input type="date" className="input" value={customStart} onChange={e => setCustomStart(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Até</label>
+            <input type="date" className="input" value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
+          </div>
+          {customStart && customEnd && customStart > customEnd && (
+            <p className="text-[12px] text-red-400 pb-2">A data inicial é posterior à final.</p>
+          )}
+          {(!customStart || !customEnd) && (
+            <p className="text-[12px] text-ink-500 pb-2">Escolhe as duas datas para o relatório mudar.</p>
+          )}
+        </div>
+      )}
+
+      {tab === "dre" && showFilters && (
+        <div className="card p-4 pop">
+          <div className="flex items-end gap-3 flex-wrap">
+            <div className="min-w-[180px]">
+              <label className="label">Conta</label>
+              <select className="input" value={fAccount} onChange={e => setFAccount(e.target.value)}>
+                <option value="">Todas as contas</option>
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            <div className="min-w-[180px]">
+              <label className="label">Categoria</label>
+              <select className="input" value={fCategory} onChange={e => setFCategory(e.target.value)}>
+                <option value="">Todas as categorias</option>
+                {categoriaOpcoes.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="min-w-[180px]">
+              <label className="label">Contacto</label>
+              <select className="input" value={fContact} onChange={e => setFContact(e.target.value)}>
+                <option value="">Todos os contactos</option>
+                {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            {nFilters > 0 && (
+              <button onClick={clearFilters} className="btn-ghost text-xs px-3 py-2">
+                <X size={13} /> Limpar filtros
+              </button>
+            )}
+          </div>
+          {nFilters > 0 && (
+            <p className="text-[12px] text-amber-400 mt-3 flex items-start gap-1.5">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              Relatório filtrado: os totais abaixo referem-se só ao subconjunto escolhido,
+              não ao resultado completo do período.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2 flex-wrap">
         {TABS.map((t) => {
