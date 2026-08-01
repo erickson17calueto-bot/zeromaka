@@ -8,7 +8,7 @@ import {
   ObligationDirection, ObligationDocumentKind, SettlementDirection,
   CollectionChannel, CollectionInteractionType, CollectionOutcome,
   ReserveCategory, FinancialReserve, ReserveMovement, FinancialSettings, TrueAvailableCash,
-  ReserveType, ReservePriority,
+  ReserveType, ReservePriority, RecurringTransaction, BankStatementLine, BankStatementDirection,
   seedBadges, taxRateFor
 } from "./data";
 
@@ -20,7 +20,7 @@ interface Store {
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
   company: Company; accounts: Account[]; transactions: Transaction[];
   contacts: Contact[]; requisitions: Requisition[]; badges: Badge[]; profile: UserProfile; toasts: Toast[];
-  journalEntries: JournalEntry[]; categories: FinancialCategory[];
+  journalEntries: JournalEntry[]; categories: FinancialCategory[]; recurringTransactions: RecurringTransaction[]; bankStatementLines: BankStatementLine[];
   obligations: Obligation[]; settlements: Settlement[]; collectionInteractions: CollectionInteraction[];
   reserves: FinancialReserve[]; reserveCategories: ReserveCategory[]; reserveMovements: ReserveMovement[];
   finSettings: FinancialSettings; trueAvailable: TrueAvailableCash | null;
@@ -57,6 +57,15 @@ interface Store {
   updateProfile: (p: Partial<UserProfile>) => void;
   gainXp: (amount: number, reason: string) => void;
   taxRate: number;
+  refreshRecurringTransactions: (oid?: string) => Promise<void>;
+  refreshBankStatementLines: (oid?: string) => Promise<void>;
+  createRecurringTransaction: (d: { accountId: string; kind: "income" | "expense"; amount: number; description: string; categoryId?: string; contactId?: string; frequency: "weekly" | "monthly" | "quarterly" | "yearly"; startDate: string; nextRunDate: string; active?: boolean }) => Promise<string | null>;
+  setRecurringActive: (id: string, active: boolean) => Promise<string | null>;
+  generateDueRecurringTransactions: (asOfDate?: string) => Promise<number | null>;
+  importBankStatementLines: (lines: { accountId: string; transactionDate: string; amount: number; direction: BankStatementDirection; description: string; reference?: string; externalId?: string }[]) => Promise<string | null>;
+  matchBankStatementLine: (lineId: string, journalEntryId: string) => Promise<string | null>;
+  unmatchBankStatementLine: (lineId: string) => Promise<string | null>;
+  ignoreBankStatementLine: (lineId: string) => Promise<string | null>;
 }
 
 const Ctx = createContext<Store>(null as any);
@@ -99,6 +108,23 @@ const dbToJournalEntry = (r: any): JournalEntry => ({
   lines: (r.journal_lines || []).map(dbToJournalLine),
 });
 
+const dbToRecurringTransaction = (r: any): RecurringTransaction => ({
+  id: r.id, organizationId: r.organization_id, accountId: r.account_id,
+  kind: r.transaction_kind, amount: Number(r.amount), description: r.description,
+  categoryId: r.category_id || undefined, contactId: r.contact_id || undefined,
+  frequency: r.frequency, startDate: r.start_date, nextRunDate: r.next_run_date,
+  lastGeneratedAt: r.last_generated_at || undefined, active: r.active,
+  createdAt: r.created_at,
+});
+
+const dbToBankStatementLine = (r: any): BankStatementLine => ({
+  id: r.id, organizationId: r.organization_id, accountId: r.account_id,
+  transactionDate: r.transaction_date, amount: Number(r.amount), direction: r.direction,
+  description: r.description || "", reference: r.reference || undefined,
+  externalId: r.external_id || undefined, status: r.status,
+  matchedJournalEntryId: r.matched_journal_entry_id || undefined,
+  matchedAt: r.matched_at || undefined, importedAt: r.imported_at,
+});
 const dbToCategory = (r: any): FinancialCategory => ({
   id: r.id, organizationId: r.organization_id, name: r.name,
   categoryType: r.category_type, parentId: r.parent_id || undefined,
@@ -343,6 +369,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [company, setCompany] = useState<Company>(defaultCompany);
   const [rawAccounts, setRawAccounts] = useState<Omit<Account, "currentBalance">[]>([]);
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([]);
+  const [bankStatementLines, setBankStatementLines] = useState<BankStatementLine[]>([]);
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
   const [rawObligations, setRawObligations] = useState<Obligation[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
@@ -399,6 +427,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (data) setJournalEntries(data.map(dbToJournalEntry));
   }, []);
 
+  const refreshRecurringTransactions = useCallback(async (oid?: string) => {
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    const { data } = await createClient().from("recurring_transactions").select("*")
+      .eq("organization_id", id).order("next_run_date", { ascending: true });
+    if (data) setRecurringTransactions(data.map(dbToRecurringTransaction));
+  }, []);
+
+  const refreshBankStatementLines = useCallback(async (oid?: string) => {
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    const { data } = await createClient().from("bank_statement_lines").select("*")
+      .eq("organization_id", id).order("transaction_date", { ascending: false });
+    if (data) setBankStatementLines(data.map(dbToBankStatementLine));
+  }, []);
   const refreshAvailable = useCallback(async (horizonDays?: number) => {
     const supabase = createClient();
     const id = orgIdRef.current;
@@ -437,7 +480,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- Auth & data loading ----
   const loadOrgData = useCallback(async (oid: string) => {
     const supabase = createClient();
-    const [compRes, accRes, entryRes, catRes, conRes, rqRes, obRes, stRes, ciRes, resRes, rcatRes, rmovRes, fsRes, tacRes] = await Promise.all([
+    const [compRes, accRes, entryRes, catRes, conRes, rqRes, obRes, stRes, ciRes, resRes, rcatRes, rmovRes, fsRes, tacRes, recRes, bankRes] = await Promise.all([
       supabase.from("companies").select("*").eq("organization_id", oid).single(),
       supabase.from("accounts").select("*").eq("organization_id", oid).eq("is_archived", false).order("created_at"),
       supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
@@ -452,6 +495,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       supabase.from("reserve_movements").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
       supabase.from("organization_financial_settings").select("*").eq("organization_id", oid).maybeSingle(),
       supabase.rpc("get_true_available_cash", { p_org_id: oid, p_horizon_days: null }),
+      supabase.from("recurring_transactions").select("*").eq("organization_id", oid).order("next_run_date"),
+      supabase.from("bank_statement_lines").select("*").eq("organization_id", oid).order("transaction_date", { ascending: false }),
     ]);
     if (compRes.data) setCompany(dbToCompany(compRes.data));
     if (accRes.data) setRawAccounts(accRes.data.map(dbToAccount));
@@ -467,6 +512,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (rmovRes.data) setReserveMovements(rmovRes.data.map(dbToReserveMovement));
     setFinSettings(fsRes.data ? dbToFinSettings(fsRes.data) : defaultFinSettings);
     if (tacRes.data) setTrueAvailable(dbToTrueAvailable(tacRes.data));
+    if (recRes.data) setRecurringTransactions(recRes.data.map(dbToRecurringTransaction));
+    if (bankRes.data) setBankStatementLines(bankRes.data.map(dbToBankStatementLine));
+
+    // Processa automaticamente ocorrências vencidas ao abrir a organização.
+    // A RPC é idempotente através de recurring_transaction_occurrences.
+    const autoRecurrence = await supabase.rpc("generate_due_recurring_transactions", {
+      p_org_id: oid, p_as_of_date: new Date().toISOString().slice(0, 10),
+    });
+    const generated = Number((autoRecurrence.data as any)?.generated || 0);
+    if (!autoRecurrence.error && generated > 0) {
+      const [freshEntries, freshRecurring] = await Promise.all([
+        supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
+        supabase.from("recurring_transactions").select("*").eq("organization_id", oid).order("next_run_date"),
+      ]);
+      if (freshEntries.data) setJournalEntries(freshEntries.data.map(dbToJournalEntry));
+      if (freshRecurring.data) setRecurringTransactions(freshRecurring.data.map(dbToRecurringTransaction));
+    }
   }, []);
 
   useEffect(() => {
@@ -494,7 +556,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!session?.user) {
         userIdRef.current = null;
         setOrgId(null);
-        setRawAccounts([]); setJournalEntries([]); setCategories([]);
+        setRawAccounts([]); setJournalEntries([]); setRecurringTransactions([]); setBankStatementLines([]); setCategories([]);
         setContacts([]); setRequisitions([]); setCompany(defaultCompany);
         setRawObligations([]); setSettlements([]); setCollectionInteractions([]);
         setReserves([]); setReserveCategories([]); setReserveMovements([]);
@@ -607,6 +669,74 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sb().from("accounts").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
   };
 
+  // ---- Recorrências e reconciliação ----
+  const createRecurringTransaction: Store["createRecurringTransaction"] = async (d) => {
+    const { data, error } = await sb().from("recurring_transactions").insert({
+      organization_id: orgIdRef.current!, created_by: userIdRef.current, account_id: d.accountId,
+      transaction_kind: d.kind, amount: d.amount, description: d.description.trim(),
+      category_id: d.categoryId || null, contact_id: d.contactId || null, frequency: d.frequency,
+      start_date: d.startDate, next_run_date: d.nextRunDate, active: d.active ?? true,
+    }).select("*").single();
+    if (error) { toast("Erro ao guardar recorrência: " + error.message, "warn"); return error.message; }
+    if (data) setRecurringTransactions(prev => [...prev, dbToRecurringTransaction(data)].sort((a, b) => a.nextRunDate.localeCompare(b.nextRunDate)));
+    toast("Recorrência criada", "ok");
+    return null;
+  };
+
+  const setRecurringActive: Store["setRecurringActive"] = async (id, active) => {
+    const { error } = await sb().from("recurring_transactions").update({ active, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) { toast("Erro ao atualizar recorrência: " + error.message, "warn"); return error.message; }
+    setRecurringTransactions(prev => prev.map(r => r.id === id ? { ...r, active } : r));
+    toast(active ? "Recorrência ativada" : "Recorrência pausada", "ok");
+    return null;
+  };
+
+  const generateDueRecurringTransactions: Store["generateDueRecurringTransactions"] = async (asOfDate) => {
+    const { data, error } = await sb().rpc("generate_due_recurring_transactions", {
+      p_org_id: orgIdRef.current!, p_as_of_date: asOfDate || new Date().toISOString().slice(0, 10),
+    });
+    if (error) { toast("Erro ao gerar recorrências: " + error.message, "warn"); return null; }
+    const generated = Number((data as any)?.generated || 0);
+    await Promise.all([refreshEntries(), refreshRecurringTransactions()]);
+    toast(generated ? `${generated} lançamento(s) recorrente(s) gerado(s)` : "Nenhum lançamento vencido para gerar", generated ? "ok" : "warn");
+    return generated;
+  };
+
+  const importBankStatementLines: Store["importBankStatementLines"] = async (lines) => {
+    if (!lines.length) return "O ficheiro não tem linhas válidas";
+    const { data, error } = await sb().from("bank_statement_lines").insert(lines.map(line => ({
+      organization_id: orgIdRef.current!, created_by: userIdRef.current, account_id: line.accountId,
+      transaction_date: line.transactionDate, amount: line.amount, direction: line.direction,
+      description: line.description, reference: line.reference || null, external_id: line.externalId || null,
+    }))).select("*");
+    if (error) { toast("Erro ao importar extrato: " + error.message, "warn"); return error.message; }
+    if (data) setBankStatementLines(prev => [...data.map(dbToBankStatementLine), ...prev]);
+    toast(`${lines.length} linha(s) de extrato importada(s)`, "ok");
+    return null;
+  };
+
+  const matchBankStatementLine: Store["matchBankStatementLine"] = async (lineId, journalEntryId) => {
+    const { error } = await sb().rpc("match_bank_statement_line", { p_line_id: lineId, p_journal_entry_id: journalEntryId });
+    if (error) { toast("Não foi possível reconciliar: " + error.message, "warn"); return error.message; }
+    await refreshBankStatementLines();
+    toast("Linha reconciliada", "ok");
+    return null;
+  };
+
+  const unmatchBankStatementLine: Store["unmatchBankStatementLine"] = async (lineId) => {
+    const { error } = await sb().rpc("unmatch_bank_statement_line", { p_line_id: lineId });
+    if (error) { toast("Erro ao desfazer reconciliação: " + error.message, "warn"); return error.message; }
+    await refreshBankStatementLines();
+    return null;
+  };
+
+  const ignoreBankStatementLine: Store["ignoreBankStatementLine"] = async (lineId) => {
+    const { error } = await sb().rpc("ignore_bank_statement_line", { p_line_id: lineId });
+    if (error) { toast("Erro ao ignorar linha: " + error.message, "warn"); return error.message; }
+    await refreshBankStatementLines();
+    toast("Linha marcada como ignorada", "ok");
+    return null;
+  };
   // ---- Financial Mutations (Journal-based) ----
   const addTransaction: Store["addTransaction"] = (t) => {
     const isIncome = t.type === "income" || t.type === "capital_in";
@@ -1013,7 +1143,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       ready, authed, orgId, logout, createOrganization,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
-      journalEntries, categories,
+      journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,
       createObligation, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
       reserves, reserveCategories, reserveMovements, finSettings, trueAvailable,
@@ -1024,6 +1154,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addRequisition, editRequisition, deleteRequisition, approveRequisition, rejectRequisition,
       addCapital, updateProfile, gainXp,
       taxRate: taxRateFor(company.regime),
+      refreshRecurringTransactions, refreshBankStatementLines, createRecurringTransaction, setRecurringActive,
+      generateDueRecurringTransactions, importBankStatementLines, matchBankStatementLine, unmatchBankStatementLine, ignoreBankStatementLine,
     }}>
       {children}
     </Ctx.Provider>

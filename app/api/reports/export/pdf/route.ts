@@ -52,10 +52,11 @@ export async function POST(req: NextRequest) {
   // o extrato tem outra assinatura (conta, sem comparação)
   const rpcArgs: Record<string, unknown> = isLedgerReport(reportType)
     ? { p_org_id: organizationId, p_start: startDate, p_end: endDate, p_account_id: accountId }
-    : {
-        p_org_id: organizationId, p_start: startDate, p_end: endDate,
-        p_cmp_start: hasCmp ? cmpStartDate : null, p_cmp_end: hasCmp ? cmpEndDate : null,
-      };
+    : { p_org_id: organizationId, p_start: startDate, p_end: endDate };
+  if (reportType === "income_statement" || reportType === "aging") {
+    rpcArgs.p_cmp_start = hasCmp ? cmpStartDate : null;
+    rpcArgs.p_cmp_end = hasCmp ? cmpEndDate : null;
+  }
   if (reportType === "income_statement") {
     rpcArgs.p_include_reversed = includeReversed;
     if (filterAccountId && !UUID_RE.test(filterAccountId)) return bad(400, "Conta de filtro inválida");

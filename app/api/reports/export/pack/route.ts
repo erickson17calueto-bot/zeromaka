@@ -49,15 +49,19 @@ export async function POST(req: NextRequest) {
     if (cmpStartDate! > cmpEndDate!) return bad(400, "Comparação com datas invertidas");
   }
 
-  const baseArgs = {
-    p_org_id: organizationId, p_start: startDate, p_end: endDate,
-    p_cmp_start: hasCmp ? cmpStartDate : null, p_cmp_end: hasCmp ? cmpEndDate : null,
+  const baseArgs = { p_org_id: organizationId, p_start: startDate, p_end: endDate };
+  const comparisonArgs = {
+    p_cmp_start: hasCmp ? cmpStartDate : null,
+    p_cmp_end: hasCmp ? cmpEndDate : null,
   };
 
   // Cada RPC revalida auth + organização + RLS por si própria.
   const statements: StatementResult[] = [];
   for (const rpc of PACK_RPCS) {
-    const { data, error } = await supabase.rpc(rpc, baseArgs);
+    const rpcArgs = rpc === "report_income_cash" || rpc === "report_aging"
+      ? { ...baseArgs, ...comparisonArgs }
+      : baseArgs;
+    const { data, error } = await supabase.rpc(rpc, rpcArgs);
     if (error) {
       const denied = /permiss|acesso|autenticado/i.test(error.message);
       return bad(denied ? 403 : 400, denied ? "Sem acesso a esta organização" : `Falha ao calcular ${rpc}`);

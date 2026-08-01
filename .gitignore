@@ -25,3 +25,5 @@ npm-debug.log*
 
 # typescript
 *.tsbuildinfo
+.next-dev.stderr.log
+.next-dev.stdout.log

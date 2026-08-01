@@ -65,8 +65,12 @@ export default function RelatoriosPage() {
     setLoading(true); setErr(null);
     const { start, end } = periodDates();
     const c = cmpDates();
-    const args: any = { p_org_id: orgId, p_start: start, p_end: end, p_cmp_start: c?.start ?? null, p_cmp_end: c?.end ?? null };
+    const args: any = { p_org_id: orgId, p_start: start, p_end: end };
     // Só o Resultado de Caixa aceita filtros por conta/categoria/contacto
+    if (reportType === "income_statement" || reportType === "aging") {
+      args.p_cmp_start = c?.start ?? null;
+      args.p_cmp_end = c?.end ?? null;
+    }
     if (reportType === "income_statement") {
       args.p_include_reversed = false;
       args.p_account_id = fAccount || null;

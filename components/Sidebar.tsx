@@ -7,7 +7,7 @@ import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
   Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins,
-  Receipt, PiggyBank, ChevronDown, PanelLeftClose, PanelLeftOpen,
+  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -19,7 +19,9 @@ const SECTIONS = [
     { href: "/faturas", label: "A receber", icon: FileText, badge: "overdue" },
     { href: "/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
     { href: "/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" },
-    { href: "/reservas", label: "Reservas", icon: PiggyBank }
+    { href: "/reservas", label: "Reservas", icon: PiggyBank },
+    { href: "/recorrencias", label: "Recorrências", icon: RefreshCw },
+    { href: "/reconciliacao", label: "Reconciliação", icon: GitCompareArrows },    { href: "/planeamento", label: "Planeamento", icon: TrendingUp },    { href: "/documentos", label: "Documentos e alertas", icon: Paperclip },    { href: "/importacoes", label: "Importar ficheiros", icon: FileSpreadsheet },    { href: "/governanca", label: "Governança", icon: ShieldCheck },    { href: "/patrimonio", label: "Ativos e centros", icon: Wrench }
   ]},
   { title: "Operações", items: [
     { href: "/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },

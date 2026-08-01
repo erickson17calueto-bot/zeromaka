@@ -39,6 +39,26 @@ export interface JournalEntry {
   metadata: Record<string, unknown>;
   lines: JournalLine[];
 }
+export type RecurringFrequency = "weekly" | "monthly" | "quarterly" | "yearly";
+export type RecurringTransactionKind = "income" | "expense";
+
+export interface RecurringTransaction {
+  id: string; organizationId: string; accountId: string; kind: RecurringTransactionKind;
+  amount: number; description: string; categoryId?: string; contactId?: string;
+  frequency: RecurringFrequency; startDate: string; nextRunDate: string;
+  lastGeneratedAt?: string; active: boolean; createdAt: string;
+}
+
+export type BankStatementDirection = "incoming" | "outgoing";
+export type BankStatementStatus = "unmatched" | "matched" | "ignored";
+
+export interface BankStatementLine {
+  id: string; organizationId: string; accountId: string; transactionDate: string;
+  amount: number; direction: BankStatementDirection; description: string;
+  reference?: string; externalId?: string; status: BankStatementStatus;
+  matchedJournalEntryId?: string; matchedEntryDescription?: string;
+  matchedAt?: string; importedAt: string;
+}
 export interface Transaction {
   id: string; accountId: string; type: TxType; amount: number;
   category: string; subcategory?: string; description: string; date: string;
@@ -221,7 +241,37 @@ export const REGIMES: Record<TaxRegime, { label: string; rate: number; tax: stri
   isencao: { label: "Regime de Exclusão", rate: 0.01, tax: "Imposto de Selo 1%", short: "Exclusão · Selo 1%" }
 };
 export const taxRateFor = (r: TaxRegime) => REGIMES[r].rate;
-// Imposto POR DENTRO: já está contido no valor da fatura (não é acrescido).
+
+/**
+ * Base de incidência do imposto sobre uma venda, por regime (regras AGT).
+ *
+ *  - Regime Geral (IVA 14%): o IVA é liquidado e acrescido na fatura, logo o
+ *    valor registado JÁ CONTÉM o imposto  ->  imposto = valor − valor/(1+taxa).
+ *  - Regime Simplificado (7%): não se liquida IVA na fatura; o imposto apura-se
+ *    aplicando a taxa ao valor recebido   ->  imposto = valor × taxa.
+ *  - Regime de Exclusão (Selo 1%): não há IVA e a fatura não inclui imposto; o
+ *    Imposto de Selo incide sobre o recibo ->  imposto = valor × taxa.
+ *
+ * Exemplo: 2.100.000 no Regime de Exclusão -> 21.000 (e não 20.792).
+ *
+ * Espelha a função org_sale_tax() no servidor, que é a fonte de verdade.
+ */
+export const TAX_INSIDE_VALUE: Record<TaxRegime, boolean> = {
+  geral: true,          // IVA liquidado na fatura: está por dentro do total
+  simplificado: false,  // fatura sem IVA: taxa aplicada sobre o valor
+  isencao: false,       // fatura sem imposto: Selo aplicado sobre o valor
+};
+
+export function saleTax(value: number, regime: TaxRegime): number {
+  if (!value || value <= 0) return 0;
+  const rate = REGIMES[regime].rate;
+  const tax = TAX_INSIDE_VALUE[regime] ? value - value / (1 + rate) : value * rate;
+  return Math.round(tax * 100) / 100;
+}
+
+/** @deprecated Usa saleTax(valor, regime) — esta assumia imposto por dentro em
+ *  todos os regimes, o que só é verdade no Regime Geral. Mantida só para os
+ *  dados de demonstração abaixo, que são todos de regime geral. */
 export const taxIncluded = (value: number, rate: number) => Math.round(value - value / (1 + rate));
 
 export const PAYMENT_TERMS: Record<PaymentTerm, string> = {

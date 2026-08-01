@@ -4,14 +4,15 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
 import { useStore } from "@/lib/store";
-import { LayoutDashboard, Wallet, ArrowLeftRight, FileText, Trophy } from "lucide-react";
+import { LayoutDashboard, Wallet, ArrowLeftRight, FileText, Trophy, FileSpreadsheet } from "lucide-react";
 
 const MOBILE_NAV = [
   { href: "/", label: "Início", icon: LayoutDashboard },
   { href: "/contas", label: "Contas", icon: Wallet },
   { href: "/transacoes", label: "Fluxo", icon: ArrowLeftRight },
   { href: "/faturas", label: "Faturas", icon: FileText },
-  { href: "/conquistas", label: "XP", icon: Trophy }
+  { href: "/conquistas", label: "XP", icon: Trophy },
+  { href: "/importacoes", label: "Importar", icon: FileSpreadsheet }
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

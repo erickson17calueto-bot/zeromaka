@@ -4,7 +4,7 @@ import { useStore } from "@/lib/store";
 import {
   fmtKz, fmtDate, daysUntil, Obligation, ObligationDirection,
   FinancialStatus, FIN_STATUS_LABEL, OBLIGATION_KIND_LABEL, ObligationDocumentKind,
-  taxIncluded, taxRateFor, REGIMES,
+  saleTax, TAX_INSIDE_VALUE, REGIMES,
 } from "@/lib/data";
 import { Plus, X, RotateCcw, Ban, Wallet } from "lucide-react";
 
@@ -20,7 +20,6 @@ const STATUS_STYLE: Record<FinancialStatus, string> = {
 
 export default function ObligationsView({ direction }: { direction: ObligationDirection }) {
   const { obligations, contacts, accounts, categories, settlements, reserves, company, createObligation, postSettlement, reverseSettlement, cancelObligation } = useStore();
-  const taxRate = taxRateFor(company.regime);
   const reservedFor = (obligationId: string) => reserves
     .filter(r => r.obligationId === obligationId && (r.status === "active" || r.status === "partially_released"))
     .reduce((s, r) => s + r.reservedAmount, 0);
@@ -65,7 +64,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
     setNIssue(new Date().toISOString().slice(0, 10)); setNDue(new Date().toISOString().slice(0, 10));
     setNKind(isRec ? "invoice_reference" : "supplier_invoice"); setNIsSale(true); setShowNew(true);
   };
-  const nTaxPreview = isRec && nIsSale && Number(nAmount) > 0 ? taxIncluded(Number(nAmount), taxRate) : 0;
+  const nTaxPreview = isRec && nIsSale && Number(nAmount) > 0 ? saleTax(Number(nAmount), company.regime) : 0;
   const submitNew = async () => {
     if (!nContact || !nAmount || !nDue) return;
     const err = await createObligation({
@@ -225,8 +224,12 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                   <span>
                     É uma venda (produto ou serviço) — calcula imposto
                     <span className="block text-[11px] text-ink-500 mt-0.5">
-                      Regime {REGIMES[company.regime].tax}, por dentro do valor.
-                      {nTaxPreview > 0 ? <> Imposto: <span className="text-yellow-400 font-semibold">{fmtKz(nTaxPreview)}</span> · líquido: {fmtKz(Number(nAmount) - nTaxPreview)}</> : null}
+                      Regime {REGIMES[company.regime].tax}
+                      {TAX_INSIDE_VALUE[company.regime]
+                        ? " — imposto contido no valor da fatura."
+                        : " — imposto calculado sobre o valor (a fatura não leva imposto)."}
+                      {nTaxPreview > 0 ? <> Imposto: <span className="text-yellow-400 font-semibold">{fmtKz(nTaxPreview)}</span>
+                        {TAX_INSIDE_VALUE[company.regime] ? <> · líquido: {fmtKz(Number(nAmount) - nTaxPreview)}</> : null}</> : null}
                     </span>
                   </span>
                 </label>
