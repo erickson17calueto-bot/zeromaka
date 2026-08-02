@@ -247,10 +247,17 @@ export default function ImportacoesPage() {
       target_type: target, total_rows: prepared.length, created_by: userData.user?.id,
     }).select("*").single();
     if (batchError || !newBatch) { setMessage(batchError?.message || "Não foi possível criar a importação"); setBusy(false); return; }
+    // As linhas são preparadas antes de o lote existir, por isso só agora se
+    // lhes pode dar o batch_id (obrigatório em import_rows).
+    const withBatch = prepared.map(row => ({ ...row, batch_id: newBatch.id }));
     const inserted: any[] = [];
-    for (let i = 0; i < prepared.length; i += 500) {
-      const { data, error } = await supabase.from("import_rows").insert(prepared.slice(i, i + 500)).select("*");
-      if (error) { setMessage(error.message); setBusy(false); return; }
+    for (let i = 0; i < withBatch.length; i += 500) {
+      const { data, error } = await supabase.from("import_rows").insert(withBatch.slice(i, i + 500)).select("*");
+      if (error) {
+        // Não deixar um lote vazio pendurado no histórico se as linhas falharem.
+        await supabase.from("import_batches").update({ status: "cancelled", completed_at: new Date().toISOString() }).eq("id", newBatch.id);
+        setMessage(error.message); setBusy(false); return;
+      }
       if (data) inserted.push(...data);
     }
     setBatch(newBatch as ImportBatch); setRows(inserted as ImportRow[]); setFile(null); await loadBatches(); setBusy(false);
