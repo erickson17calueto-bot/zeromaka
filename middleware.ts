@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Proteção de rotas no SERVIDOR (regra do charter: nunca confiar só no frontend).
 // Também renova o token da sessão a cada pedido (padrão @supabase/ssr).
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/robots.txt", "/sitemap.xml"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
