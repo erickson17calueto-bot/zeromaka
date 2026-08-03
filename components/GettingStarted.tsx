@@ -32,27 +32,27 @@ export default function GettingStarted() {
     {
       id: "empresa", title: "Configurar a empresa", icon: Building2,
       why: "O NIF e o regime fiscal definem como o imposto é calculado nas tuas vendas. Sem isto, os relatórios saem incompletos.",
-      href: "/empresa", cta: "Configurar empresa", done: !!company.nif,
+      href: "/app/empresa", cta: "Configurar empresa", done: !!company.nif,
     },
     {
       id: "contas", title: "Criar as contas do negócio", icon: Wallet,
       why: "Banco, carteira móvel (Multicaixa Express, Unitel Money) ou caixa físico. É onde o dinheiro entra e sai — sem contas não há saldo.",
-      href: "/contas", cta: "Criar conta", done: accounts.length > 0,
+      href: "/app/contas", cta: "Criar conta", done: accounts.length > 0,
     },
     {
       id: "contactos", title: "Registar contactos", icon: Users,
       why: "Clientes, fornecedores e sócios. Precisas deles para registar o que tens a receber e o que tens a pagar.",
-      href: "/contactos", cta: "Adicionar contacto", done: contacts.length > 0,
+      href: "/app/contactos", cta: "Adicionar contacto", done: contacts.length > 0,
     },
     {
       id: "lancamento", title: "Fazer o primeiro lançamento", icon: ArrowLeftRight,
       why: "Regista uma entrada ou saída de dinheiro. É assim que o saldo das contas se atualiza.",
-      href: "/transacoes", cta: "Novo lançamento", done: transactions.length > 0,
+      href: "/app/transacoes", cta: "Novo lançamento", done: transactions.length > 0,
     },
     {
       id: "fatura", title: "Registar a primeira fatura", icon: FileText,
       why: "Regista aqui as faturas que já emitiste ao cliente e as que recebeste do fornecedor. Marca como venda para o imposto ser calculado.",
-      href: "/faturas", cta: "Registar fatura", done: obligations.length > 0,
+      href: "/app/faturas", cta: "Registar fatura", done: obligations.length > 0,
     },
   ], [company.nif, accounts.length, contacts.length, transactions.length, obligations.length]);
 

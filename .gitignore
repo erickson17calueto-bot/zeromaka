@@ -27,3 +27,6 @@ npm-debug.log*
 *.tsbuildinfo
 .next-dev.stderr.log
 .next-dev.stdout.log
+.env*
+.test-build/
+.codex-remote-attachments/

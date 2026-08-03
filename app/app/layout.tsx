@@ -5,14 +5,15 @@ import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
 import { useStore } from "@/lib/store";
 import { LayoutDashboard, Wallet, ArrowLeftRight, FileText, Trophy, FileSpreadsheet } from "lucide-react";
+import { ROUTES } from "@/lib/routes";
 
 const MOBILE_NAV = [
-  { href: "/", label: "Início", icon: LayoutDashboard },
-  { href: "/contas", label: "Contas", icon: Wallet },
-  { href: "/transacoes", label: "Fluxo", icon: ArrowLeftRight },
-  { href: "/faturas", label: "Faturas", icon: FileText },
-  { href: "/conquistas", label: "XP", icon: Trophy },
-  { href: "/importacoes", label: "Importar", icon: FileSpreadsheet }
+  { href: ROUTES.dashboard, label: "Início", icon: LayoutDashboard },
+  { href: "/app/contas", label: "Contas", icon: Wallet },
+  { href: "/app/transacoes", label: "Fluxo", icon: ArrowLeftRight },
+  { href: "/app/faturas", label: "Faturas", icon: FileText },
+  { href: "/app/conquistas", label: "XP", icon: Trophy },
+  { href: "/app/importacoes", label: "Importar", icon: FileSpreadsheet }
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -22,8 +23,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
-    if (!authed) { router.replace("/login"); return; }
-    if (!orgId) router.replace("/onboarding");
+    // O middleware já bloqueia o acesso sem sessão; isto cobre a sessão que
+    // expira com a página aberta e o caso de ainda não existir organização.
+    if (!authed) { router.replace(ROUTES.entrar); return; }
+    if (!orgId) router.replace(ROUTES.onboarding);
   }, [ready, authed, orgId, router]);
 
   if (!ready) return <div className="min-h-screen flex items-center justify-center text-ink-500">A carregar…</div>;

@@ -84,7 +84,7 @@ export default function Dashboard() {
           <h1 className="font-display text-2xl md:text-3xl tracking-tight">Bom dia, {profile.name.split(" ")[0]}</h1>
           <p className="text-sm text-ink-400 mt-1">Aqui está o pulso do teu negócio hoje.</p>
         </div>
-        <Link href="/transacoes" className="btn-primary">Novo lançamento <ArrowRight size={15} /></Link>
+        <Link href="/app/transacoes" className="btn-primary">Novo lançamento <ArrowRight size={15} /></Link>
       </header>
 
       <GettingStarted />
@@ -106,7 +106,7 @@ export default function Dashboard() {
         <SectionHead
           title="Onde está o dinheiro"
           hint="Saldo de cada conta. É dinheiro que já tens na mão, hoje."
-          action={<Link href="/contas" className="text-xs text-maka-400 hover:underline font-semibold">Gerir contas</Link>}
+          action={<Link href="/app/contas" className="text-xs text-maka-400 hover:underline font-semibold">Gerir contas</Link>}
         />
         <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 stagger">
           {accounts.map((a) => {
@@ -132,7 +132,7 @@ export default function Dashboard() {
             <p className="mt-2 text-[11px] leading-snug text-ink-500">Soma de todas as contas. Não inclui o que tens a receber.</p>
           </div>
           {accounts.length === 0 && (
-            <Link href="/contas" className="card min-w-[200px] p-4 border-dashed flex flex-col items-center justify-center text-center hover:border-maka-500/50 transition-colors">
+            <Link href="/app/contas" className="card min-w-[200px] p-4 border-dashed flex flex-col items-center justify-center text-center hover:border-maka-500/50 transition-colors">
               <PiggyBank size={20} className="text-ink-500" />
               <div className="text-sm font-medium mt-2">Criar a primeira conta</div>
               <p className="text-[11px] text-ink-500 mt-1">Banco, carteira móvel ou caixa</p>
@@ -146,7 +146,7 @@ export default function Dashboard() {
         <SectionHead
           title="Movimento deste mês"
           hint="Dinheiro que entrou e saiu desde o dia 1 do mês corrente."
-          action={<Link href="/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver lançamentos</Link>}
+          action={<Link href="/app/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver lançamentos</Link>}
         />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <StatCard label="Receitas do mês" value={fmtKz(income)} tone="pos" icon={TrendingUp}
@@ -167,13 +167,13 @@ export default function Dashboard() {
           hint="Dinheiro que ainda não está na tua conta — promessas de entrada e de saída. Nunca é somado ao saldo."
         />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
-          <StatCard label="Total a receber" value={fmtKz(openReceivables)} tone="pos" icon={ArrowDownLeft} href="/faturas"
+          <StatCard label="Total a receber" value={fmtKz(openReceivables)} tone="pos" icon={ArrowDownLeft} href="/app/faturas"
             footer={docs(rec.length)}
             hint="Tudo o que os clientes ainda te devem, esteja ou não vencido. Ainda NÃO é dinheiro teu — só conta quando pagarem." />
-          <StatCard label="Vencido a receber" value={fmtKz(overdueReceivableSum)} tone="neg" icon={HandCoins} href="/cobrancas"
+          <StatCard label="Vencido a receber" value={fmtKz(overdueReceivableSum)} tone="neg" icon={HandCoins} href="/app/cobrancas"
             footer={docs(overdueReceivable.length)}
             hint="A parte do 'Total a receber' que já passou da data combinada. É aqui que deves cobrar primeiro." />
-          <StatCard label="Total a pagar" value={fmtKz(openPayables)} tone="neutral" icon={ArrowUpRight} href="/contas-a-pagar"
+          <StatCard label="Total a pagar" value={fmtKz(openPayables)} tone="neutral" icon={ArrowUpRight} href="/app/contas-a-pagar"
             footer={docs(pay.length)}
             hint="Tudo o que ainda deves a fornecedores, esteja ou não vencido." />
           <StatCard label="A pagar em 7 dias" value={fmtKz(payable7)} tone="warn" icon={CalendarClock}
@@ -187,7 +187,7 @@ export default function Dashboard() {
         <SectionHead
           title="Imposto e posição do negócio"
           hint="Quanto do teu caixa é realmente teu, e como está o balanço geral."
-          action={<Link href="/relatorios" className="text-xs text-maka-400 hover:underline font-semibold">Ver relatórios</Link>}
+          action={<Link href="/app/relatorios" className="text-xs text-maka-400 hover:underline font-semibold">Ver relatórios</Link>}
         />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <StatCard label="Imposto do Estado" value={fmtKz(taxOwed)} tone="warn" icon={Receipt}
@@ -204,7 +204,7 @@ export default function Dashboard() {
       {/* ─────────── Listas ─────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-5 gap-4 rise">
         <div className="card p-5 lg:col-span-3">
-          <div className="flex items-center justify-between mb-1"><h2 className="font-semibold text-[15px]">Últimos lançamentos</h2><Link href="/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver todos</Link></div>
+          <div className="flex items-center justify-between mb-1"><h2 className="font-semibold text-[15px]">Últimos lançamentos</h2><Link href="/app/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver todos</Link></div>
           <p className="text-[12px] text-ink-500 mb-3">As entradas e saídas mais recentes das tuas contas.</p>
           <div className="divide-y divide-ink-800">
             {transactions.slice(0, 6).map((t) => {
@@ -268,7 +268,7 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
-            <div className="mt-5 flex gap-2 justify-end"><button onClick={() => setShowAlert(false)} className="btn-ghost">Mais tarde</button><Link href="/faturas" onClick={() => setShowAlert(false)} className="btn-primary">Ver documentos</Link></div>
+            <div className="mt-5 flex gap-2 justify-end"><button onClick={() => setShowAlert(false)} className="btn-ghost">Mais tarde</button><Link href="/app/faturas" onClick={() => setShowAlert(false)} className="btn-primary">Ver documentos</Link></div>
           </div>
         </div>
       )}

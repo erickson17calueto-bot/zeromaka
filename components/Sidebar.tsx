@@ -10,28 +10,34 @@ import {
   Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { ROUTES } from "@/lib/routes";
 
 const SECTIONS = [
   { title: "Finanças", items: [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/contas", label: "Contas", icon: Wallet },
-    { href: "/transacoes", label: "Transações", icon: ArrowLeftRight },
-    { href: "/faturas", label: "A receber", icon: FileText, badge: "overdue" },
-    { href: "/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
-    { href: "/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" },
-    { href: "/reservas", label: "Reservas", icon: PiggyBank },
-    { href: "/recorrencias", label: "Recorrências", icon: RefreshCw },
-    { href: "/reconciliacao", label: "Reconciliação", icon: GitCompareArrows },    { href: "/planeamento", label: "Planeamento", icon: TrendingUp },    { href: "/documentos", label: "Documentos e alertas", icon: Paperclip },    { href: "/importacoes", label: "Importar ficheiros", icon: FileSpreadsheet },    { href: "/governanca", label: "Governança", icon: ShieldCheck },    { href: "/patrimonio", label: "Ativos e centros", icon: Wrench }
+    { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
+    { href: "/app/contas", label: "Contas", icon: Wallet },
+    { href: "/app/transacoes", label: "Transações", icon: ArrowLeftRight },
+    { href: "/app/faturas", label: "A receber", icon: FileText, badge: "overdue" },
+    { href: "/app/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
+    { href: "/app/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" },
+    { href: "/app/reservas", label: "Reservas", icon: PiggyBank },
+    { href: "/app/recorrencias", label: "Recorrências", icon: RefreshCw },
+    { href: "/app/reconciliacao", label: "Reconciliação", icon: GitCompareArrows },
+    { href: "/app/planeamento", label: "Planeamento", icon: TrendingUp },
+    { href: "/app/documentos", label: "Documentos e alertas", icon: Paperclip },
+    { href: "/app/importacoes", label: "Importar ficheiros", icon: FileSpreadsheet },
+    { href: "/app/governanca", label: "Governança", icon: ShieldCheck },
+    { href: "/app/patrimonio", label: "Ativos e centros", icon: Wrench }
   ]},
   { title: "Operações", items: [
-    { href: "/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
-    { href: "/capital", label: "Capital dos sócios", icon: Landmark },
-    { href: "/contactos", label: "Contactos", icon: Users }
+    { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
+    { href: "/app/capital", label: "Capital dos sócios", icon: Landmark },
+    { href: "/app/contactos", label: "Contactos", icon: Users }
   ]},
   { title: "Análise", items: [
-    { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
-    { href: "/conquistas", label: "Conquistas", icon: Trophy },
-    { href: "/ranking", label: "Ranking", icon: Medal }
+    { href: "/app/relatorios", label: "Relatórios", icon: BarChart3 },
+    { href: "/app/conquistas", label: "Conquistas", icon: Trophy },
+    { href: "/app/ranking", label: "Ranking", icon: Medal }
   ]}
 ];
 
@@ -182,9 +188,9 @@ export default function Sidebar() {
 
       <div className="mt-4 pt-3 border-t border-ink-800 space-y-0.5">
         {!collapsed && <div className="px-1 pb-2"><ThemeToggle /></div>}
-        {navLink("/empresa", "Empresa", Building2, 0, path === "/empresa")}
-        {navLink("/perfil", "Meu perfil", UserCircle, 0, path === "/perfil")}
-        <button onClick={async () => { await logout(); router.push("/login"); router.refresh(); }}
+        {navLink("/app/empresa", "Empresa", Building2, 0, path === "/app/empresa")}
+        {navLink("/app/perfil", "Meu perfil", UserCircle, 0, path === "/app/perfil")}
+        <button onClick={async () => { await logout(); router.push(ROUTES.entrar); router.refresh(); }}
           title={collapsed ? "Sair" : undefined}
           className={`group w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-400 hover:bg-ink-900 hover:text-ink-100 transition-colors ${collapsed ? "justify-center px-0" : ""}`}>
           <LogOut size={17} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />

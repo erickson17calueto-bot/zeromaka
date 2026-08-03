@@ -1,11 +1,27 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { decideRedirect, shouldBypass, PUBLIC_ROUTES } from "@/lib/routes";
 
 // Proteção de rotas no SERVIDOR (regra do charter: nunca confiar só no frontend).
 // Também renova o token da sessão a cada pedido (padrão @supabase/ssr).
-const PUBLIC_PATHS = ["/login", "/robots.txt", "/sitemap.xml"];
+//
+// O middleware faz apenas a verificação rápida — existe sessão válida ou não.
+// A pertença a uma organização é confirmada no layout de /app, que já corre no
+// servidor e evita uma segunda ida à base de dados em cada pedido.
+
+function isPublicMarketing(path: string): boolean {
+  return PUBLIC_ROUTES.includes(path);
+}
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Páginas de marketing e ficheiros para crawlers não dependem de sessão.
+  // Sair já evita uma chamada de rede ao Supabase em cada visita pública.
+  if (shouldBypass(path) || isPublicMarketing(path)) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -29,17 +45,12 @@ export async function middleware(request: NextRequest) {
   // nunca getSession() (confia no cookie sem validar).
   const { data: { user } } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));
-
-  if (!user && !isPublic) {
+  const target = decideRedirect(path, { hasSession: !!user, hasOrg: "unknown" });
+  if (target) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-  if (user && path === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
+    const [pathname, query] = target.split("?");
+    url.pathname = pathname;
+    url.search = query ? `?${query}` : "";
     return NextResponse.redirect(url);
   }
 

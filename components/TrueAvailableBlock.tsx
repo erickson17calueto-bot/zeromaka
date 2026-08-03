@@ -134,7 +134,7 @@ export default function TrueAvailableBlock() {
                   {tac.breakdown.requisitions.map(r => <div key={r.id} className="flex justify-between text-ink-400"><span>{r.number}</span><span>−{fmtKz(r.amount)}</span></div>)}
                 </div>
               )}
-              <p className="text-[11px] text-ink-500 pt-2">Contas a receber <strong>não</strong> entram — só contam como disponível após o pagamento. <Link href="/cobrancas" className="text-maka-400 hover:underline">Ver cobranças <ArrowRight size={10} className="inline" /></Link></p>
+              <p className="text-[11px] text-ink-500 pt-2">Contas a receber <strong>não</strong> entram — só contam como disponível após o pagamento. <Link href="/app/cobrancas" className="text-maka-400 hover:underline">Ver cobranças <ArrowRight size={10} className="inline" /></Link></p>
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
+import { ROUTES } from "@/lib/routes";
 
 export default function OnboardingPage() {
   const { createOrganization } = useStore();
@@ -22,7 +23,7 @@ export default function OnboardingPage() {
     setError("");
     try {
       await createOrganization(orgName.trim(), companyName.trim(), userName.trim());
-      router.replace("/");
+      router.replace(ROUTES.dashboard);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erro ao criar organização.");
     } finally {

@@ -3,18 +3,34 @@ import "./globals.css";
 import { StoreProvider } from "@/lib/store";
 import { ThemeProvider, NO_FLASH_SCRIPT } from "@/lib/theme";
 
+const DESCRICAO =
+  "Saiba quanto pode gastar antes que falte dinheiro. Gestão financeira para pequenas e médias empresas em Angola — contas, faturas, impostos e caixa em Kwanzas.";
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://zeromaka.com"),
-  title: "ZeroMaka — Gestão financeira sem maka",
-  description: "ERP financeiro para negócios angolanos. Contas, faturas, transações e caixa em Kwanzas.",
-  keywords: ["zeromaka", "zero maka", "gestão financeira Angola", "ERP Angola", "faturação Angola", "kwanzas"],
+  title: {
+    // As páginas definem só o seu nome; o sufixo da marca é acrescentado aqui.
+    default: "ZeroMaka — Gestão financeira sem maka",
+    template: "%s — ZeroMaka",
+  },
+  description: DESCRICAO,
+  applicationName: "ZeroMaka",
+  keywords: [
+    "zeromaka", "zero maka", "gestão financeira Angola", "software financeiro Angola",
+    "contas a receber", "fluxo de caixa", "IVA Angola", "kwanzas", "PME Angola",
+  ],
   openGraph: {
     title: "ZeroMaka — Gestão financeira sem maka",
-    description: "ERP financeiro para negócios angolanos. Contas, faturas, transações e caixa em Kwanzas.",
+    description: DESCRICAO,
     url: "https://zeromaka.com",
     siteName: "ZeroMaka",
     locale: "pt_AO",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ZeroMaka — Gestão financeira sem maka",
+    description: DESCRICAO,
   },
 };
 
