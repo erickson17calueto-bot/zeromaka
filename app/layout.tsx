@@ -4,8 +4,18 @@ import { StoreProvider } from "@/lib/store";
 import { ThemeProvider, NO_FLASH_SCRIPT } from "@/lib/theme";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://zeromaka.com"),
   title: "ZeroMaka — Gestão financeira sem maka",
-  description: "ERP financeiro para negócios angolanos. Contas, faturas, transações e caixa em Kwanzas."
+  description: "ERP financeiro para negócios angolanos. Contas, faturas, transações e caixa em Kwanzas.",
+  keywords: ["zeromaka", "zero maka", "gestão financeira Angola", "ERP Angola", "faturação Angola", "kwanzas"],
+  openGraph: {
+    title: "ZeroMaka — Gestão financeira sem maka",
+    description: "ERP financeiro para negócios angolanos. Contas, faturas, transações e caixa em Kwanzas.",
+    url: "https://zeromaka.com",
+    siteName: "ZeroMaka",
+    locale: "pt_AO",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
