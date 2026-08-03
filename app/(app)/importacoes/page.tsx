@@ -61,6 +61,8 @@ const aliases = {
   issue: ["emissão", "emissao", "data emissão", "data emissao", "issue_date", "data fatura"],
   due: ["vencimento", "data vencimento", "due_date", "data de vencimento"],
   amount: ["valor", "amount", "montante", "total", "valor total", "debito", "débito", "credito", "crédito"],
+  credit: ["entrada", "credito", "crédito", "receita", "haver"],
+  debit: ["saida", "saída", "debito", "débito", "despesa", "deve"],
   description: ["descrição", "descricao", "description", "histórico", "historico", "detalhe", "movimento"],
   account: ["conta", "account", "conta bancária", "conta bancaria", "carteira"],
   category: ["categoria", "category", "classe"],
@@ -157,7 +159,20 @@ function normalizedKey(target: TargetType, data: NormalizedRow): string {
 }
 
 function normalizeRow(raw: Record<string, string>, target: TargetType, accounts: Account[], contacts: Contact[], categories: FinancialCategory[], existing: Set<string>): { data: NormalizedRow; key: string; error?: string } {
-  const amount = parseAmount(getField(raw, aliases.amount));
+  // Alguns extratos (ex: diário de caixa) não têm uma coluna "valor" única,
+  // usam colunas separadas de entrada (crédito) e saída (débito).
+  const singleAmountField = getField(raw, aliases.amount);
+  const creditField = getField(raw, aliases.credit);
+  const debitField = getField(raw, aliases.debit);
+  const creditAmount = parseAmount(creditField);
+  const debitAmount = parseAmount(debitField);
+  const hasSplitColumns = !singleAmountField && (creditField || debitField);
+  // Se entrada e saída vierem ambas preenchidas na mesma linha, a direção é
+  // ambígua (normalmente erro de preenchimento na folha de origem) — não adivinhar.
+  const splitAmbiguous = hasSplitColumns && creditAmount > 0 && debitAmount > 0;
+  const amount = hasSplitColumns
+    ? (splitAmbiguous ? 0 : (creditAmount || debitAmount))
+    : parseAmount(singleAmountField);
   const description = getField(raw, aliases.description) || "Importação de ficheiro";
   const accountName = getField(raw, aliases.account);
   const categoryName = getField(raw, aliases.category);
@@ -166,7 +181,9 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const contact = findContact(contacts, contactName);
   const category = findCategory(categories, categoryName, target);
   const directionText = keyOf(getField(raw, aliases.type));
-  const direction = directionText.includes("entrada") || directionText.includes("receita") || directionText.includes("income") || directionText.includes("credito") || directionText.includes("receb") || (!directionText && !clean(getField(raw, aliases.amount)).startsWith("-")) ? "income" : "expense";
+  const direction = hasSplitColumns
+    ? (creditAmount > 0 ? "income" : "expense")
+    : directionText.includes("entrada") || directionText.includes("receita") || directionText.includes("income") || directionText.includes("credito") || directionText.includes("receb") || (!directionText && !clean(singleAmountField).startsWith("-")) ? "income" : "expense";
   const date = parseDate(getField(raw, aliases.date));
   const issueDate = parseDate(getField(raw, aliases.issue)) || date;
   const dueDate = parseDate(getField(raw, aliases.due)) || issueDate;
@@ -179,7 +196,9 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const duplicate = existing.has(key);
   data.duplicate = duplicate;
   data.duplicate_reason = duplicate ? "Já existe um lançamento semelhante no ZeroMaka ou nesta importação." : undefined;
-  let error = amount <= 0 ? "Valor inválido ou não encontrado" : undefined;
+  let error = splitAmbiguous
+    ? "Entrada e saída preenchidas na mesma linha; confirma manualmente o valor e o sentido"
+    : amount <= 0 ? "Valor inválido ou não encontrado" : undefined;
   if (!error && target === "transaction" && !dateOk(date)) error = "Data do lançamento não reconhecida";
   if (!error && target === "transaction" && !account) error = "Conta não encontrada; escolhe uma conta";
   if (!error && target !== "transaction" && !dateOk(issueDate)) error = "Data de emissão não reconhecida";

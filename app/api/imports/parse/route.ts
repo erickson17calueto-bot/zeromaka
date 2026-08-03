@@ -27,7 +27,33 @@ function cellText(value: Cell | { text?: string; result?: Cell } | { richText?: 
   return String(value).trim();
 }
 
-function parseCsv(input: string): string[][] {
+const WINDOWS_1252_EXTRA: Record<number, string> = {
+  0x80: "€", 0x82: "‚", 0x83: "ƒ", 0x84: "„", 0x85: "…",
+  0x86: "†", 0x87: "‡", 0x88: "ˆ", 0x89: "‰", 0x8A: "Š",
+  0x8B: "‹", 0x8C: "Œ", 0x8E: "Ž", 0x91: "‘", 0x92: "’",
+  0x93: "“", 0x94: "”", 0x95: "•", 0x96: "–", 0x97: "—",
+  0x98: "˜", 0x99: "™", 0x9A: "š", 0x9B: "›", 0x9C: "œ",
+  0x9E: "ž", 0x9F: "Ÿ",
+};
+
+function decodeWindows1252(buffer: Buffer): string {
+  let out = "";
+  for (let i = 0; i < buffer.length; i++) {
+    const byte = buffer[i];
+    out += WINDOWS_1252_EXTRA[byte] ?? String.fromCharCode(byte);
+  }
+  return out;
+}
+
+// Exportações contabilísticas angolanas costumam vir em Windows-1252/Latin-1, não UTF-8;
+// decodificar sempre como UTF-8 corrompe cabeçalhos acentuados (ex: "DESCRIÇÃO", "SAÍDA").
+function decodeCsvBuffer(buffer: Buffer): string {
+  const utf8 = buffer.toString("utf8");
+  if (!utf8.includes("�")) return utf8;
+  return decodeWindows1252(buffer);
+}
+
+function parseCsv(input: string, delimiter: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -37,7 +63,7 @@ function parseCsv(input: string): string[][] {
     const next = input[i + 1];
     if (ch === '"' && quoted && next === '"') { field += '"'; i++; continue; }
     if (ch === '"') { quoted = !quoted; continue; }
-    if (!quoted && (ch === "," || ch === ";")) { row.push(field.trim()); field = ""; continue; }
+    if (!quoted && ch === delimiter) { row.push(field.trim()); field = ""; continue; }
     if (!quoted && (ch === "\n" || ch === "\r")) {
       if (ch === "\r" && next === "\n") i++;
       row.push(field.trim()); field = "";
@@ -140,11 +166,11 @@ function parsePdfRows(buffer: Buffer): { headers: string[]; rows: Record<string,
 
 async function parseWorkbook(buffer: Buffer, ext: string) {
   if (ext === "csv") {
-    const text = buffer.toString("utf8").replace(/^\uFEFF/, "");
+    const text = decodeCsvBuffer(buffer).replace(/^\uFEFF/, "");
     const lines = text.split(/\r?\n/);
     const first = lines.find(line => line.trim()) || "";
     const delimiter = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ";" : ",";
-    const matrix = parseCsv(delimiter === ";" ? text : text.replace(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/g, ";"));
+    const matrix = parseCsv(text, delimiter);
     return rowsFromMatrix(matrix);
   }
   const workbook = new Workbook();
