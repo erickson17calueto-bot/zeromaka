@@ -32,7 +32,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 min-w-0 p-4 md:p-8 pb-24 md:pb-8">{children}</main>
+      <main className="flex-1 min-w-0 p-4 pt-20 md:p-8 pb-24 md:pb-8">{children}</main>
 
       <nav className="md:hidden fixed bottom-0 inset-x-0 border-t border-ink-800 bg-ink-950/95 backdrop-blur flex">
         {MOBILE_NAV.map(({ href, label, icon: Icon }) => (

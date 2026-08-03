@@ -7,7 +7,7 @@ import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
   Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins,
-  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen,
+  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -53,6 +53,9 @@ export default function Sidebar() {
   // Barra encolhida (só ícones) e secções fechadas — ambas persistidas.
   const [collapsed, setCollapsed] = useState(false);
   const [closed, setClosed] = useState<string[]>([]);
+  // Menu em drawer no telemóvel — a barra lateral fica escondida por defeito (hidden md:flex),
+  // por isso no ecrã pequeno é preciso um botão a abrir/fechar como overlay.
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -61,6 +64,8 @@ export default function Sidebar() {
       if (raw) setClosed(JSON.parse(raw));
     } catch { /* ignore */ }
   }, []);
+
+  useEffect(() => { setMobileOpen(false); }, [path]);
 
   const toggleCollapsed = () => {
     const v = !collapsed;
@@ -90,23 +95,41 @@ export default function Sidebar() {
   );
 
   return (
-    <aside className={`hidden md:flex shrink-0 flex-col border-r border-ink-800 bg-ink-950 p-4 sticky top-0 h-screen overflow-y-auto
-      transition-[width] duration-300 ease-out ${collapsed ? "w-[76px]" : "w-64"}`}>
-      <div className={`flex items-center gap-2 pb-4 ${collapsed ? "justify-center px-0" : "px-2"}`}>
+    <>
+      {/* Botão para abrir o menu no telemóvel — a barra lateral fica fora do ecrã por defeito */}
+      <button onClick={() => setMobileOpen(true)}
+        aria-label="Abrir menu"
+        className="md:hidden fixed top-3 left-3 z-40 flex items-center justify-center h-10 w-10 rounded-lg bg-ink-950 border border-ink-800 text-ink-200 shadow-lg">
+        <Menu size={19} />
+      </button>
+
+      {/* Fundo escurecido atrás do menu, só visível no telemóvel quando aberto */}
+      {mobileOpen && (
+        <div onClick={() => setMobileOpen(false)}
+          className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
+      )}
+
+      <aside className={`flex shrink-0 flex-col border-r border-ink-800 bg-ink-950 p-4 fixed md:sticky inset-y-0 left-0 top-0 h-screen overflow-y-auto z-50
+        transition-transform md:transition-[width] duration-300 ease-out w-64
+        ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+        ${collapsed ? "md:w-[76px]" : "md:w-64"}`}>
+      <div className={`flex items-center gap-2 pb-4 ${collapsed ? "md:justify-center md:px-0" : "px-2"}`}>
         <div className="h-9 w-9 rounded-lg bg-maka-500 flex items-center justify-center font-display text-onbrand text-lg shrink-0 transition-transform duration-200 hover:scale-105">Z</div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <div className="font-display text-lg leading-none tracking-tight">ZERO<span className="text-maka-500">MAKA</span></div>
-            <div className="text-[10px] text-ink-500 tracking-widest uppercase truncate">Sem maka, só lucro</div>
-          </div>
-        )}
+        <div className={`min-w-0 ${collapsed ? "md:hidden" : ""}`}>
+          <div className="font-display text-lg leading-none tracking-tight">ZERO<span className="text-maka-500">MAKA</span></div>
+          <div className="text-[10px] text-ink-500 tracking-widest uppercase truncate">Sem maka, só lucro</div>
+        </div>
+        <button onClick={() => setMobileOpen(false)} aria-label="Fechar menu"
+          className="md:hidden ml-auto flex items-center justify-center h-8 w-8 rounded-lg text-ink-400 hover:bg-ink-900 hover:text-ink-100">
+          <X size={17} />
+        </button>
       </div>
 
       {/* Encolher / expandir a barra para dar espaço ao conteúdo */}
       <button onClick={toggleCollapsed}
         title={collapsed ? "Expandir menu" : "Encolher menu"}
         aria-label={collapsed ? "Expandir menu" : "Encolher menu"}
-        className={`flex items-center gap-2 rounded-lg border border-ink-800 text-ink-400 hover:text-ink-100 hover:bg-ink-900
+        className={`hidden md:flex items-center gap-2 rounded-lg border border-ink-800 text-ink-400 hover:text-ink-100 hover:bg-ink-900
           transition-colors py-1.5 mb-3 ${collapsed ? "justify-center px-0" : "px-3"}`}>
         {collapsed ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /><span className="text-[11px] font-medium">Encolher</span></>}
       </button>
@@ -168,6 +191,7 @@ export default function Sidebar() {
           {!collapsed && "Sair"}
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
