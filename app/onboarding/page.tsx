@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ROUTES } from "@/lib/routes";
+import { track } from "@/lib/analytics";
 import { ArrowLeft, ArrowRight, Check, Loader2, Rocket } from "lucide-react";
 
 type Draft = {
@@ -88,10 +89,15 @@ export default function OnboardingPage() {
       });
       if (perfil?.onboarding_step) setStep(Math.min(Math.max(perfil.onboarding_step, 1), 6));
       setCarregado(true);
+      track("onboarding_iniciado");
     })();
   }, [supabase, router]);
 
   // Grava o rascunho no servidor com atraso, para um refresh não perder tudo.
+  useEffect(() => {
+    if (carregado) track("onboarding_etapa", { etapa: step as 1 | 2 | 3 | 4 | 5 | 6 });
+  }, [step, carregado]);
+
   useEffect(() => {
     if (!carregado) return;
     if (guardar.current) clearTimeout(guardar.current);
@@ -151,6 +157,12 @@ export default function OnboardingPage() {
         },
       });
       if (error) { setError(error.message); return; }
+      // Só sinais agregados: se houve saldo e se houve contactos, nunca os valores.
+      track("onboarding_concluido", {
+        com_saldo_inicial: Number(d.account.opening_balance) > 0,
+        com_contactos: contactos.length > 0,
+      });
+      track("primeira_conta_criada", { tipo: d.account.type as "bank" | "mobile_money" | "cash" });
       router.replace(ROUTES.dashboard);
       router.refresh();
     } finally {

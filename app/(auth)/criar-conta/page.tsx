@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthError } from "@/lib/auth/messages";
 import { ROUTES } from "@/lib/routes";
 import PasswordInput from "@/components/PasswordInput";
+import { track } from "@/lib/analytics";
 import { ArrowRight, Loader2, MailCheck } from "lucide-react";
 
 export default function CriarContaPage() {
@@ -24,6 +25,7 @@ export default function CriarContaPage() {
     if (busy || !valid) return;
     setError(null);
     setBusy(true);
+    track("registo_iniciado");
     try {
       const supabase = createClient();
       const { data, error } = await supabase.auth.signUp({
@@ -36,6 +38,7 @@ export default function CriarContaPage() {
         },
       });
       if (error) { setError(friendlyAuthError(error.message)); return; }
+      track("registo_concluido");
 
       if (data.session) {
         // Confirmação de e-mail desligada no projeto — entra já.
