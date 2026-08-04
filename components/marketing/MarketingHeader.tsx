@@ -22,9 +22,11 @@ export default function MarketingHeader() {
   useEffect(() => { setOpen(false); }, [path]);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/85 backdrop-blur">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="flex h-16 items-center justify-between gap-4">
+    // Cabeçalho flutuante: destaca-se do conteúdo sem o cortar com uma linha
+    // a toda a largura, e deixa o brilho do hero passar por baixo.
+    <header className="sticky top-0 z-40 px-3 sm:px-4 pt-3">
+      <div className="mx-auto max-w-6xl rounded-2xl border border-ink-800 bg-ink-950/80 backdrop-blur-md shadow-lg px-4 sm:px-5">
+        <div className="flex h-14 items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-2.5 shrink-0" aria-label="ZeroMaka — início">
             <span className="h-8 w-8 rounded-lg bg-maka-500 flex items-center justify-center font-display text-onbrand">Z</span>
             <span className="font-display text-lg tracking-tight">
@@ -62,8 +64,8 @@ export default function MarketingHeader() {
       </div>
 
       {open && (
-        <div id="menu-mobile" className="md:hidden border-t border-ink-800 bg-ink-950">
-          <nav aria-label="Navegação principal" className="mx-auto max-w-6xl px-4 py-3 space-y-1">
+        <div id="menu-mobile" className="md:hidden mx-auto max-w-6xl mt-2 rounded-2xl border border-ink-800 bg-ink-950/95 backdrop-blur-md shadow-lg">
+          <nav aria-label="Navegação principal" className="px-3 py-3 space-y-1">
             {NAV.map(({ href, label }) => (
               <Link key={href} href={href} aria-current={path === href ? "page" : undefined}
                 className={`block rounded-lg px-3 py-2.5 text-sm font-medium ${

@@ -6,6 +6,8 @@ import {
   Truck, UtensilsCrossed, Store, Users, Wallet, Briefcase,
 } from "lucide-react";
 import DashboardPreview from "@/components/marketing/DashboardPreview";
+import PersonaRotator from "@/components/marketing/PersonaRotator";
+import Reveal from "@/components/marketing/Reveal";
 import { ROUTES } from "@/lib/routes";
 
 export const metadata: Metadata = {
@@ -73,37 +75,78 @@ export default function HomePage() {
   return (
     <>
       {/* Hero */}
-      <section className="border-b border-ink-800">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 sm:py-20 grid lg:grid-cols-2 gap-12 items-center">
+      <section className="relative border-b border-ink-800 overflow-hidden">
+        <div className="glow-hero" aria-hidden="true" />
+        <div className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 py-16 sm:py-24 grid lg:grid-cols-2 gap-12 items-center">
           <div>
-            <p className="inline-flex items-center gap-1.5 rounded-full border border-maka-500/40 bg-maka-500/10 px-3 py-1 text-[12px] font-semibold text-maka-300">
+            <p className="inline-flex items-center gap-1.5 rounded-full border border-maka-500/40 bg-maka-500/10 px-3 py-1 text-[12px] font-semibold text-maka-300 rise">
               <BadgeCheck size={13} aria-hidden="true" /> Plataforma financeira para empresas em Angola
             </p>
 
-            <h1 className="mt-5 font-display text-4xl sm:text-5xl leading-[1.08] tracking-tight">
+            <h1 className="mt-6 font-display text-[2.75rem] sm:text-6xl lg:text-[4rem] leading-[0.98] tracking-tight rise">
               Gestão financeira<br /><span className="text-maka-500">sem maka.</span>
             </h1>
 
-            <p className="mt-5 text-lg text-ink-300 leading-relaxed max-w-xl">
+            <p className="mt-6 text-lg text-ink-300 leading-relaxed max-w-xl rise">
               Saiba quanto pode gastar antes que falte dinheiro. Controle o caixa, acompanhe quem lhe deve,
               prepare pagamentos e descubra quanto está realmente disponível para a sua empresa.
             </p>
 
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link href={ROUTES.criarConta} className="btn-primary text-base px-5 py-2.5">
+            <div className="mt-8 flex flex-wrap gap-3 rise">
+              <Link href={ROUTES.criarConta} className="btn-primary text-base px-6 py-3">
                 Começar gratuitamente <ArrowRight size={16} aria-hidden="true" />
               </Link>
-              <Link href="#como-funciona" className="btn-ghost text-base px-5 py-2.5">Ver como funciona</Link>
+              <Link href="#como-funciona" className="btn-ghost text-base px-6 py-3">Ver como funciona</Link>
             </div>
 
-            <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-ink-400">
+            <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-ink-400 rise">
               <li className="flex items-center gap-1.5"><CheckCircle2 size={14} className="text-maka-500" aria-hidden="true" /> Gratuito durante o lançamento</li>
               <li className="flex items-center gap-1.5"><CheckCircle2 size={14} className="text-maka-500" aria-hidden="true" /> Sem cartão de crédito</li>
               <li className="flex items-center gap-1.5"><CheckCircle2 size={14} className="text-maka-500" aria-hidden="true" /> Em Kwanzas</li>
             </ul>
           </div>
 
-          <DashboardPreview />
+          <div className="pop">
+            <DashboardPreview />
+          </div>
+        </div>
+      </section>
+
+      {/* Três factos verificáveis. Onde outros põem logótipos de clientes, nós
+          ainda não temos nenhum — e inventá-los seria mentir. */}
+      <section className="border-b border-ink-800">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10">
+          <ul className="grid gap-3 sm:grid-cols-3">
+            {[
+              { titulo: "Feito em Luanda", texto: "Para a realidade angolana, não traduzido de outro mercado." },
+              { titulo: "Em Kwanzas", texto: "Bancos locais, carteiras móveis e os três regimes fiscais." },
+              { titulo: "Gratuito no lançamento", texto: "Todas as funcionalidades, sem cartão de crédito." },
+            ].map((f, i) => (
+              <Reveal key={f.titulo} as="li" delay={i * 80}
+                className="rounded-xl border border-ink-800 bg-gradient-to-br from-maka-500/[0.07] to-transparent p-5">
+                <h2 className="font-semibold text-[15px]">{f.titulo}</h2>
+                <p className="mt-1.5 text-[13px] text-ink-400 leading-relaxed">{f.texto}</p>
+              </Reveal>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* Personas */}
+      <section className="border-b border-ink-800">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 sm:py-20">
+          <Reveal>
+            <h2 className="font-display text-2xl sm:text-4xl tracking-tight titulo-degrade max-w-2xl leading-tight">
+              Cada pessoa da empresa vê o que lhe interessa
+            </h2>
+            <p className="mt-4 text-ink-400 max-w-2xl">
+              O mesmo sistema, quatro perguntas diferentes. Escolha um papel para ver o que muda.
+            </p>
+          </Reveal>
+
+          <Reveal delay={120} className="mt-10">
+            <PersonaRotator />
+          </Reveal>
         </div>
       </section>
 

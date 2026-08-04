@@ -71,6 +71,46 @@ a.card:hover, button.card:hover, .card-hover:hover { transform: translateY(-2px)
     transition-duration: .01ms !important; scroll-behavior: auto !important;
   }
 }
+/* ---------------- Site público ----------------
+   Movimento maior do que dentro da aplicação: aqui o objetivo é dar presença,
+   não apresentar números. Tudo isto é desligado por prefers-reduced-motion,
+   pela regra global acima. */
+
+/* Brilho ambiente atrás do hero. Fica atrás do conteúdo e não intercepta cliques. */
+.glow-hero {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+}
+.glow-hero::before {
+  content: ""; position: absolute;
+  top: -30%; right: -10%; width: 70%; height: 130%;
+  background: radial-gradient(closest-side, rgb(249 115 22 / 0.16), transparent 70%);
+  filter: blur(40px);
+}
+.glow-hero::after {
+  content: ""; position: absolute;
+  bottom: -40%; left: -15%; width: 55%; height: 110%;
+  background: radial-gradient(closest-side, rgb(249 115 22 / 0.07), transparent 70%);
+  filter: blur(50px);
+}
+:root.light .glow-hero::before { background: radial-gradient(closest-side, rgb(249 115 22 / 0.10), transparent 70%); }
+:root.light .glow-hero::after  { background: radial-gradient(closest-side, rgb(249 115 22 / 0.05), transparent 70%); }
+
+/* Entrada ao entrar no ecrã. O estado final é aplicado por JS ao adicionar
+   .is-visible; sem JS o conteúdo aparece à mesma (ver regra .no-js abaixo). */
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s cubic-bezier(.16,1,.3,1), transform .6s cubic-bezier(.16,1,.3,1); }
+.reveal.is-visible { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; } }
+
+/* Barra de progresso das personas — anima a altura ao longo do tempo de exibição */
+@keyframes personaProgresso { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.persona-progresso { transform-origin: top; animation: personaProgresso linear forwards; }
+
+/* Texto grande com leve degradê, para os títulos de secção do site público */
+.titulo-degrade {
+  background: linear-gradient(180deg, var(--ink-100) 30%, var(--ink-400));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
 .btn { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors; }
 /* texto sobre laranja fixo escuro em ambos os temas (bom contraste no laranja) */
 .btn-primary { @apply btn bg-maka-500 hover:bg-maka-400; color: #1c1917; }
