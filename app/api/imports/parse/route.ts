@@ -181,7 +181,10 @@ async function parseWorkbook(buffer: Buffer, ext: string) {
   sheet.eachRow({ includeEmpty: false }, row => {
     matrix.push((row.values as Cell[]).slice(1).map(value => cellText(value as Cell)));
   });
-  return rowsFromMatrix(matrix);
+  // O nome da folha costuma dizer a que conta o extrato pertence
+  // ("Caixa", "BAI", "Unitel Money") — é a melhor pista que temos num
+  // ficheiro que não traz coluna de conta.
+  return { ...rowsFromMatrix(matrix), sheetName: sheet.name };
 }
 
 export async function POST(req: NextRequest) {
@@ -213,6 +216,7 @@ export async function POST(req: NextRequest) {
       targetType,
       headers: parsed.headers,
       rows: parsed.rows,
+      sheetName: "sheetName" in parsed ? parsed.sheetName : null,
       truncated: parsed.rows.length >= MAX_ROWS,
     });
   } catch (error) {

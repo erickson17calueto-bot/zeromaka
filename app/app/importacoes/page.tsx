@@ -6,6 +6,7 @@ import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, FileT
 import { createClient } from "@/lib/supabase/client";
 import { useStore } from "@/lib/store";
 import { fmtDate, fmtKz, Account, Contact, FinancialCategory, JournalEntry, Obligation } from "@/lib/data";
+import { suggestAccount } from "@/lib/imports/suggest-account";
 
 type TargetType = "transaction" | "receivable" | "payable";
 type Decision = "pending" | "keep" | "discard";
@@ -133,6 +134,7 @@ function findAccount(accounts: Account[], name: string): Account | undefined {
   return accounts.find(a => keyOf(a.name) === wanted);
 }
 
+
 function findContact(contacts: Contact[], name: string): Contact | undefined {
   const wanted = keyOf(name);
   return contacts.find(c => keyOf(c.name) === wanted);
@@ -158,7 +160,7 @@ function normalizedKey(target: TargetType, data: NormalizedRow): string {
     : target + "|" + (data.issue_date || "") + "|" + Number(data.amount || 0) + "|" + (data.contact_id || keyOf(data.contact_name)) + "|" + keyOf(data.external_document_number || data.description);
 }
 
-function normalizeRow(raw: Record<string, string>, target: TargetType, accounts: Account[], contacts: Contact[], categories: FinancialCategory[], existing: Set<string>): { data: NormalizedRow; key: string; error?: string } {
+function normalizeRow(raw: Record<string, string>, target: TargetType, accounts: Account[], contacts: Contact[], categories: FinancialCategory[], existing: Set<string>, contaPadrao?: Account): { data: NormalizedRow; key: string; error?: string } {
   // Alguns extratos (ex: diário de caixa) não têm uma coluna "valor" única,
   // usam colunas separadas de entrada (crédito) e saída (débito).
   const singleAmountField = getField(raw, aliases.amount);
@@ -177,7 +179,8 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const accountName = getField(raw, aliases.account);
   const categoryName = getField(raw, aliases.category);
   const contactName = getField(raw, aliases.contact);
-  const account = findAccount(accounts, accountName);
+  // A coluna de conta manda; sem ela vale a conta escolhida para a importação.
+  const account = findAccount(accounts, accountName) || contaPadrao;
   const contact = findContact(contacts, contactName);
   const category = findCategory(categories, categoryName, target);
   const directionText = keyOf(getField(raw, aliases.type));
@@ -189,7 +192,7 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const dueDate = parseDate(getField(raw, aliases.due)) || issueDate;
   const externalNumber = getField(raw, aliases.document);
   const data: NormalizedRow = target === "transaction"
-    ? { date, amount, description, direction, account_id: account?.id, account_name: accountName, category_id: category?.id, category_name: categoryName, contact_id: contact?.id, contact_name: contactName }
+    ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: categoryName, contact_id: contact?.id, contact_name: contactName }
     : { issue_date: issueDate, due_date: dueDate, amount, description, contact_id: contact?.id, contact_name: contactName, category_id: category?.id, category_name: categoryName, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable" };
   const key = normalizedKey(target, data);
 
@@ -200,7 +203,7 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
     ? "Entrada e saída preenchidas na mesma linha; confirma manualmente o valor e o sentido"
     : amount <= 0 ? "Valor inválido ou não encontrado" : undefined;
   if (!error && target === "transaction" && !dateOk(date)) error = "Data do lançamento não reconhecida";
-  if (!error && target === "transaction" && !account) error = "Conta não encontrada; escolhe uma conta";
+  if (!error && target === "transaction" && !account) error = "Sem conta: escolhe a conta da importação acima";
   if (!error && target !== "transaction" && !dateOk(issueDate)) error = "Data de emissão não reconhecida";
   if (!error && target !== "transaction" && !contact) error = "Contacto não encontrado; escolhe um contacto";
   if (!error && target !== "transaction" && (!dateOk(dueDate) || dueDate < issueDate)) error = "Vencimento inválido";
@@ -213,6 +216,9 @@ export default function ImportacoesPage() {
   const { orgId, accounts, contacts, categories, journalEntries, obligations } = useStore();
   const [target, setTarget] = useState<TargetType>("transaction");
   const [file, setFile] = useState<File | null>(null);
+  // Conta aplicada às linhas que o ficheiro não identifica. Sugerida pelo nome
+  // do ficheiro, mas sempre visível e alterável antes de ler.
+  const [contaPadraoId, setContaPadraoId] = useState<string>("");
   const [batch, setBatch] = useState<ImportBatch | null>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [batches, setBatches] = useState<ImportBatch[]>([]);
@@ -248,10 +254,14 @@ export default function ImportacoesPage() {
     const parsed = await response.json();
     if (!response.ok) { setMessage(parsed.error || "Não foi possível ler o ficheiro"); setBusy(false); return; }
     const rawRows = parsed.rows as Record<string, string>[];
+    // O nome da folha só é conhecido depois de ler o ficheiro; se o utilizador
+    // não escolheu conta, ainda dá para a adivinhar a partir dele.
+    const contaPadrao = accounts.find(a => a.id === contaPadraoId)
+      || suggestAccount(accounts, file.name, parsed.sheetName);
     const existing = existingKeys(target, journalEntries, obligations);
     const seen = new Set(existing);
     const prepared = rawRows.map((raw, i) => {
-      const normalized = normalizeRow(raw, target, accounts, contacts, categories, seen);
+      const normalized = normalizeRow(raw, target, accounts, contacts, categories, seen, contaPadrao);
       seen.add(normalized.key);
       return {
         organization_id: orgId, row_number: i + 1, raw_data: raw, normalized_data: normalized.data,
@@ -295,6 +305,52 @@ export default function ImportacoesPage() {
     const next: ImportRow = { ...row, normalized_data: merged, duplicate_key: duplicate ? key : null, validation_status: (error ? "error" : "ready") as ImportRow["validation_status"], error_message: error, decision: "pending" };
     setRows(prev => prev.map(r => r.id === row.id ? next : r));
     await supabase.from("import_rows").update({ normalized_data: merged, duplicate_key: next.duplicate_key, validation_status: next.validation_status, error_message: error, decision: "pending" }).eq("id", row.id);
+  };
+
+  const semConta = batch?.target_type === "transaction"
+    ? rows.filter(r => r.validation_status !== "applied" && !r.normalized_data.account_id).length
+    : 0;
+
+  /**
+   * Atribui a conta escolhida a todas as linhas que não têm nenhuma, num só
+   * pedido por lote. Só mexe no campo da conta — nada mais é recalculado a não
+   * ser o estado de validação, que deixa de acusar "sem conta".
+   */
+  const aplicarContaEmFalta = async () => {
+    const conta = accounts.find(a => a.id === contaPadraoId);
+    if (!conta || busy) return;
+    setBusy(true); setMessage("");
+
+    const alvo = rows.filter(r => r.validation_status !== "applied" && !r.normalized_data.account_id);
+    const atualizadas = alvo.map(row => {
+      const merged: NormalizedRow = { ...row.normalized_data, account_id: conta.id, account_name: conta.name };
+      // O erro de conta desaparece, mas outros (valor, data) têm de continuar.
+      const outroErro = Number(merged.amount) <= 0 ? "Valor inválido"
+        : !dateOk(merged.date) ? "Data do lançamento não reconhecida" : undefined;
+      return {
+        ...row,
+        normalized_data: merged,
+        validation_status: (outroErro ? "error" : "ready") as ImportRow["validation_status"],
+        error_message: outroErro || null,
+      };
+    });
+
+    setRows(prev => prev.map(r => atualizadas.find(a => a.id === r.id) || r));
+
+    for (const row of atualizadas) {
+      const { error } = await supabase.from("import_rows").update({
+        normalized_data: row.normalized_data,
+        validation_status: row.validation_status,
+        error_message: row.error_message,
+      }).eq("id", row.id);
+      if (error) { setMessage(error.message); break; }
+    }
+
+    const comErro = atualizadas.filter(r => r.error_message).length;
+    setMessage(comErro
+      ? `Conta aplicada a ${atualizadas.length} linhas. ${comErro} continuam com outro problema (valor ou data).`
+      : `Conta aplicada a ${atualizadas.length} linhas.`);
+    setBusy(false);
   };
 
   const decide = async (row: ImportRow, decision: Decision) => {
@@ -418,8 +474,36 @@ export default function ImportacoesPage() {
             <FileSpreadsheet className="mx-auto text-maka-400" size={32} />
             <div className="text-sm mt-3">{file ? file.name : "Escolher Excel, CSV ou PDF"}</div>
             <div className="text-[11px] text-ink-500 mt-1">Excel .xlsx, CSV até 5.000 linhas ou PDF textual · máximo 10 MB</div>
-            <input type="file" accept=".xlsx,.csv,.tsv,.pdf" className="hidden" onChange={e => setFile(e.target.files?.[0] || null)} />
+            <input type="file" accept=".xlsx,.csv,.tsv,.pdf" className="hidden"
+              onChange={e => {
+                const escolhido = e.target.files?.[0] || null;
+                setFile(escolhido);
+                // Sugere já a conta pelo nome do ficheiro, para o utilizador ver
+                // e corrigir antes de ler as linhas.
+                if (escolhido) setContaPadraoId(suggestAccount(accounts, escolhido.name)?.id || "");
+              }} />
           </label>
+
+          {/* Extratos raramente trazem coluna de conta: um diário de caixa é todo
+              da mesma conta e isso está no título, não nas linhas. */}
+          {target === "transaction" && file && (
+            <div className="rounded-xl border border-ink-800 bg-ink-900 p-4">
+              <label className="label" htmlFor="conta-importacao">Conta destes movimentos</label>
+              <select id="conta-importacao" className="input" value={contaPadraoId}
+                onChange={e => setContaPadraoId(e.target.value)} aria-describedby="conta-importacao-nota">
+                <option value="">Sem conta predefinida — usar a coluna do ficheiro</option>
+                {accounts.filter(a => !a.isArchived).map(a => (
+                  <option key={a.id} value={a.id}>{a.name}{a.bank ? ` · ${a.bank}` : ""}</option>
+                ))}
+              </select>
+              <p id="conta-importacao-nota" className="mt-2 text-[12px] text-ink-500 leading-relaxed">
+                {contaPadraoId
+                  ? "Aplicada a todas as linhas que o ficheiro não identificar. Se o ficheiro tiver uma coluna de conta, essa manda."
+                  : "O ficheiro não parece indicar a conta. Escolhe uma aqui, senão as linhas ficam por atribuir."}
+              </p>
+            </div>
+          )}
+
           <button className="btn-primary w-full justify-center" disabled={!file || busy} onClick={() => void createImport()}>{busy ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />} {busy ? "A ler ficheiro…" : "Ler e preparar revisão"}</button>
           {message && <p className="text-sm text-red-400">{message}</p>}
         </section>
@@ -438,6 +522,33 @@ export default function ImportacoesPage() {
             <ShieldCheck size={19} className="text-maka-400 shrink-0 mt-0.5" />
             <div className="text-sm text-ink-300"><strong className="text-ink-100">Nada foi lançado ainda.</strong> Revê as linhas, resolve os duplicados e aprova apenas o que queres importar. Os dados aprovados serão enviados para o mesmo diário usado pelos lançamentos normais.</div>
           </section>
+
+          {/* Corrigir a conta de centenas de linhas uma a uma não é trabalho para
+              ninguém — aqui resolve-se de uma vez. */}
+          {batch.target_type === "transaction" && semConta > 0 && (
+            <section className="card p-4">
+              <div className="flex items-center gap-2 font-semibold text-sm">
+                <AlertTriangle size={16} className="text-amber-400" />
+                {semConta} linha{semConta !== 1 ? "s" : ""} sem conta atribuída
+              </div>
+              <p className="text-xs text-ink-500 mt-1">
+                O ficheiro não indica a que conta pertencem estes movimentos. Escolhe uma e aplica a todas.
+              </p>
+              <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                <select className="input sm:flex-1" value={contaPadraoId} aria-label="Conta a aplicar"
+                  onChange={e => setContaPadraoId(e.target.value)}>
+                  <option value="">Selecionar conta…</option>
+                  {accounts.filter(a => !a.isArchived).map(a => (
+                    <option key={a.id} value={a.id}>{a.name}{a.bank ? ` · ${a.bank}` : ""}</option>
+                  ))}
+                </select>
+                <button className="btn-primary justify-center shrink-0" disabled={!contaPadraoId || busy}
+                  onClick={() => void aplicarContaEmFalta()}>
+                  {busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Aplicar a {semConta}
+                </button>
+              </div>
+            </section>
+          )}
 
           {groups.length > 0 && (
             <section className="card p-4 space-y-3">
