@@ -31,7 +31,7 @@ Demo data is stored in browser localStorage (`zeromaka_v3` key), not persisted t
 ### Key Domains
 
 **Finances** (`/lib/data.ts` types: Account, Transaction, Invoice)
-- **Accounts**: Bank accounts, mobile wallets (M-Pesa, Unitel Money, etc.), cash. Each has `initialBalance` and `currentBalance` (mutated by transactions).
+- **Accounts**: Bank accounts, mobile wallets (M-Pesa, Unitel Money, etc.), cash. `currentBalance` is **derived, never stored or mutated** — it is the account's most recent posted `opening_balance` entry plus `Σ (debit − credit)` over `journal_lines` dated between that entry and today (movements before the opening date or in the future don't affect it, though they stay visible in history/reports). See `current_account_balance()` and `lib/accounts/balance.ts`. `initialBalance` (DB column `accounts.initial_balance`) is a **legacy display-only field**: the authoritative opening balance is the `opening_balance` journal entry, and this column merely duplicates it. Never read it to compute a balance. See `docs/005-financial-engine.md`.
 - **Transactions**: Income, expense, transfers, and capital movements (partner contributions/withdrawals). Marked `isSale` to auto-calculate tax. Tax is *included* in the amount, not added (calculated via `taxIncluded()` utility).
 - **Invoices**: Receivables (customer sales) and payables (supplier purchases). Tracked separately from transactions; when marked paid, they generate a transaction and update the account balance.
 

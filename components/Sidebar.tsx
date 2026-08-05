@@ -47,7 +47,9 @@ const CLOSED_SECTIONS_KEY = "zeromaka_sidebar_closed_sections";
 export default function Sidebar() {
   const path = usePathname();
   const router = useRouter();
-  const { profile, obligations, requisitions, logout } = useStore();
+  const { profile, obligations, requisitions, logout, orgId, organizations, switchOrganization } = useStore();
+  const currentOrg = organizations.find(o => o.id === orgId);
+  const [switching, setSwitching] = useState(false);
   const lv = levelFor(profile.xp);
   const isOverdue = (s: string) => s === "overdue" || s === "partial_overdue";
   const overdue = obligations.filter((o) => o.direction === "receivable" && isOverdue(o.financialStatus)).length;
@@ -156,6 +158,30 @@ export default function Sidebar() {
             <span>{profile.xp.toLocaleString("pt-AO")} XP</span>
             <span className="flex items-center gap-1 text-maka-400"><Flame size={12} /> {profile.streak} dias</span>
           </div>
+        </div>
+      )}
+
+      {/* Só aparece a quem pertence a mais do que uma organização — evita que
+          movimentos lançados numa organização "desapareçam" por terem ido
+          parar a outra sem o utilizador reparar. */}
+      {organizations.length > 1 && (
+        <div className={`mb-3 ${collapsed ? "px-0" : ""}`}>
+          {!collapsed && <div className="px-1 mb-1 text-[10px] font-bold uppercase tracking-widest text-ink-600">Organização</div>}
+          <select
+            aria-label="Organização ativa"
+            title={collapsed ? (currentOrg?.name || "Organização") : undefined}
+            className="input text-xs py-1.5"
+            value={orgId || ""}
+            disabled={switching}
+            onChange={async (e) => {
+              const next = e.target.value;
+              if (!next || next === orgId) return;
+              setSwitching(true);
+              await switchOrganization(next);
+              setSwitching(false);
+            }}>
+            {organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
         </div>
       )}
 

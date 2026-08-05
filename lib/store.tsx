@@ -11,11 +11,16 @@ import {
   ReserveType, ReservePriority, RecurringTransaction, BankStatementLine, BankStatementDirection,
   seedBadges, taxRateFor
 } from "./data";
+import { computeAccountBalance } from "./accounts/balance";
 
 interface Toast { id: number; msg: string; kind: "ok" | "xp" | "warn" }
 
+interface OrgMembership { id: string; name: string; role: string }
+
 interface Store {
   ready: boolean; authed: boolean; orgId: string | null;
+  organizations: OrgMembership[]; switchOrganization: (orgId: string) => Promise<void>;
+  refreshEntries: (oid?: string) => Promise<void>;
   logout: () => Promise<void>;
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
   company: Company; accounts: Account[]; transactions: Transaction[];
@@ -82,6 +87,12 @@ function slugify(text: string): string {
 
 // ---- DB → Frontend mappers ----
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// LEGACY: `initial_balance` is NOT a source of truth for any balance. The real
+// opening balance lives in the `opening_balance` journal entry that
+// create_account_with_balance posts; this column is a redundant copy of the same
+// number, kept only for the "Inicial" label on /app/contas. Never sum it into a
+// balance and never read it to decide anything — balances derive from
+// journal_lines only (see the `accounts` useMemo below and docs/005).
 const dbToAccount = (r: any): Omit<Account, "currentBalance"> => ({
   id: r.id, name: r.name, type: r.type, bank: r.bank || undefined,
   initialBalance: Number(r.initial_balance),
@@ -364,6 +375,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState(false);
   const [orgId, setOrgId] = useState<string | null>(null);
   const orgIdRef = useRef<string | null>(null);
+  const [organizations, setOrganizations] = useState<OrgMembership[]>([]);
   const userIdRef = useRef<string | null>(null);
 
   const [company, setCompany] = useState<Company>(defaultCompany);
@@ -388,15 +400,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { orgIdRef.current = orgId; }, [orgId]);
 
-  // Balance derived from journal lines (debit increases, credit decreases)
+  // Balance derived from journal lines, respecting the opening-balance
+  // data-base (see lib/accounts/balance.ts and
+  // supabase/migrations/20260805_0029_saldo_data_base.sql — both sides must
+  // agree on the same rule). `initialBalance` is deliberately NOT summed
+  // separately — the opening_balance journal entry already carries that
+  // value; adding the column too would double-count it.
   const accounts = useMemo<Account[]>(() =>
-    rawAccounts.map(a => {
-      const balance = journalEntries
-        .flatMap(e => e.lines)
-        .filter(l => l.accountId === a.id)
-        .reduce((sum, l) => sum + (l.direction === "debit" ? l.amount : -l.amount), 0);
-      return { ...a, currentBalance: balance };
-    }),
+    rawAccounts.map(a => ({ ...a, currentBalance: computeAccountBalance(a.id, journalEntries) })),
     [rawAccounts, journalEntries]
   );
 
@@ -546,6 +557,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             await loadOrgData(dbProfile.current_org_id);
           }
         }
+        const { data: memberships } = await supabase.from("organization_members")
+          .select("role, organizations(id, name)").eq("user_id", user.id);
+        if (memberships) {
+          setOrganizations(memberships
+            .filter((m: any) => m.organizations)
+            .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role })));
+        }
       }
       setReady(true);
     };
@@ -620,6 +638,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (cats) setCategories(cats.map(dbToCategory));
     if (rcats) setReserveCategories(rcats.map(dbToReserveCategory));
   };
+
+  // Troca a organização ativa. `profiles.current_org_id` é a fonte da verdade
+  // usada no arranque (init acima) — gravá-la é o que faz a escolha persistir
+  // entre sessões, não só nesta aba.
+  const switchOrganization = useCallback(async (newOrgId: string) => {
+    if (!newOrgId || newOrgId === orgIdRef.current || !userIdRef.current) return;
+    const supabase = sb();
+    const { error } = await supabase.from("profiles").update({ current_org_id: newOrgId }).eq("id", userIdRef.current);
+    if (error) { toast("Não foi possível mudar de organização: " + error.message, "warn"); return; }
+    setOrgId(newOrgId);
+    await loadOrgData(newOrgId);
+  }, [sb, loadOrgData, toast]);
 
   // ---- Company ----
   const updateCompany: Store["updateCompany"] = (p) => {
@@ -1141,7 +1171,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      ready, authed, orgId, logout, createOrganization,
+      ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,

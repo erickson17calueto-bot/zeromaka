@@ -88,6 +88,7 @@ export default function ContasPage() {
                   <div className="text-[11px] uppercase tracking-wider text-ink-500 font-bold">Saldo atual</div>
                   <div className="font-display text-xl mt-0.5">{fmtKz(a.currentBalance)}</div>
                 </div>
+                {/* Rótulo informativo. `initialBalance` é legado e não entra em nenhum saldo — ver docs/005 */}
                 <div className="text-right text-[11px] text-ink-500">Inicial: {fmtKz(a.initialBalance)}</div>
               </div>
             </div>

@@ -26,7 +26,7 @@ Data: 2026-07-23 · Projeto Supabase: `zeromaka` (`ouhvwbwdfagkdewjhuyt`, eu-wes
 
 ## Decisões
 
-1. **`currentBalance` derivado**: nunca armazenado — `useMemo` calcula `initialBalance + Σ txDelta(transactions)`. Cumpre o charter.
+1. **`currentBalance` derivado**: nunca armazenado — `useMemo` chama `computeAccountBalance()` (`lib/accounts/balance.ts`), que soma `Σ (debit − credit)` sobre as `journal_lines` da conta com data entre o `opening_balance` mais recente e hoje (espelha `current_account_balance()` no servidor). O saldo de abertura já é uma dessas linhas, por isso `initialBalance` **não entra** na soma; somá-lo duplicaria o valor. Cumpre o charter. Ver `accounts.initial_balance` em [005](005-financial-engine.md#accountsinitial_balance--coluna-legada).
 2. **Client-generated UUIDs**: `crypto.randomUUID()` gera IDs antes do insert. O mesmo UUID vai para o estado local e para o DB. Em operações RPC (transfer, markPaid), o ID local é temporário e é substituído por refetch pós-sucesso.
 3. **Refs para orgId/userId**: `useRef` acompanha `orgId` e `userId` para uso em callbacks sem re-render.
 4. **`createClient()` por chamada**: cria um novo cliente Supabase em cada operação para evitar referências stale a cookies/session.

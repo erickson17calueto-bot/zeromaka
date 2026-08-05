@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import { Workbook } from "exceljs";
 import { inflateSync } from "node:zlib";
 import { createClient } from "@/lib/supabase/server";
+import { encontrarLinhaCabecalho } from "@/lib/imports/header-row";
 
 type TargetType = "transaction" | "receivable" | "payable";
 type Cell = string | number | boolean | Date | null | undefined;
@@ -82,8 +83,11 @@ function parseCsv(input: string, delimiter: string): string[][] {
 
 function rowsFromMatrix(matrix: string[][]): { headers: string[]; rows: Record<string, string>[] } {
   if (!matrix.length) return { headers: [], rows: [] };
-  const headers = matrix[0].map((h, i) => h || "coluna_" + (i + 1));
-  const rows = matrix.slice(1).filter(row => row.some(Boolean)).slice(0, MAX_ROWS).map(row => {
+  // Nem sempre a tabela começa na primeira linha: há folhas que abrem com um
+  // título ou uma linha de totais antes do cabeçalho.
+  const inicio = encontrarLinhaCabecalho(matrix);
+  const headers = matrix[inicio].map((h, i) => h || "coluna_" + (i + 1));
+  const rows = matrix.slice(inicio + 1).filter(row => row.some(Boolean)).slice(0, MAX_ROWS).map(row => {
     const item: Record<string, string> = {};
     headers.forEach((header, i) => { item[header] = row[i] || ""; });
     return item;
@@ -164,19 +168,36 @@ function parsePdfRows(buffer: Buffer): { headers: string[]; rows: Record<string,
   return { headers: ["data", "descricao", "valor"], rows };
 }
 
-async function parseWorkbook(buffer: Buffer, ext: string) {
+type ParseResult = {
+  headers: string[];
+  rows: Record<string, string>[];
+  sheetName: string | null;
+  sheets: string[];
+};
+
+/**
+ * Lê o ficheiro. Em livros Excel com várias folhas, `sheetName` escolhe qual —
+ * sem ele fica a primeira com dados, e `sheets` traz sempre a lista completa
+ * para o utilizador poder trocar.
+ */
+async function parseWorkbook(buffer: Buffer, ext: string, sheetName?: string): Promise<ParseResult> {
   if (ext === "csv") {
     const text = decodeCsvBuffer(buffer).replace(/^\uFEFF/, "");
     const lines = text.split(/\r?\n/);
     const first = lines.find(line => line.trim()) || "";
     const delimiter = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ";" : ",";
     const matrix = parseCsv(text, delimiter);
-    return rowsFromMatrix(matrix);
+    return { ...rowsFromMatrix(matrix), sheetName: null, sheets: [] };
   }
   const workbook = new Workbook();
   await workbook.xlsx.load(buffer as any);
-  const sheet = workbook.worksheets.find(ws => ws.rowCount > 0);
-  if (!sheet) return { headers: [], rows: [] };
+  // Um livro de contabilidade real traz várias folhas ("DIARIO CAIXA",
+  // "EXTRATO BAI", "APORTE"), cada uma com movimentos diferentes. Ler sempre a
+  // primeira devolvia ao utilizador uma folha que ele não tinha pedido.
+  const comDados = workbook.worksheets.filter(ws => ws.rowCount > 0);
+  const sheets = comDados.map(ws => ws.name);
+  const sheet = (sheetName && comDados.find(ws => ws.name === sheetName)) || comDados[0];
+  if (!sheet) return { headers: [], rows: [], sheetName: null, sheets };
   const matrix: string[][] = [];
   sheet.eachRow({ includeEmpty: false }, row => {
     matrix.push((row.values as Cell[]).slice(1).map(value => cellText(value as Cell)));
@@ -184,7 +205,14 @@ async function parseWorkbook(buffer: Buffer, ext: string) {
   // O nome da folha costuma dizer a que conta o extrato pertence
   // ("Caixa", "BAI", "Unitel Money") — é a melhor pista que temos num
   // ficheiro que não traz coluna de conta.
-  return { ...rowsFromMatrix(matrix), sheetName: sheet.name };
+  return { ...rowsFromMatrix(matrix), sheetName: sheet.name, sheets };
+}
+
+/** Só os nomes das folhas com dados, para o seletor antes de ler o ficheiro. */
+async function listSheets(buffer: Buffer): Promise<string[]> {
+  const workbook = new Workbook();
+  await workbook.xlsx.load(buffer as any);
+  return workbook.worksheets.filter(ws => ws.rowCount > 0).map(ws => ws.name);
 }
 
 export async function POST(req: NextRequest) {
@@ -195,6 +223,10 @@ export async function POST(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("file");
   const targetType = String(form.get("targetType") || "transaction") as TargetType;
+  // Folha escolhida pelo utilizador num livro com várias; vazio = a primeira.
+  const sheetName = String(form.get("sheetName") || "") || undefined;
+  // "inspect" só devolve os nomes das folhas, para montar o seletor antes de ler.
+  const inspectOnly = String(form.get("mode") || "") === "inspect";
   if (!(file instanceof File)) return bad(400, "Ficheiro não recebido");
   if (!["transaction", "receivable", "payable"].includes(targetType)) return bad(400, "Tipo de importação inválido");
   if (file.size > MAX_BYTES) return bad(413, "O ficheiro excede o limite de 10 MB");
@@ -204,19 +236,39 @@ export async function POST(req: NextRequest) {
   if (!ext) return bad(415, "Formato não suportado. Use .xlsx, .csv ou .pdf");
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (inspectOnly) {
+    // Só faz sentido em Excel: CSV e PDF não têm folhas.
+    if (ext !== "xlsx") return Response.json({ sheets: [] });
+    try {
+      return Response.json({ sheets: await listSheets(buffer) });
+    } catch {
+      // Falhar aqui não é fatal: o utilizador segue sem seletor e a leitura
+      // normal a seguir dá a mensagem de erro adequada.
+      return Response.json({ sheets: [] });
+    }
+  }
+
   try {
-    const parsed = ext === "pdf" ? parsePdfRows(buffer) : await parseWorkbook(buffer, ext);
+    const parsed = ext === "pdf"
+      ? { ...parsePdfRows(buffer), sheetName: null, sheets: [] as string[] }
+      : await parseWorkbook(buffer, ext, sheetName);
     if (!parsed.rows.length && ext === "pdf") {
       return bad(422, "Não foi encontrado texto no PDF. Este PDF pode ser digitalizado como imagem e precisa de OCR.");
     }
-    if (!parsed.rows.length) return bad(422, "Não foram encontradas linhas de dados. Confirme se a primeira linha contém os cabeçalhos.");
+    if (!parsed.rows.length) {
+      return bad(422, parsed.sheetName
+        ? `A folha "${parsed.sheetName}" não tem linhas de dados. Escolhe outra folha ou confirma que existe uma linha de cabeçalhos.`
+        : "Não foram encontradas linhas de dados. Confirme se a primeira linha contém os cabeçalhos.");
+    }
     return Response.json({
       sourceFileName: file.name,
       sourceFormat: ext,
       targetType,
       headers: parsed.headers,
       rows: parsed.rows,
-      sheetName: "sheetName" in parsed ? parsed.sheetName : null,
+      sheetName: parsed.sheetName,
+      sheets: parsed.sheets,
       truncated: parsed.rows.length >= MAX_ROWS,
     });
   } catch (error) {
