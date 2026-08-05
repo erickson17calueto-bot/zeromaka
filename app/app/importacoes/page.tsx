@@ -9,6 +9,7 @@ import { fmtDate, fmtKz, Account, Contact, FinancialCategory, JournalEntry, Obli
 import { suggestAccount } from "@/lib/imports/suggest-account";
 import { suggestCategory } from "@/lib/imports/suggest-category";
 import { detectRowKind } from "@/lib/imports/row-kind";
+import { suggestContact, ContactMatchTier } from "@/lib/imports/suggest-contact";
 import { reconcileBalances, BalanceStatus } from "@/lib/imports/balance-reconciliation";
 import { findDuplicateGroups, DuplicateItem, DuplicateTier } from "@/lib/imports/duplicate-detection";
 
@@ -63,7 +64,18 @@ type NormalizedRow = {
   balance_difference?: number;
   duplicate_tier?: DuplicateTier;
   duplicate_existing_label?: string;
+  contact_match_tier?: ContactMatchTier | "learned";
+  category_matched_by_rule?: boolean;
 };
+
+/** Regra aprendida: organização_id já implícito (carregadas só para a org atual). */
+type MappingRule = { targetType: TargetType; field: "contact_id" | "category_id"; matchValue: string; valueId: string };
+
+function ruleLookup(rules: MappingRule[], field: MappingRule["field"], target: TargetType, text: string): string | undefined {
+  const wanted = keyOf(text);
+  if (!wanted) return undefined;
+  return rules.find(r => r.field === field && r.targetType === target && keyOf(r.matchValue) === wanted)?.valueId;
+}
 
 const TARGET_LABEL: Record<TargetType, string> = {
   transaction: "transações",
@@ -82,6 +94,8 @@ const aliases = {
   account: ["conta", "account", "conta bancária", "conta bancaria", "carteira"],
   category: ["categoria", "category", "classe"],
   contact: ["cliente", "fornecedor", "contacto", "contato", "contact", "entidade", "nome"],
+  contactNif: ["nif", "nuit", "bi", "número de contribuinte", "numero de contribuinte", "contribuinte"],
+  contactPhone: ["telefone", "telemóvel", "telemovel", "contacto telefónico", "contacto telefonico", "whatsapp", "número", "numero"],
   type: ["tipo", "type", "natureza", "entrada/saída", "entrada/saida", "direção", "direcao"],
   document: ["nº documento", "nº doc", "numero documento", "número documento", "documento", "invoice", "fatura", "referência", "referencia"],
   balance: ["saldo", "balance", "saldo acumulado", "saldo atual", "saldo do dia"],
@@ -164,9 +178,9 @@ function findAccount(accounts: Account[], name: string): Account | undefined {
 }
 
 
-function findContact(contacts: Contact[], name: string): Contact | undefined {
-  const wanted = keyOf(name);
-  return contacts.find(c => keyOf(c.name) === wanted);
+function findContact(contacts: Contact[], name: string, nif?: string, phone?: string): { contact?: Contact; tier?: ContactMatchTier } {
+  const match = suggestContact(contacts, { name, nif, phone });
+  return { contact: match?.contact, tier: match?.tier };
 }
 
 function findCategory(categories: FinancialCategory[], name: string, target: TargetType): FinancialCategory | undefined {
@@ -219,7 +233,7 @@ function existingLabel(target: TargetType, id: string, entries: JournalEntry[], 
   return `${fmtDate(o.issueDate)} · ${fmtKz(o.originalAmount)} · ${o.description || o.externalDocumentNumber || ""}`;
 }
 
-function normalizeRow(raw: Record<string, string>, target: TargetType, accounts: Account[], contacts: Contact[], categories: FinancialCategory[], contaPadrao?: Account): { data: NormalizedRow; error?: string } {
+function normalizeRow(raw: Record<string, string>, target: TargetType, accounts: Account[], contacts: Contact[], categories: FinancialCategory[], contaPadrao?: Account, mappingRules: MappingRule[] = []): { data: NormalizedRow; error?: string } {
   // Alguns extratos (ex: diário de caixa) não têm uma coluna "valor" única,
   // usam colunas separadas de entrada (crédito) e saída (débito).
   const singleAmountField = getField(raw, aliases.amount);
@@ -238,9 +252,17 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const accountName = getField(raw, aliases.account);
   const categoryColumn = getField(raw, aliases.category);
   const contactName = getField(raw, aliases.contact);
+  const contactNif = getField(raw, aliases.contactNif);
+  const contactPhone = getField(raw, aliases.contactPhone);
   // A coluna de conta manda; sem ela vale a conta escolhida para a importação.
   const account = findAccount(accounts, accountName) || contaPadrao;
-  const contact = findContact(contacts, contactName);
+  // Uma regra aprendida (o utilizador já corrigiu este texto antes e carregou
+  // em "lembrar") ganha a qualquer sugestão automática — é uma correspondência
+  // confirmada por uma pessoa, não uma adivinha.
+  const contactRuleId = ruleLookup(mappingRules, "contact_id", target, contactName);
+  const { contact: contactSugerido, tier: contactMatchTierSugerido } = findContact(contacts, contactName, contactNif, contactPhone);
+  const contact = contactRuleId ? contacts.find(c => c.id === contactRuleId) : contactSugerido;
+  const contactMatchTier: ContactMatchTier | "learned" | undefined = contactRuleId && contact ? "learned" : contactMatchTierSugerido;
   const directionText = keyOf(getField(raw, aliases.type));
   const direction = hasSplitColumns
     ? (creditAmount > 0 ? "income" : "expense")
@@ -251,7 +273,10 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   // todo por categorizar.
   const categoryDirection: "income" | "expense" =
     target === "transaction" ? direction : target === "receivable" ? "income" : "expense";
-  const category = findCategory(categories, categoryColumn, target)
+  const categoryRuleId = ruleLookup(mappingRules, "category_id", target, categoryColumn || description);
+  const categoryPorRegra = categoryRuleId ? categories.find(c => c.id === categoryRuleId) : undefined;
+  const category = categoryPorRegra
+    || findCategory(categories, categoryColumn, target)
     || suggestCategory(categories, description, categoryDirection);
   const date = parseDate(getField(raw, aliases.date));
   const issueDate = parseDate(getField(raw, aliases.issue)) || date;
@@ -260,8 +285,8 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const balanceDeclared = parseAmount(getField(raw, aliases.balance)) || undefined;
   const rowKind = detectRowKind(description);
   const data: NormalizedRow = target === "transaction"
-    ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: category?.name || categoryColumn, contact_id: contact?.id, contact_name: contactName, reference: externalNumber || undefined, row_kind: rowKind, balance_declared: balanceDeclared }
-    : { issue_date: issueDate, due_date: dueDate, amount, description, contact_id: contact?.id, contact_name: contactName, category_id: category?.id, category_name: category?.name || categoryColumn, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable", row_kind: rowKind };
+    ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, reference: externalNumber || undefined, row_kind: rowKind, balance_declared: balanceDeclared }
+    : { issue_date: issueDate, due_date: dueDate, amount, description, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable", row_kind: rowKind };
 
   // Linhas de controlo (fecho de semana, saldo inicial/final, reconciliação…)
   // não são movimentos — nunca podem ser lançadas como receita/despesa. O
@@ -304,6 +329,7 @@ export default function ImportacoesPage() {
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [filter, setFilter] = useState<"all" | "ready" | "duplicate" | "error" | "discarded">("all");
+  const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -313,6 +339,9 @@ export default function ImportacoesPage() {
   const [reimportWarning, setReimportWarning] = useState<{ batch: ImportBatch; proceed: () => void } | null>(null);
   // Confirmação antes de lançar — mostra em que organização vai lançar.
   const [confirmLaunch, setConfirmLaunch] = useState(false);
+  // Regras aprendidas (contacto/categoria "lembrados" pelo utilizador nesta
+  // organização) — carregadas uma vez, consultadas antes de qualquer sugestão.
+  const [mappingRules, setMappingRules] = useState<MappingRule[]>([]);
 
   const loadBatches = async () => {
     if (!orgId) return;
@@ -320,7 +349,13 @@ export default function ImportacoesPage() {
     if (data) setBatches(data as ImportBatch[]);
   };
 
-  useEffect(() => { void loadBatches(); }, [orgId]);
+  const loadMappingRules = async () => {
+    if (!orgId) return;
+    const { data } = await supabase.from("import_mapping_rules").select("target_type, field, match_value, value_id").eq("organization_id", orgId);
+    if (data) setMappingRules(data.map((r: any) => ({ targetType: r.target_type, field: r.field, matchValue: r.match_value, valueId: r.value_id })));
+  };
+
+  useEffect(() => { void loadBatches(); void loadMappingRules(); }, [orgId]);
 
   const loadRows = async (selected: ImportBatch) => {
     setBusy(true); setMessage(""); setConfirmLaunch(false);
@@ -373,7 +408,7 @@ export default function ImportacoesPage() {
 
     // Fica marcada como movimento normal; linhas de controlo e a reconciliação
     // do saldo são resolvidas já a seguir, com o ficheiro completo em mãos.
-    const normalizedRows = rawRows.map(raw => normalizeRow(raw, target, accounts, contacts, categories, contaPadrao));
+    const normalizedRows = rawRows.map(raw => normalizeRow(raw, target, accounts, contacts, categories, contaPadrao, mappingRules));
 
     // Item B — reconciliar o saldo declarado (coluna SALDO) contra o saldo
     // calculado a partir dos próprios movimentos, na ordem do ficheiro. Só faz
@@ -474,7 +509,7 @@ export default function ImportacoesPage() {
 
   const updateRow = async (row: ImportRow, patch: Partial<NormalizedRow>) => {
     const normalized = { ...row.normalized_data, ...patch };
-    const check = normalizeRow(row.raw_data, target, accounts, contacts, categories);
+    const check = normalizeRow(row.raw_data, target, accounts, contacts, categories, undefined, mappingRules);
     const mergedBase: NormalizedRow = { ...check.data, ...normalized };
 
     // Reavalia os duplicados desta linha contra o resto do lote e o que já
@@ -504,6 +539,31 @@ export default function ImportacoesPage() {
     const next: ImportRow = { ...row, normalized_data: merged, duplicate_key: ownGroup?.key || null, validation_status: (error ? "error" : "ready") as ImportRow["validation_status"], error_message: error, decision: "pending" };
     setRows(prev => prev.map(r => r.id === row.id ? next : r));
     await supabase.from("import_rows").update({ normalized_data: merged, duplicate_key: next.duplicate_key, validation_status: next.validation_status, error_message: error, decision: "pending" }).eq("id", row.id);
+  };
+
+  /**
+   * Grava a correspondência atual (contacto ou categoria) como regra para
+   * esta organização. Da próxima vez que o mesmo texto aparecer numa
+   * importação para o mesmo destino, aplica-se sozinho — nunca na primeira
+   * vez, só depois de o utilizador confirmar que está certo.
+   */
+  const rememberMapping = async (row: ImportRow, field: "contact_id" | "category_id") => {
+    if (!orgId) return;
+    const valueId = field === "contact_id" ? row.normalized_data.contact_id : row.normalized_data.category_id;
+    if (!valueId) return;
+    const texto = field === "contact_id"
+      ? getField(row.raw_data, aliases.contact)
+      : getField(row.raw_data, aliases.category) || getField(row.raw_data, aliases.description);
+    if (!texto) { setMessage("Esta linha não tem texto de origem para associar a uma regra."); return; }
+    const { error } = await supabase.rpc("remember_import_mapping", {
+      p_org_id: orgId, p_target_type: target, p_field: field, p_match_value: texto, p_value_id: valueId,
+    });
+    if (error) { setMessage(error.message); return; }
+    setMappingRules(prev => [
+      ...prev.filter(r => !(r.field === field && r.targetType === target && keyOf(r.matchValue) === keyOf(texto))),
+      { targetType: target, field, matchValue: texto, valueId },
+    ]);
+    setMessage(`Regra guardada: "${texto}" passa a corresponder sempre a ${field === "contact_id" ? "este contacto" : "esta categoria"}.`);
   };
 
   const semConta = batch?.target_type === "transaction"
@@ -626,15 +686,55 @@ export default function ImportacoesPage() {
     discarded: rows.filter(r => r.decision === "discard").length,
   }), [rows]);
 
-  const visibleRows = useMemo(() => rows.filter(row => {
-    if (filter === "ready") return row.validation_status === "ready" && !row.normalized_data.duplicate;
-    if (filter === "duplicate") return !!row.duplicate_key;
-    if (filter === "error") return row.validation_status === "error";
-    if (filter === "discarded") return row.decision === "discard";
-    return true;
-  }), [rows, filter]);
+  const visibleRows = useMemo(() => {
+    const termo = keyOf(search);
+    return rows.filter(row => {
+      if (filter === "ready" && !(row.validation_status === "ready" && !row.normalized_data.duplicate)) return false;
+      if (filter === "duplicate" && !row.duplicate_key) return false;
+      if (filter === "error" && row.validation_status !== "error") return false;
+      if (filter === "discarded" && row.decision !== "discard") return false;
+      if (!termo) return true;
+      const n = row.normalized_data;
+      const alvo = keyOf([n.description, n.contact_name, n.account_name, n.category_name, n.reference, n.external_document_number, n.amount].filter(Boolean).join(" "));
+      return alvo.includes(termo);
+    });
+  }, [rows, filter, search]);
 
-  const reset = () => { setBatch(null); setRows([]); setFile(null); setMessage(""); setSheets([]); setSheetName(""); setConfirmLaunch(false); setReimportWarning(null); };
+  const PAGE_SIZE = 100;
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [filter, search, batch?.id]);
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  const pageRows = useMemo(() => visibleRows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE), [visibleRows, page]);
+
+  // Seleção para ações em massa — guarda-se por id, não por posição, para
+  // sobreviver a filtros, pesquisa e paginação.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelected = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const pageAllSelected = pageRows.length > 0 && pageRows.every(r => selected.has(r.id));
+  const toggleSelectPage = () => setSelected(prev => {
+    const next = new Set(prev);
+    if (pageAllSelected) pageRows.forEach(r => next.delete(r.id));
+    else pageRows.forEach(r => next.add(r.id));
+    return next;
+  });
+
+  const bulkDecide = async (decision: Decision) => {
+    const alvo = rows.filter(r => selected.has(r.id));
+    for (const row of alvo) await decide(row, decision);
+    setSelected(new Set());
+  };
+  const bulkSetCategory = async (categoryId: string) => {
+    const cat = categories.find(c => c.id === categoryId);
+    const alvo = rows.filter(r => selected.has(r.id));
+    for (const row of alvo) await updateRow(row, { category_id: categoryId || undefined, category_name: cat?.name });
+    setSelected(new Set());
+  };
+
+  const reset = () => { setBatch(null); setRows([]); setFile(null); setMessage(""); setSheets([]); setSheetName(""); setConfirmLaunch(false); setReimportWarning(null); setSearch(""); setSelected(new Set()); };
 
   const label = batch ? TARGET_LABEL[batch.target_type] : TARGET_LABEL[target];
   const pendingApproved = rows.filter(r => r.decision === "keep" && r.validation_status === "ready").length;
@@ -841,6 +941,8 @@ export default function ImportacoesPage() {
 
           <section className="flex flex-wrap gap-2 items-center">
             {(["all", "ready", "duplicate", "error", "discarded"] as const).map(value => <button key={value} onClick={() => setFilter(value)} className={"rounded-full px-3 py-1.5 text-xs border " + (filter === value ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-800 text-ink-400")}>{value === "all" ? "Todas" : value === "ready" ? "Válidas" : value === "duplicate" ? "Duplicadas" : value === "error" ? "Com erro" : "Eliminadas"}</button>)}
+            <input className="input !w-auto min-w-[180px] text-xs py-1.5" placeholder="Pesquisar descrição, contacto, conta…"
+              value={search} onChange={e => setSearch(e.target.value)} aria-label="Pesquisar linhas" />
             <span className="flex-1" />
             <span className="text-xs text-ink-500">{pendingApproved} aprovadas para lançar</span>
             <button className="btn-ghost" disabled={busy || !counts.ready} onClick={() => void approveNonDuplicates()}><Check size={14} /> Aprovar válidas</button>
@@ -848,13 +950,32 @@ export default function ImportacoesPage() {
             <button className="btn-ghost text-red-400" disabled={busy} onClick={() => void cancelImport()}>Cancelar importação</button>
           </section>
 
+          {selected.size > 0 && (
+            <section className="rounded-xl border border-maka-500/30 bg-maka-500/5 p-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold">{selected.size} selecionada{selected.size !== 1 ? "s" : ""}</span>
+              <button className="btn-ghost text-xs" onClick={() => void bulkDecide("keep")}><Check size={13} /> Aprovar</button>
+              <button className="btn-ghost text-xs text-red-400" onClick={() => void bulkDecide("discard")}><Trash2 size={13} /> Eliminar</button>
+              <select className="input !w-auto text-xs py-1" defaultValue="" aria-label="Aplicar categoria às selecionadas"
+                onChange={e => { if (e.target.value) void bulkSetCategory(e.target.value); e.target.value = ""; }}>
+                <option value="" disabled>Aplicar categoria…</option>
+                {categories.filter(c => target === "transaction" || c.categoryType === (target === "receivable" ? "income" : "expense")).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button className="btn-ghost text-xs ml-auto" onClick={() => setSelected(new Set())}>Limpar seleção</button>
+            </section>
+          )}
+
           <section className="card divide-y divide-ink-800">
-            {visibleRows.slice(0, 300).map(row => {
+            <div className="p-3 flex items-center gap-3 text-[11px] text-ink-500">
+              <input type="checkbox" checked={pageAllSelected} onChange={toggleSelectPage} aria-label="Selecionar todas nesta página" />
+              Selecionar página
+            </div>
+            {pageRows.map(row => {
               const n = row.normalized_data;
               const isOpen = expanded === row.id;
               return (
                 <div key={row.id} className="p-3">
                   <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelected(row.id)} aria-label={`Selecionar linha ${row.row_number}`} />
                     <button className="text-ink-500" onClick={() => setExpanded(isOpen ? null : row.id)}><ChevronDown size={15} className={isOpen ? "rotate-180" : ""} /></button>
                     <span className="text-[11px] text-ink-500 w-8">#{row.row_number}</span>
                     <div className="min-w-0 flex-1"><div className="text-sm truncate">{n.description || "Sem descrição"}</div><div className="text-[11px] text-ink-500">{target === "transaction" ? n.date : (n.issue_date || "sem emissão")} {n.contact_name ? " · " + n.contact_name : ""} {n.account_name ? " · " + n.account_name : ""}</div></div>
@@ -864,6 +985,9 @@ export default function ImportacoesPage() {
                     {n.balance_status === "relevant_diff" && <span className="text-[10px] text-red-400">saldo não bate</span>}
                     {n.balance_status === "small_diff" && <span className="text-[10px] text-amber-400">saldo com diferença</span>}
                     {row.normalized_data.duplicate && <span className="text-[10px] text-amber-400">duplicado{n.duplicate_tier ? " · " + n.duplicate_tier : ""}</span>}
+                    {n.contact_match_tier === "fuzzy_name" && <span className="text-[10px] text-sky-400" title="Contacto encontrado por nome aproximado — confirma antes de aprovar">contacto aproximado</span>}
+                    {n.contact_match_tier === "learned" && <span className="text-[10px] text-maka-400" title="Aplicado por uma regra que já ensinaste">contacto por regra</span>}
+                    {n.category_matched_by_rule && <span className="text-[10px] text-maka-400" title="Categoria aplicada por uma regra que já ensinaste">categoria por regra</span>}
                     <span className={"text-[10px] uppercase shrink-0 " + (row.validation_status === "error" ? "text-red-400" : row.validation_status === "applied" ? "text-emerald-400" : row.decision === "discard" ? "text-ink-500" : row.decision === "keep" ? "text-emerald-400" : "text-amber-400")}>{row.validation_status === "applied" ? "lançado" : row.decision === "discard" ? "eliminado" : row.decision === "keep" ? "aprovado" : row.validation_status === "error" ? (n.row_kind === "control" ? "não lançável" : "erro") : "pendente"}</span>
                     <div className="flex gap-1 shrink-0"><button className="btn-ghost text-xs" disabled={row.validation_status === "error"} onClick={() => void decide(row, "keep")}><Check size={13} /> Aprovar</button><button className="btn-ghost text-xs text-red-400" onClick={() => void decide(row, "discard")}><Trash2 size={13} /> Eliminar</button></div>
                   </div>
@@ -883,16 +1007,22 @@ export default function ImportacoesPage() {
                       {target !== "transaction" && <div><label className="label">Vencimento</label><input className="input" type="date" value={n.due_date || ""} onChange={e => void updateRow(row, { due_date: e.target.value })} /></div>}
                       <div><label className="label">Valor</label><input className="input" type="number" value={n.amount || ""} onChange={e => void updateRow(row, { amount: Number(e.target.value) })} /></div>
                       <div className="md:col-span-2"><label className="label">Descrição</label><input className="input" value={n.description || ""} onChange={e => void updateRow(row, { description: e.target.value })} /></div>
-                      {target === "transaction" ? <><div><label className="label">Conta</label><select className="input" value={n.account_id || ""} onChange={e => void updateRow(row, { account_id: e.target.value, account_name: accounts.find(a => a.id === e.target.value)?.name })}><option value="">Selecionar</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div><div><label className="label">Tipo</label><select className="input" value={n.direction || "expense"} onChange={e => void updateRow(row, { direction: e.target.value as "income" | "expense" })}><option value="expense">Despesa</option><option value="income">Receita</option></select></div></> : <div><label className="label">{target === "receivable" ? "Cliente" : "Fornecedor"}</label><select className="input" value={n.contact_id || ""} onChange={e => void updateRow(row, { contact_id: e.target.value, contact_name: contacts.find(c => c.id === e.target.value)?.name })}><option value="">Selecionar</option>{contacts.filter(c => !c.isArchived && (c.kind === "ambos" || c.kind === (target === "receivable" ? "cliente" : "fornecedor"))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
-                      <div><label className="label">Categoria</label><select className="input" value={n.category_id || ""} onChange={e => void updateRow(row, { category_id: e.target.value, category_name: categories.find(c => c.id === e.target.value)?.name })}><option value="">Sem categoria</option>{categories.filter(c => target === "transaction" || c.categoryType === (target === "receivable" ? "income" : "expense")).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                      {target === "transaction" ? <><div><label className="label">Conta</label><select className="input" value={n.account_id || ""} onChange={e => void updateRow(row, { account_id: e.target.value, account_name: accounts.find(a => a.id === e.target.value)?.name })}><option value="">Selecionar</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div><div><label className="label">Tipo</label><select className="input" value={n.direction || "expense"} onChange={e => void updateRow(row, { direction: e.target.value as "income" | "expense" })}><option value="expense">Despesa</option><option value="income">Receita</option></select></div></> : <div><label className="label flex items-center justify-between">{target === "receivable" ? "Cliente" : "Fornecedor"}{n.contact_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "contact_id")}>lembrar</button>}</label><select className="input" value={n.contact_id || ""} onChange={e => void updateRow(row, { contact_id: e.target.value, contact_name: contacts.find(c => c.id === e.target.value)?.name })}><option value="">Selecionar</option>{contacts.filter(c => !c.isArchived && (c.kind === "ambos" || c.kind === (target === "receivable" ? "cliente" : "fornecedor"))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
+                      <div><label className="label flex items-center justify-between">Categoria{n.category_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "category_id")}>lembrar</button>}</label><select className="input" value={n.category_id || ""} onChange={e => void updateRow(row, { category_id: e.target.value, category_name: categories.find(c => c.id === e.target.value)?.name })}><option value="">Sem categoria</option>{categories.filter(c => target === "transaction" || c.categoryType === (target === "receivable" ? "income" : "expense")).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                       {target === "transaction" && <div><label className="label">Referência (fatura/doc.)</label><input className="input" value={n.reference || ""} onChange={e => void updateRow(row, { reference: e.target.value })} /></div>}
                     </div>
                   )}
                 </div>
               );
             })}
-            {!visibleRows.length && <div className="p-10 text-center text-sm text-ink-500">Não há linhas neste filtro.</div>}
-            {visibleRows.length > 300 && <div className="p-3 text-center text-xs text-ink-500">A mostrar 300 de {visibleRows.length} linhas. A aprovação aplica-se às linhas aprovadas de todo o ficheiro.</div>}
+            {!visibleRows.length && <div className="p-10 text-center text-sm text-ink-500">{search ? "Nenhuma linha corresponde à pesquisa." : "Não há linhas neste filtro."}</div>}
+            {visibleRows.length > 0 && (
+              <div className="p-3 flex items-center justify-center gap-3 text-xs text-ink-500">
+                <button className="btn-ghost text-xs" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Anterior</button>
+                <span>Página {page + 1} de {totalPages} · {visibleRows.length} linha{visibleRows.length !== 1 ? "s" : ""}</span>
+                <button className="btn-ghost text-xs" disabled={page + 1 >= totalPages} onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}>Seguinte</button>
+              </div>
+            )}
           </section>
         </>
       )}
