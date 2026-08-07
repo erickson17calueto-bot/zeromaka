@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import { fmtKz, fmtDate, TX_INCOME_CATEGORIES, TX_EXPENSE_CATEGORIES, JournalEntry } from "@/lib/data";
+import { fmtKz, fmtDate, JournalEntry, EntryDocumentKind, ENTRY_DOCUMENT_KIND_LABEL } from "@/lib/data";
 import { Plus, TrendingUp, TrendingDown, ArrowLeftRight, RotateCcw, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 const PAGE_SIZE = 20;
@@ -20,15 +20,23 @@ export default function TransacoesPage() {
   const [txType, setTxType] = useState<"income" | "expense">("expense");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
-  const [catName, setCatName] = useState("");
+  const [parentCatId, setParentCatId] = useState("");
+  const [subCatId, setSubCatId] = useState("");
   const [accId, setAccId] = useState(accounts[0]?.id ?? "");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  // Documento: nunca obrigatório — muitos pagamentos não têm fatura.
+  const [docKind, setDocKind] = useState<EntryDocumentKind>("none");
+  const [docNumber, setDocNumber] = useState("");
+  const [docDate, setDocDate] = useState("");
+  const [reference, setReference] = useState("");
+  const [docNotes, setDocNotes] = useState("");
 
-  const incomeCats = useMemo(() => categories.filter(c => c.categoryType === "income"), [categories]);
-  const expenseCats = useMemo(() => categories.filter(c => c.categoryType === "expense"), [categories]);
-  const formCats = txType === "income" ? incomeCats : expenseCats;
-  const fallbackCats = txType === "income" ? TX_INCOME_CATEGORIES : TX_EXPENSE_CATEGORIES;
-  const catOptions = formCats.length > 0 ? formCats.map(c => c.name) : fallbackCats;
+  // Categorias arquivadas não entram num lançamento novo — só ficam visíveis
+  // no histórico dos lançamentos que já as usavam (via categoryName, já
+  // gravado nesse lançamento, independente do estado atual da categoria).
+  const activeCats = useMemo(() => categories.filter(c => c.isActive), [categories]);
+  const parentCats = useMemo(() => activeCats.filter(c => !c.parentId && c.categoryType === txType), [activeCats, txType]);
+  const subCats = useMemo(() => activeCats.filter(c => c.parentId === parentCatId), [activeCats, parentCatId]);
 
   const displayEntries = useMemo(() => {
     let list = journalEntries.filter(e =>
@@ -46,13 +54,26 @@ export default function TransacoesPage() {
   const accName = (id: string) => accounts.find(a => a.id === id)?.name ?? "—";
 
   const openNew = () => {
-    setTxType("expense"); setAmount(""); setDesc(""); setCatName(catOptions[0] || "");
-    setAccId(accounts[0]?.id ?? ""); setDate(new Date().toISOString().slice(0, 10)); setShow(true);
+    setTxType("expense"); setAmount(""); setDesc("");
+    setParentCatId(""); setSubCatId("");
+    setAccId(accounts[0]?.id ?? ""); setDate(new Date().toISOString().slice(0, 10));
+    setDocKind("none"); setDocNumber(""); setDocDate(""); setReference(""); setDocNotes("");
+    setShow(true);
   };
 
   const submit = () => {
     if (!amount || !desc.trim() || !accId) return;
-    addTransaction({ accountId: accId, type: txType, amount: Number(amount), category: catName, description: desc.trim(), date });
+    const categoryId = subCatId || parentCatId || undefined;
+    const cat = categories.find(c => c.id === categoryId);
+    addTransaction({
+      accountId: accId, type: txType, amount: Number(amount), description: desc.trim(), date,
+      category: cat?.name || "", categoryId,
+      reference: reference.trim() || undefined,
+      documentKind: docKind,
+      documentNumber: docKind === "none" ? undefined : (docNumber.trim() || undefined),
+      documentDate: docKind === "none" ? undefined : (docDate || undefined),
+      documentNotes: docKind === "none" ? (docNotes.trim() || undefined) : undefined,
+    });
     setShow(false);
   };
 
@@ -131,6 +152,7 @@ export default function TransacoesPage() {
                 </div>
                 <div className="text-[11px] text-ink-500">
                   {e.entryNumber}{e.categoryName ? ` · ${e.categoryName}` : ""} · {entryAccounts(e)} · {fmtDate(e.transactionDate)}
+                  {e.documentNumber ? ` · ${e.documentNumber}` : ""}{e.reference ? ` · ref. ${e.reference}` : ""}
                 </div>
               </div>
               <div className={`text-sm font-semibold ${entryColor(e)}`}>
@@ -169,9 +191,9 @@ export default function TransacoesPage() {
             </div>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => { setTxType("income"); setCatName(incomeCats[0]?.name || TX_INCOME_CATEGORIES[0]); }}
+                <button onClick={() => { setTxType("income"); setParentCatId(""); setSubCatId(""); }}
                   className={`rounded-lg border p-3 text-sm font-semibold transition-colors ${txType === "income" ? "border-emerald-500 bg-emerald-500/10 text-emerald-300" : "border-ink-700 text-ink-400"}`}>Receita</button>
-                <button onClick={() => { setTxType("expense"); setCatName(expenseCats[0]?.name || TX_EXPENSE_CATEGORIES[0]); }}
+                <button onClick={() => { setTxType("expense"); setParentCatId(""); setSubCatId(""); }}
                   className={`rounded-lg border p-3 text-sm font-semibold transition-colors ${txType === "expense" ? "border-red-500 bg-red-500/10 text-red-300" : "border-ink-700 text-ink-400"}`}>Despesa</button>
               </div>
               <div><label className="label">Valor (Kz)</label><input className="input" type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} /></div>
@@ -179,19 +201,59 @@ export default function TransacoesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Categoria</label>
-                  <select className="input" value={catName} onChange={e => setCatName(e.target.value)}>
+                  <select className="input" value={parentCatId} onChange={e => { setParentCatId(e.target.value); setSubCatId(""); }}>
                     <option value="">— nenhuma —</option>
-                    {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                    {parentCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="label">Conta</label>
-                  <select className="input" value={accId} onChange={e => setAccId(e.target.value)}>
-                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  <label className="label flex items-center justify-between">
+                    Subcategoria
+                    {subCatId && <button type="button" className="text-[10px] text-ink-500 hover:text-ink-300 normal-case font-normal" onClick={() => setSubCatId("")}>limpar</button>}
+                  </label>
+                  <select className="input" value={subCatId} onChange={e => setSubCatId(e.target.value)} disabled={!subCats.length}>
+                    <option value="">{subCats.length ? "— nenhuma —" : "sem subcategorias"}</option>
+                    {subCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               </div>
-              <div><label className="label">Data</label><input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+              <div><label className="label">Conta</label>
+                <select className="input" value={accId} onChange={e => setAccId(e.target.value)}>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div><label className="label">Data do lançamento</label><input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+
+              <div className="pt-2 border-t border-ink-800">
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label className="label">Tipo de documento</label>
+                    <select className="input" value={docKind} onChange={e => setDocKind(e.target.value as EntryDocumentKind)}>
+                      {Object.entries(ENTRY_DOCUMENT_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">N.º do documento</label>
+                    <input className="input" placeholder="opcional" value={docNumber} onChange={e => setDocNumber(e.target.value)} disabled={docKind === "none"} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div><label className="label">Referência (bancária/pagamento)</label><input className="input" placeholder="opcional" value={reference} onChange={e => setReference(e.target.value)} /></div>
+                  <div><label className="label">Data do documento</label><input className="input" type="date" value={docDate} onChange={e => setDocDate(e.target.value)} disabled={docKind === "none"} /></div>
+                </div>
+                {docKind === "none" && (
+                  <div className="mt-3">
+                    <label className="label">Motivo ou observação (opcional)</label>
+                    <input className="input" placeholder="Ex.: compra em numerário, sem recibo" value={docNotes} onChange={e => setDocNotes(e.target.value)} />
+                    {txType === "expense" && (
+                      <p className="text-[11px] text-ink-500 mt-1.5">
+                        Sem documento não significa que a despesa não é válida — só que não há comprovativo. A dedutibilidade fiscal depende do regime da empresa e das regras da AGT; confirma com o teu contabilista antes de a considerar em declarações.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <button onClick={submit} className="btn-primary w-full justify-center">Registar (+50 XP)</button>
             </div>
           </div>

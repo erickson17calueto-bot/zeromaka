@@ -7,7 +7,7 @@ import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
   Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins,
-  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X,
+  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X, Tags,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { ROUTES } from "@/lib/routes";
@@ -32,6 +32,7 @@ const SECTIONS = [
   { title: "Operações", items: [
     { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
     { href: "/app/capital", label: "Capital dos sócios", icon: Landmark },
+    { href: "/app/emprestimos", label: "Empréstimos e adiantamentos", icon: HandCoins },
     { href: "/app/contactos", label: "Contactos", icon: Users }
   ]},
   { title: "Análise", items: [
@@ -214,6 +215,7 @@ export default function Sidebar() {
 
       <div className="mt-4 pt-3 border-t border-ink-800 space-y-0.5">
         {!collapsed && <div className="px-1 pb-2"><ThemeToggle /></div>}
+        {navLink("/app/categorias", "Categorias", Tags, 0, path === "/app/categorias")}
         {navLink("/app/empresa", "Empresa", Building2, 0, path === "/app/empresa")}
         {navLink("/app/perfil", "Meu perfil", UserCircle, 0, path === "/app/perfil")}
         <button onClick={async () => { await logout(); router.push(ROUTES.entrar); router.refresh(); }}

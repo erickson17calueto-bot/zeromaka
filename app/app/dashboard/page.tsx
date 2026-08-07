@@ -60,10 +60,12 @@ export default function Dashboard() {
   const receivedMonth = monthSettlements.filter(s => s.direction === "incoming").reduce((s, x) => s + x.totalAmount, 0);
   const paidMonth = monthSettlements.filter(s => s.direction === "outgoing").reduce((s, x) => s + x.totalAmount, 0);
 
-  const capIn = transactions.filter((t) => t.type === "capital_in").reduce((s, t) => s + t.amount, 0);
-  const capOut = transactions.filter((t) => t.type === "capital_out").reduce((s, t) => s + t.amount, 0);
-  const ativo = totalBalance + openReceivables;
-  const passivo = openPayables + (capIn - capOut) + taxOwed;
+  // "Recursos"/"Compromissos", não "Ativo"/"Passivo": não é um balanço
+  // contabilístico completo (falta imobilizado, existências, etc.), e capital
+  // de sócios não é um passivo — é património da empresa. Ver capital em
+  // /app/capital, não aqui.
+  const recursos = totalBalance + openReceivables;
+  const compromissos = openPayables + taxOwed;
   const liquidityRisk = payable7 > totalBalance;
   const liquidoReal = totalBalance - taxOwed;
   const resultadoMes = income - expense;
@@ -194,10 +196,10 @@ export default function Dashboard() {
             hint="Imposto já incluído no preço das tuas vendas. Este dinheiro NÃO é teu — guarda-o para entregar ao Estado." />
           <StatCard label="Líquido real teu" value={fmtKz(liquidoReal)} tone="brand" icon={Wallet}
             hint="O saldo das contas menos o imposto a entregar. É o que sobra mesmo para o negócio." />
-          <StatCard label="Ativo" value={fmtKz(ativo)} tone="pos" icon={Scale}
-            hint="O que o negócio tem: dinheiro em caixa mais o que tens a receber dos clientes." />
-          <StatCard label="Passivo" value={fmtKz(passivo)} tone="neg" icon={Scale}
-            hint="O que o negócio deve: fornecedores, capital dos sócios e imposto por entregar." />
+          <StatCard label="Recursos do negócio" value={fmtKz(recursos)} tone="pos" icon={Scale}
+            hint="O que o negócio tem: dinheiro em caixa mais o que tens a receber dos clientes. Não é um balanço contabilístico completo." />
+          <StatCard label="Compromissos do negócio" value={fmtKz(compromissos)} tone="neg" icon={Scale}
+            hint="O que o negócio deve a terceiros: fornecedores e imposto por entregar. Não inclui capital dos sócios — vê isso em Capital dos sócios." />
         </div>
       </section>
 
@@ -238,7 +240,7 @@ export default function Dashboard() {
             {upcoming.map((o) => {
               const d = daysUntil(o.dueDate);
               return (
-                <Link key={o.id} href={o.direction === "receivable" ? "/faturas" : "/contas-a-pagar"} className="block rounded-lg border border-ink-800 p-3 hover:border-maka-500/50 transition-colors">
+                <Link key={o.id} href={o.direction === "receivable" ? "/app/faturas" : "/app/contas-a-pagar"} className="block rounded-lg border border-ink-800 p-3 hover:border-maka-500/50 transition-colors">
                   <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1"><div className="text-sm font-medium truncate">{contactName(o.contactId)}</div><div className={`text-[11px] ${isOverdue(o) ? "text-red-400" : d <= 3 ? "text-yellow-400" : "text-ink-500"}`}>{d < 0 ? `Venceu há ${Math.abs(d)} dia${Math.abs(d) !== 1 ? "s" : ""}` : `Vence em ${d} dia${d !== 1 ? "s" : ""}`}</div></div>
                     <div className={`text-sm font-semibold ${o.direction === "receivable" ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(o.outstandingAmount)}</div>

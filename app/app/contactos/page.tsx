@@ -2,12 +2,13 @@
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { ContactKind, Contact, PAYMENT_TERMS, PaymentTerm, SOCIO_ROLES, SocioRole } from "@/lib/data";
-import { Plus, X, Trash2, Pencil, Building, Truck, UserRound, Phone, MapPin, Mail, CreditCard } from "lucide-react";
+import { Plus, X, Trash2, Pencil, Building, Truck, UserRound, Briefcase, Phone, MapPin, Mail, CreditCard } from "lucide-react";
 
 const KINDS: { value: ContactKind; label: string; icon: any }[] = [
   { value: "cliente", label: "Clientes", icon: Building },
   { value: "fornecedor", label: "Fornecedores", icon: Truck },
-  { value: "socio", label: "Sócios", icon: UserRound }
+  { value: "socio", label: "Sócios", icon: UserRound },
+  { value: "funcionario", label: "Funcionários", icon: Briefcase }
 ];
 
 const empty = { name: "", phone: "", nif: "", email: "", location: "", paymentTerm: "credito30" as PaymentTerm, role: "gerente" as SocioRole, notes: "" };
@@ -22,6 +23,12 @@ export default function ContactosPage() {
 
   const list = useMemo(() => contacts.filter((c) => c.kind === tab), [contacts, tab]);
   const isSocio = tab === "socio";
+  const isFuncionario = tab === "funcionario";
+  // Sócios e funcionários são pessoas ligadas à empresa, não relações
+  // comerciais — não faz sentido pedir-lhes NIF/localização obrigatórios nem
+  // "forma de pagamento" (esse campo é sobre como clientes/fornecedores pagam
+  // ou são pagos por vendas/compras).
+  const isBusinessKind = tab === "cliente" || tab === "fornecedor";
 
   const openNew = () => { setEditing(null); setF({ ...empty }); setErr(""); setShow(true); };
   const openEdit = (c: Contact) => {
@@ -33,12 +40,12 @@ export default function ContactosPage() {
   const submit = () => {
     setErr("");
     if (!f.name.trim() || !f.phone.trim()) { setErr("Nome e telefone são obrigatórios."); return; }
-    if (!isSocio && (!f.nif.trim() || !f.location.trim())) { setErr("Para clientes e fornecedores, NIF e localização são obrigatórios."); return; }
+    if (isBusinessKind && (!f.nif.trim() || !f.location.trim())) { setErr("Para clientes e fornecedores, NIF e localização são obrigatórios."); return; }
     const base: Omit<Contact, "id"> = {
       name: f.name.trim(), kind: tab, phone: f.phone.trim(),
       nif: f.nif.trim() || undefined, email: f.email.trim() || undefined,
       location: f.location.trim() || undefined, notes: f.notes.trim() || undefined,
-      paymentTerm: isSocio ? undefined : f.paymentTerm, role: isSocio ? f.role : undefined
+      paymentTerm: isBusinessKind ? f.paymentTerm : undefined, role: isSocio ? f.role : undefined
     };
     if (editing) editContact(editing.id, base); else addContact(base);
     setShow(false);
@@ -110,12 +117,12 @@ export default function ContactosPage() {
                   <input className="input" placeholder="+244 …" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
                 </div>
                 <div>
-                  <label className="label">NIF {!isSocio && <span className="text-maka-400">*</span>}</label>
+                  <label className="label">NIF {isBusinessKind && <span className="text-maka-400">*</span>}</label>
                   <input className="input" placeholder="—" value={f.nif} onChange={(e) => setF({ ...f, nif: e.target.value })} />
                 </div>
               </div>
               <div>
-                <label className="label">Localização {!isSocio && <span className="text-maka-400">*</span>}</label>
+                <label className="label">Localização {isBusinessKind && <span className="text-maka-400">*</span>}</label>
                 <input className="input" placeholder="Ex.: Talatona, Luanda" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} />
               </div>
               <div>
@@ -123,14 +130,15 @@ export default function ContactosPage() {
                 <input className="input" type="email" placeholder="—" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
               </div>
 
-              {isSocio ? (
+              {isSocio && (
                 <div>
                   <label className="label">Função do sócio</label>
                   <select className="input" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as SocioRole })}>
                     {(Object.keys(SOCIO_ROLES) as SocioRole[]).map((r) => <option key={r} value={r}>{SOCIO_ROLES[r]}</option>)}
                   </select>
                 </div>
-              ) : (
+              )}
+              {isBusinessKind && (
                 <div>
                   <label className="label">Forma de pagamento</label>
                   <select className="input" value={f.paymentTerm} onChange={(e) => setF({ ...f, paymentTerm: e.target.value as PaymentTerm })}>

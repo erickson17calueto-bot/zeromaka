@@ -11,7 +11,9 @@ const TYPES: { value: AccountType; label: string; hint: string; icon: any }[] = 
 ];
 
 export default function ContasPage() {
-  const { accounts, addAccount, editAccount, deleteAccount, transfer } = useStore();
+  const { accounts, addAccount, editAccount, deleteAccount, transfer, organizations, orgId, updateAccountOpeningBalance } = useStore();
+  const myRole = organizations.find(o => o.id === orgId)?.role;
+  const isAdmin = myRole === "owner" || myRole === "admin";
   const [showNew, setShowNew] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -23,6 +25,10 @@ export default function ContasPage() {
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [err, setErr] = useState("");
+  const [correctFor, setCorrectFor] = useState<string | null>(null);
+  const [correctAmount, setCorrectAmount] = useState("");
+  const [correctReason, setCorrectReason] = useState("");
+  const [correctErr, setCorrectErr] = useState("");
 
   const total = accounts.reduce((s, a) => s + a.currentBalance, 0);
 
@@ -40,6 +46,18 @@ export default function ContasPage() {
     if (!editId || !name.trim()) return;
     editAccount(editId, { name: name.trim(), type, bank: type === "bank" ? bank : undefined });
     setEditId(null); setName("");
+  };
+
+  const openCorrect = (id: string) => {
+    const a = accounts.find(x => x.id === id)!;
+    setCorrectFor(id); setCorrectAmount(String(a.initialBalance)); setCorrectReason(""); setCorrectErr("");
+  };
+  const submitCorrect = async () => {
+    if (!correctFor || !correctAmount || !correctReason.trim()) return;
+    setCorrectErr("");
+    const e = await updateAccountOpeningBalance(correctFor, Number(correctAmount), correctReason.trim());
+    if (e) { setCorrectErr(e); return; }
+    setCorrectFor(null);
   };
 
   const submitTransfer = () => {
@@ -89,7 +107,14 @@ export default function ContasPage() {
                   <div className="font-display text-xl mt-0.5">{fmtKz(a.currentBalance)}</div>
                 </div>
                 {/* Rótulo informativo. `initialBalance` é legado e não entra em nenhum saldo — ver docs/005 */}
-                <div className="text-right text-[11px] text-ink-500">Inicial: {fmtKz(a.initialBalance)}</div>
+                <div className="text-right text-[11px] text-ink-500 flex items-center gap-1.5 justify-end">
+                  Inicial: {fmtKz(a.initialBalance)}
+                  {isAdmin && (
+                    <button onClick={() => openCorrect(a.id)} className="text-ink-600 hover:text-maka-400" title="Corrigir saldo inicial (dono/administrador)">
+                      <Pencil size={11} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -167,6 +192,29 @@ export default function ContasPage() {
           </div>
         </Modal>
       )}
+
+      {correctFor && (() => {
+        const a = accounts.find(x => x.id === correctFor)!;
+        return (
+          <Modal title="Corrigir saldo inicial" onClose={() => setCorrectFor(null)}>
+            <div className="space-y-4">
+              <p className="text-[11px] text-amber-400 bg-amber-500/10 rounded-lg p-3">
+                Ação restrita a donos/administradores da organização. Corrige o valor de abertura de <strong>{a.name}</strong> — usa só para corrigir um saldo inicial errado, não para ajustar o saldo atual (isso é sempre feito por lançamentos). Fica registado em auditoria.
+              </p>
+              <div>
+                <label className="label">Novo saldo inicial (Kz)</label>
+                <input className="input" type="number" value={correctAmount} onChange={(e) => setCorrectAmount(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Motivo da correção</label>
+                <input className="input" placeholder="Ex.: saldo de abertura foi lançado com o valor errado" value={correctReason} onChange={(e) => setCorrectReason(e.target.value)} />
+              </div>
+              {correctErr && <p className="text-sm text-red-400">{correctErr}</p>}
+              <button onClick={submitCorrect} disabled={!correctAmount || Number(correctAmount) <= 0 || !correctReason.trim()} className="btn-primary w-full justify-center disabled:opacity-40">Confirmar correção</button>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }

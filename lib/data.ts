@@ -3,7 +3,7 @@ export type TxType = "income" | "expense" | "transfer_in" | "transfer_out" | "ca
 export type InvoiceType = "receivable" | "payable";
 export type InvoiceStatus = "pending" | "overdue" | "paid";
 export type TaxRegime = "geral" | "simplificado" | "isencao";
-export type ContactKind = "cliente" | "fornecedor" | "socio" | "ambos";
+export type ContactKind = "cliente" | "fornecedor" | "socio" | "funcionario" | "ambos";
 export type ReqStatus = "pendente" | "aprovado" | "reprovado";
 export type PaymentTerm = "pronto" | "credito15" | "credito30" | "credito60" | "credito90" | "mensal";
 export type SocioRole = "gerente" | "investidor" | "outro";
@@ -21,8 +21,21 @@ export type FinCategoryType = "income" | "expense";
 
 export interface FinancialCategory {
   id: string; organizationId: string; name: string; categoryType: FinCategoryType;
-  parentId?: string; isSystem: boolean; isActive: boolean;
+  parentId?: string; isSystem: boolean; isActive: boolean; createdAt: string;
 }
+
+// Tipo de documento de um lançamento ou liquidação — sempre opcional: muitos
+// pagamentos não têm fatura, e isso não pode impedir o registo do movimento.
+export type EntryDocumentKind =
+  | "invoice" | "receipt" | "credit_note" | "debit_note" | "purchase_order"
+  | "contract" | "bank_proof" | "ticket" | "internal" | "other" | "none";
+
+export const ENTRY_DOCUMENT_KIND_LABEL: Record<EntryDocumentKind, string> = {
+  invoice: "Fatura", receipt: "Recibo", credit_note: "Nota de crédito",
+  debit_note: "Nota de débito", purchase_order: "Ordem de compra", contract: "Contrato",
+  bank_proof: "Comprovativo bancário", ticket: "Talão", internal: "Documento interno",
+  other: "Outro", none: "Sem documento",
+};
 
 export interface JournalLine {
   id: string; accountId: string; direction: LineDirection; amount: number;
@@ -36,6 +49,11 @@ export interface JournalEntry {
   createdAt: string; postedAt: string;
   reversedAt?: string; reversedByEntryId?: string;
   reversesEntryId?: string; reversalReason?: string;
+  // Documento do lançamento — distinto de `reference` (referência
+  // bancária/de pagamento, já existente): documentNumber é o número do
+  // PRÓPRIO documento (fatura/recibo/nota), não a referência do movimento.
+  documentKind?: EntryDocumentKind; documentNumber?: string;
+  documentDate?: string; documentNotes?: string;
   metadata: Record<string, unknown>;
   lines: JournalLine[];
 }
@@ -64,6 +82,12 @@ export interface Transaction {
   category: string; subcategory?: string; description: string; date: string;
   isSale?: boolean; taxAmount?: number; partnerId?: string; partnerName?: string;
   linkId?: string; invoiceId?: string;
+  // categoryId é a fonte de verdade quando presente (categoria escolhida por
+  // id, com subcategoria); `category`/`subcategory` (nomes) ficam para
+  // compatibilidade com leitores que ainda não foram migrados.
+  categoryId?: string;
+  reference?: string; documentKind?: EntryDocumentKind; documentNumber?: string;
+  documentDate?: string; documentNotes?: string;
 }
 export interface Invoice {
   id: string; contactName: string; contactId?: string; type: InvoiceType; amount: number;
@@ -80,7 +104,10 @@ export interface Contact {
 export type ObligationDirection = "receivable" | "payable";
 export type ObligationDocumentKind =
   | "invoice_reference" | "service_charge" | "product_sale"
-  | "supplier_invoice" | "expense_commitment" | "other";
+  | "supplier_invoice" | "expense_commitment" | "other"
+  // Só criadas via grant_employee_loan — nunca pelo formulário normal de
+  // fatura, porque estas já nascem com o desembolso feito (ver disbursementEntryId).
+  | "employee_loan" | "salary_advance";
 export type ObligationLifecycle = "open" | "cancelled";
 export type FinancialStatus =
   | "cancelled" | "paid" | "partial" | "overdue" | "partial_overdue" | "due_today" | "open";
@@ -103,6 +130,9 @@ export interface Obligation {
   categoryId?: string; isSale?: boolean; taxAmount?: number;
   paidAmount: number; outstandingAmount: number; daysOverdue: number;
   financialStatus: FinancialStatus;
+  // Só preenchido para documentKind employee_loan/salary_advance — aponta
+  // para o lançamento que já tirou o dinheiro da conta na concessão.
+  disbursementEntryId?: string;
 }
 
 export interface SettlementAllocation { id: string; obligationId: string; allocatedAmount: number; journalEntryId?: string; }
@@ -110,6 +140,7 @@ export interface Settlement {
   id: string; internalNumber: string; direction: SettlementDirection;
   contactId: string; accountId: string; paymentDate: string; totalAmount: number;
   paymentMethod?: string; reference?: string; notes?: string; status: SettlementStatus;
+  documentKind?: EntryDocumentKind; documentNumber?: string;
   reversedAt?: string; reversalReason?: string; allocations: SettlementAllocation[];
 }
 
@@ -199,7 +230,14 @@ export const OBLIGATION_KIND_LABEL: Record<ObligationDocumentKind, string> = {
   invoice_reference: "Referência de fatura", service_charge: "Serviço",
   product_sale: "Venda de produto", supplier_invoice: "Fatura de fornecedor",
   expense_commitment: "Compromisso de despesa", other: "Outro",
+  employee_loan: "Empréstimo a funcionário", salary_advance: "Adiantamento salarial",
 };
+
+// Tipos de documento que só nascem via grant_employee_loan — nunca aparecem
+// como opção no formulário normal de "nova fatura" (ObligationsView), porque
+// já vêm com o desembolso feito; escolhê-los ali criaria uma obrigação sem o
+// dinheiro correspondente ter saído da conta.
+export const EMPLOYEE_LOAN_KINDS: ObligationDocumentKind[] = ["employee_loan", "salary_advance"];
 
 // Modelo de mensagem de cobrança (editável antes de enviar manualmente)
 export function collectionMessage(clientName: string, docNumber: string, amount: number, dueDate: string): string {

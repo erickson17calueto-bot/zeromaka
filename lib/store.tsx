@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { createClient } from "./supabase/client";
 import {
   Account, Transaction, TxType, Badge, UserProfile, Company, Contact, Requisition,
-  JournalEntry, JournalLine, FinancialCategory,
+  JournalEntry, JournalLine, FinancialCategory, FinCategoryType, EntryDocumentKind,
   Obligation, Settlement, SettlementAllocation, CollectionInteraction,
   ObligationDirection, ObligationDocumentKind, SettlementDirection,
   CollectionChannel, CollectionInteractionType, CollectionOutcome,
@@ -36,7 +36,13 @@ interface Store {
   cancelReserve: (reserveId: string, reason: string) => Promise<string | null>;
   updateFinSettings: (p: Partial<FinancialSettings>) => Promise<string | null>;
   createObligation: (d: { direction: ObligationDirection; contactId: string; dueDate: string; amount: number; documentKind?: ObligationDocumentKind; externalDocumentNumber?: string; issueDate?: string; description?: string; notes?: string; categoryId?: string; isSale?: boolean }) => Promise<string | null>;
-  postSettlement: (d: { direction: SettlementDirection; contactId: string; accountId: string; allocations: { obligationId: string; amount: number }[]; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string; reserveId?: string }) => Promise<string | null>;
+  grantEmployeeLoan: (d: { contactId: string; accountId: string; amount: number; kind: "employee_loan" | "salary_advance"; date?: string; dueDate?: string; description?: string; categoryId?: string; documentNumber?: string; notes?: string }) => Promise<string | null>;
+  postSettlement: (d: { direction: SettlementDirection; contactId: string; accountId: string; allocations: { obligationId: string; amount: number }[]; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string; reserveId?: string; documentKind?: EntryDocumentKind; documentNumber?: string }) => Promise<string | null>;
+  refreshCategories: (oid?: string) => Promise<void>;
+  addCategory: (d: { name: string; categoryType: FinCategoryType; parentId?: string }) => Promise<string | null>;
+  editCategory: (id: string, name: string) => Promise<string | null>;
+  archiveCategory: (id: string) => Promise<string | null>;
+  reactivateCategory: (id: string) => Promise<string | null>;
   reverseSettlement: (settlementId: string, reason: string) => Promise<string | null>;
   cancelObligation: (obligationId: string, reason: string) => Promise<string | null>;
   updateObligation: (obligationId: string, p: { contactId?: string; description?: string; externalDocumentNumber?: string; amount?: number; issueDate?: string; dueDate?: string; categoryId?: string; notes?: string }) => Promise<string | null>;
@@ -45,6 +51,7 @@ interface Store {
   addAccount: (a: Omit<Account, "id" | "currentBalance">) => void;
   editAccount: (id: string, p: Partial<Pick<Account, "name" | "type" | "bank">>) => void;
   deleteAccount: (id: string) => void;
+  updateAccountOpeningBalance: (accountId: string, newAmount: number, reason: string) => Promise<string | null>;
   addTransaction: (t: Omit<Transaction, "id">) => void;
   editTransaction: (id: string, p: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
@@ -115,6 +122,8 @@ const dbToJournalEntry = (r: any): JournalEntry => ({
   reversedByEntryId: r.reversed_by_entry_id || undefined,
   reversesEntryId: r.reverses_entry_id || undefined,
   reversalReason: r.reversal_reason || undefined,
+  documentKind: r.document_kind || undefined, documentNumber: r.document_number || undefined,
+  documentDate: r.document_date || undefined, documentNotes: r.document_notes || undefined,
   metadata: r.metadata || {},
   lines: (r.journal_lines || []).map(dbToJournalLine),
 });
@@ -139,7 +148,7 @@ const dbToBankStatementLine = (r: any): BankStatementLine => ({
 const dbToCategory = (r: any): FinancialCategory => ({
   id: r.id, organizationId: r.organization_id, name: r.name,
   categoryType: r.category_type, parentId: r.parent_id || undefined,
-  isSystem: r.is_system, isActive: r.is_active,
+  isSystem: r.is_system, isActive: r.is_active, createdAt: r.created_at,
 });
 
 const dbToObligation = (r: any): Obligation => ({
@@ -153,6 +162,7 @@ const dbToObligation = (r: any): Obligation => ({
   isSale: r.is_sale ?? undefined, taxAmount: r.tax_amount != null ? Number(r.tax_amount) : undefined,
   paidAmount: Number(r.paid_amount), outstandingAmount: Number(r.outstanding_amount),
   daysOverdue: Number(r.days_overdue), financialStatus: r.financial_status,
+  disbursementEntryId: r.disbursement_entry_id || undefined,
 });
 
 const dbToSettlementAllocation = (r: any): SettlementAllocation => ({
@@ -165,6 +175,7 @@ const dbToSettlement = (r: any): Settlement => ({
   contactId: r.contact_id, accountId: r.account_id, paymentDate: r.payment_date,
   totalAmount: Number(r.total_amount), paymentMethod: r.payment_method || undefined,
   reference: r.reference || undefined, notes: r.notes || undefined, status: r.status,
+  documentKind: r.document_kind || undefined, documentNumber: r.document_number || undefined,
   reversedAt: r.reversed_at || undefined, reversalReason: r.reversal_reason || undefined,
   allocations: (r.settlement_allocations || []).map(dbToSettlementAllocation),
 });
@@ -488,6 +499,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await refreshReserves(id); // pagamentos podem consumir reservas + recalcular disponível
   }, [refreshEntries, refreshReserves]);
 
+  const refreshCategories: Store["refreshCategories"] = useCallback(async (oid?: string) => {
+    const supabase = createClient();
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    // Sem filtro de is_active — arquivadas continuam visíveis para a gestão
+    // de categorias (reativar); quem escolhe categoria para um lançamento
+    // novo é que filtra isActive.
+    const { data } = await supabase.from("financial_categories").select("*").eq("organization_id", id).order("name");
+    if (data) setCategories(data.map(dbToCategory));
+  }, []);
+
   // ---- Auth & data loading ----
   const loadOrgData = useCallback(async (oid: string) => {
     const supabase = createClient();
@@ -495,7 +517,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       supabase.from("companies").select("*").eq("organization_id", oid).single(),
       supabase.from("accounts").select("*").eq("organization_id", oid).eq("is_archived", false).order("created_at"),
       supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
-      supabase.from("financial_categories").select("*").eq("organization_id", oid).eq("is_active", true).order("name"),
+      // Sem filtro de is_active: arquivadas continuam a ser precisas para a
+      // gestão de categorias (reativar) — quem escolhe categoria para um
+      // lançamento NOVO é que filtra isActive, não esta carga inicial.
+      supabase.from("financial_categories").select("*").eq("organization_id", oid).order("name"),
       supabase.from("contacts").select("*").eq("organization_id", oid).order("name"),
       supabase.from("requisitions").select("*").eq("organization_id", oid).order("created_at", { ascending: false }),
       supabase.from("obligation_status").select("*").eq("organization_id", oid).order("due_date"),
@@ -632,7 +657,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCompany(prev => ({ ...prev, name: companyName }));
     // Load categories that were just seeded
     const [{ data: cats }, { data: rcats }] = await Promise.all([
-      supabase.from("financial_categories").select("*").eq("organization_id", newOrgId).eq("is_active", true).order("name"),
+      supabase.from("financial_categories").select("*").eq("organization_id", newOrgId).order("name"),
       supabase.from("reserve_categories").select("*").eq("organization_id", newOrgId).eq("is_active", true).order("name"),
     ]);
     if (cats) setCategories(cats.map(dbToCategory));
@@ -697,6 +722,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setRawAccounts(prev => prev.filter(a => a.id !== id));
     toast("Conta apagada", "ok");
     sb().from("accounts").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
+  };
+
+  // Corrige o lançamento de abertura em vez de mexer em currentBalance
+  // diretamente — o saldo continua 100% derivado do livro (ver
+  // current_account_balance()). Não otimista: espera confirmação do RPC
+  // (só owner/admin) antes de refletir localmente.
+  const updateAccountOpeningBalance: Store["updateAccountOpeningBalance"] = async (accountId, newAmount, reason) => {
+    const { error } = await sb().rpc("update_account_opening_balance", {
+      p_account_id: accountId, p_new_amount: newAmount, p_reason: reason,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Saldo inicial corrigido", "ok");
+    const { data } = await sb().from("accounts").select("*").eq("organization_id", orgIdRef.current!);
+    if (data) setRawAccounts(data.map(dbToAccount));
+    await refreshEntries();
+    return null;
   };
 
   // ---- Recorrências e reconciliação ----
@@ -772,7 +813,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const isIncome = t.type === "income" || t.type === "capital_in";
     const rpcName = isIncome ? "post_income" : "post_expense";
     const catType = isIncome ? "income" : "expense";
-    const cat = categories.find(c => c.name === t.category && c.categoryType === catType);
+    // categoryId (escolhida por id, com subcategoria) manda quando presente;
+    // sem ela, cai para a resolução por nome (chamadores ainda não migrados).
+    const cat = t.categoryId
+      ? categories.find(c => c.id === t.categoryId)
+      : categories.find(c => c.name === t.category && c.categoryType === catType);
 
     const metadata: Record<string, unknown> = {};
     if (t.subcategory) metadata.subcategory = t.subcategory;
@@ -788,10 +833,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const tempId = crypto.randomUUID();
     const tempEntry: JournalEntry = {
       id: tempId, entryNumber: "...", entryType: isIncome ? "income" : "expense",
-      transactionDate: t.date, description: t.description,
+      transactionDate: t.date, description: t.description, reference: t.reference,
       categoryId: cat?.id, categoryName: cat?.name || t.category,
       contactId: t.partnerId, status: "posted", source: "manual",
       createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
+      documentKind: t.documentKind, documentNumber: t.documentNumber,
+      documentDate: t.documentDate, documentNotes: t.documentNotes,
       metadata,
       lines: [{ id: "temp", accountId: t.accountId, direction: isIncome ? "debit" : "credit", amount: t.amount }],
     };
@@ -802,7 +849,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       p_org_id: orgIdRef.current!, p_account_id: t.accountId,
       p_amount: t.amount, p_description: t.description, p_date: t.date,
       p_category_id: cat?.id || null, p_contact_id: t.partnerId || null,
+      p_reference: t.reference || null,
       p_metadata: metadata,
+      p_document_kind: t.documentKind || null, p_document_number: t.documentNumber || null,
+      p_document_date: t.documentDate || null, p_document_notes: t.documentNotes || null,
     }).then(({ data, error }) => {
       if (error) {
         toast("Erro: " + error.message, "warn");
@@ -901,6 +951,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
+  const grantEmployeeLoan: Store["grantEmployeeLoan"] = async (d) => {
+    const { data, error } = await sb().rpc("grant_employee_loan", {
+      p_org_id: orgIdRef.current!, p_contact_id: d.contactId, p_account_id: d.accountId,
+      p_amount: d.amount, p_kind: d.kind,
+      p_date: d.date || new Date().toISOString().slice(0, 10), p_due_date: d.dueDate || null,
+      p_description: d.description || null, p_category_id: d.categoryId || null,
+      p_document_number: d.documentNumber || null, p_notes: d.notes || null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast(`${d.kind === "salary_advance" ? "Adiantamento" : "Empréstimo"} ${(data as any)?.internal_number || ""} concedido`, "ok");
+    gainXp(30, "Empréstimo concedido");
+    // refreshObligations já chama refreshEntries por dentro — cobre a
+    // obrigação nova E o lançamento de desembolso (post_expense) na mesma chamada.
+    await refreshObligations();
+    return null;
+  };
+
   const postSettlement: Store["postSettlement"] = async (d) => {
     const { data, error } = await sb().rpc("post_settlement", {
       p_org_id: orgIdRef.current!, p_direction: d.direction, p_contact_id: d.contactId,
@@ -910,6 +977,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       p_payment_method: d.paymentMethod || null, p_reference: d.reference || null,
       p_notes: d.notes || null, p_idempotency_key: crypto.randomUUID(),
       p_reserve_id: d.reserveId || null,
+      p_document_kind: d.documentKind || null, p_document_number: d.documentNumber || null,
     });
     if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     toast(`Pagamento ${(data as any)?.internal_number || ""} registado`, "ok");
@@ -1016,6 +1084,42 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setFinSettings(prev => ({ ...prev, ...p }));
     toast("Configurações atualizadas", "ok");
     await refreshAvailable();
+    return null;
+  };
+
+  // ---- Categorias ----
+  const addCategory: Store["addCategory"] = async (d) => {
+    const { data, error } = await sb().rpc("create_financial_category", {
+      p_org_id: orgIdRef.current!, p_name: d.name, p_category_type: d.categoryType,
+      p_parent_id: d.parentId || null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast(d.parentId ? "Subcategoria criada" : "Categoria criada", "ok");
+    await refreshCategories();
+    return (data as any)?.id || null;
+  };
+
+  const editCategory: Store["editCategory"] = async (id, name) => {
+    const { error } = await sb().rpc("update_financial_category", { p_id: id, p_name: name });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    setCategories(prev => prev.map(c => c.id === id ? { ...c, name } : c));
+    toast("Categoria atualizada", "ok");
+    return null;
+  };
+
+  const archiveCategory: Store["archiveCategory"] = async (id) => {
+    const { error } = await sb().rpc("archive_financial_category", { p_id: id });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    await refreshCategories(); // pode arquivar subcategorias em cascata — recarrega tudo
+    toast("Categoria arquivada", "ok");
+    return null;
+  };
+
+  const reactivateCategory: Store["reactivateCategory"] = async (id) => {
+    const { error } = await sb().rpc("reactivate_financial_category", { p_id: id });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    await refreshCategories(); // pode reativar a categoria-mãe em conjunto
+    toast("Categoria reativada", "ok");
     return null;
   };
 
@@ -1175,10 +1279,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,
-      createObligation, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
+      createObligation, grantEmployeeLoan, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
+      refreshCategories, addCategory, editCategory, archiveCategory, reactivateCategory,
       reserves, reserveCategories, reserveMovements, finSettings, trueAvailable,
       refreshAvailable, createReserve, increaseReserve, releaseReserve, cancelReserve, updateFinSettings,
-      updateCompany, addAccount, editAccount, deleteAccount,
+      updateCompany, addAccount, editAccount, deleteAccount, updateAccountOpeningBalance,
       addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
       addContact, editContact, removeContact,
       addRequisition, editRequisition, deleteRequisition, approveRequisition, rejectRequisition,

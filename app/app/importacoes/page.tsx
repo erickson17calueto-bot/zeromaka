@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, FileText, Loader2, RotateCcw, ShieldCheck, Trash2, Upload, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useStore } from "@/lib/store";
-import { fmtDate, fmtKz, Account, Contact, FinancialCategory, JournalEntry, Obligation } from "@/lib/data";
+import { fmtDate, fmtKz, Account, Contact, FinancialCategory, JournalEntry, Obligation, OBLIGATION_KIND_LABEL } from "@/lib/data";
 import { suggestAccount } from "@/lib/imports/suggest-account";
 import { suggestCategory } from "@/lib/imports/suggest-category";
 import { detectRowKind } from "@/lib/imports/row-kind";
@@ -66,6 +66,9 @@ type NormalizedRow = {
   duplicate_existing_label?: string;
   contact_match_tier?: ContactMatchTier | "learned";
   category_matched_by_rule?: boolean;
+  document_number?: string;
+  document_date?: string;
+  document_notes?: string;
 };
 
 /** Regra aprendida: organização_id já implícito (carregadas só para a org atual). */
@@ -99,7 +102,25 @@ const aliases = {
   type: ["tipo", "type", "natureza", "entrada/saída", "entrada/saida", "direção", "direcao"],
   document: ["nº documento", "nº doc", "numero documento", "número documento", "documento", "invoice", "fatura", "referência", "referencia"],
   balance: ["saldo", "balance", "saldo acumulado", "saldo atual", "saldo do dia"],
+  // Distintos da coluna `document` acima (que já alimenta reference/external_document_number
+  // desde a Fase 1) — só entram quando o ficheiro tem uma coluna explicitamente com este nome.
+  documentType: ["tipo de documento", "tipo documento", "tipo doc"],
+  documentNumber: ["numero do documento", "número do documento", "nº do documento", "n do documento"],
+  documentNotes: ["observação", "observacao", "nota", "notas", "motivo"],
 };
+
+const DOCUMENT_KIND_TERMS: [string, string][] = [
+  ["fatura", "invoice"], ["factura", "invoice"], ["recibo", "receipt"],
+  ["nota de credito", "credit_note"], ["nota de debito", "debit_note"],
+  ["ordem de compra", "purchase_order"], ["contrato", "contract"],
+  ["comprovativo", "bank_proof"], ["talao", "ticket"],
+  ["interno", "internal"], ["sem documento", "none"], ["outro", "other"],
+];
+function parseDocumentKind(raw: string): string | undefined {
+  const texto = keyOf(raw);
+  if (!texto) return undefined;
+  return DOCUMENT_KIND_TERMS.find(([termo]) => texto.includes(termo))?.[1];
+}
 
 // Frases que indicam claramente o sentido do movimento na própria descrição.
 // Servem só para apanhar conflito com a coluna (item E) — não decidem sozinhas.
@@ -175,6 +196,27 @@ function dateOk(value?: string): boolean {
 function findAccount(accounts: Account[], name: string): Account | undefined {
   const wanted = keyOf(name);
   return accounts.find(a => keyOf(a.name) === wanted);
+}
+
+/**
+ * Opções de categoria agrupadas por categoria principal (<optgroup>) — nunca
+ * inclui arquivadas: quem escolhe aqui está sempre a decidir a categoria de
+ * uma linha ainda por lançar, não a rever histórico.
+ */
+function categoryOptions(categories: FinancialCategory[], type: "income" | "expense" | "any") {
+  const abertas = categories.filter(c => c.isActive && (type === "any" || c.categoryType === type));
+  const porNome = (a: FinancialCategory, b: FinancialCategory) => a.name.localeCompare(b.name, "pt");
+  const pais = abertas.filter(c => !c.parentId).sort(porNome);
+  return pais.map(p => {
+    const subs = abertas.filter(c => c.parentId === p.id).sort(porNome);
+    if (!subs.length) return <option key={p.id} value={p.id}>{p.name}</option>;
+    return (
+      <optgroup key={p.id} label={p.name}>
+        <option value={p.id}>{p.name} (geral)</option>
+        {subs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </optgroup>
+    );
+  });
 }
 
 
@@ -284,9 +326,14 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const externalNumber = getField(raw, aliases.document);
   const balanceDeclared = parseAmount(getField(raw, aliases.balance)) || undefined;
   const rowKind = detectRowKind(description);
+  // Distintos de `reference`/`external_document_number` (acima): só entram
+  // quando o ficheiro tem uma coluna explicitamente nomeada para isto.
+  const documentTypeColumn = getField(raw, aliases.documentType);
+  const documentNumberColumn = getField(raw, aliases.documentNumber);
+  const documentNotesColumn = getField(raw, aliases.documentNotes);
   const data: NormalizedRow = target === "transaction"
-    ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, reference: externalNumber || undefined, row_kind: rowKind, balance_declared: balanceDeclared }
-    : { issue_date: issueDate, due_date: dueDate, amount, description, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable", row_kind: rowKind };
+    ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, reference: externalNumber || undefined, row_kind: rowKind, balance_declared: balanceDeclared, document_kind: parseDocumentKind(documentTypeColumn), document_number: documentNumberColumn || undefined, document_notes: documentNotesColumn || undefined }
+    : { issue_date: issueDate, due_date: dueDate, amount, description, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable", row_kind: rowKind, document_notes: documentNotesColumn || undefined };
 
   // Linhas de controlo (fecho de semana, saldo inicial/final, reconciliação…)
   // não são movimentos — nunca podem ser lançadas como receita/despesa. O
@@ -958,7 +1005,7 @@ export default function ImportacoesPage() {
               <select className="input !w-auto text-xs py-1" defaultValue="" aria-label="Aplicar categoria às selecionadas"
                 onChange={e => { if (e.target.value) void bulkSetCategory(e.target.value); e.target.value = ""; }}>
                 <option value="" disabled>Aplicar categoria…</option>
-                {categories.filter(c => target === "transaction" || c.categoryType === (target === "receivable" ? "income" : "expense")).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {categoryOptions(categories, target === "transaction" ? "any" : target === "receivable" ? "income" : "expense")}
               </select>
               <button className="btn-ghost text-xs ml-auto" onClick={() => setSelected(new Set())}>Limpar seleção</button>
             </section>
@@ -1008,8 +1055,10 @@ export default function ImportacoesPage() {
                       <div><label className="label">Valor</label><input className="input" type="number" value={n.amount || ""} onChange={e => void updateRow(row, { amount: Number(e.target.value) })} /></div>
                       <div className="md:col-span-2"><label className="label">Descrição</label><input className="input" value={n.description || ""} onChange={e => void updateRow(row, { description: e.target.value })} /></div>
                       {target === "transaction" ? <><div><label className="label">Conta</label><select className="input" value={n.account_id || ""} onChange={e => void updateRow(row, { account_id: e.target.value, account_name: accounts.find(a => a.id === e.target.value)?.name })}><option value="">Selecionar</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div><div><label className="label">Tipo</label><select className="input" value={n.direction || "expense"} onChange={e => void updateRow(row, { direction: e.target.value as "income" | "expense" })}><option value="expense">Despesa</option><option value="income">Receita</option></select></div></> : <div><label className="label flex items-center justify-between">{target === "receivable" ? "Cliente" : "Fornecedor"}{n.contact_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "contact_id")}>lembrar</button>}</label><select className="input" value={n.contact_id || ""} onChange={e => void updateRow(row, { contact_id: e.target.value, contact_name: contacts.find(c => c.id === e.target.value)?.name })}><option value="">Selecionar</option>{contacts.filter(c => !c.isArchived && (c.kind === "ambos" || c.kind === (target === "receivable" ? "cliente" : "fornecedor"))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
-                      <div><label className="label flex items-center justify-between">Categoria{n.category_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "category_id")}>lembrar</button>}</label><select className="input" value={n.category_id || ""} onChange={e => void updateRow(row, { category_id: e.target.value, category_name: categories.find(c => c.id === e.target.value)?.name })}><option value="">Sem categoria</option>{categories.filter(c => target === "transaction" || c.categoryType === (target === "receivable" ? "income" : "expense")).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                      <div><label className="label flex items-center justify-between">Categoria{n.category_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "category_id")}>lembrar</button>}</label><select className="input" value={n.category_id || ""} onChange={e => void updateRow(row, { category_id: e.target.value, category_name: categories.find(c => c.id === e.target.value)?.name })}><option value="">Sem categoria</option>{categoryOptions(categories, target === "transaction" ? (n.direction || "expense") : target === "receivable" ? "income" : "expense")}</select></div>
                       {target === "transaction" && <div><label className="label">Referência (fatura/doc.)</label><input className="input" value={n.reference || ""} onChange={e => void updateRow(row, { reference: e.target.value })} /></div>}
+                      {target !== "transaction" && <div><label className="label">Tipo de documento</label><select className="input" value={n.document_kind || (target === "receivable" ? "invoice_reference" : "supplier_invoice")} onChange={e => void updateRow(row, { document_kind: e.target.value })}>{Object.entries(OBLIGATION_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>}
+                      {target !== "transaction" && <div><label className="label">Nº documento externo</label><input className="input" placeholder="opcional" value={n.external_document_number || ""} onChange={e => void updateRow(row, { external_document_number: e.target.value })} /></div>}
                     </div>
                   )}
                 </div>
