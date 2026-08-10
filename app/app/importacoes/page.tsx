@@ -6,7 +6,7 @@ import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, FileT
 import { createClient } from "@/lib/supabase/client";
 import { useStore } from "@/lib/store";
 import { fmtDate, fmtKz, Account, Contact, FinancialCategory, JournalEntry, Obligation, OBLIGATION_KIND_LABEL } from "@/lib/data";
-import { suggestAccount } from "@/lib/imports/suggest-account";
+import { suggestAccount, normalizar } from "@/lib/imports/suggest-account";
 import { suggestCategory } from "@/lib/imports/suggest-category";
 import { detectRowKind } from "@/lib/imports/row-kind";
 import { suggestContact, ContactMatchTier } from "@/lib/imports/suggest-contact";
@@ -69,6 +69,10 @@ type NormalizedRow = {
   document_number?: string;
   document_date?: string;
   document_notes?: string;
+  // Fase 5 — reconhecimento de empréstimos/adiantamentos na importação: só
+  // um sinal visual na revisão, nunca decide o destino nem publica sozinho.
+  // Ver LOAN_KEYWORDS/isLoanHint mais abaixo.
+  loan_hint?: boolean;
 };
 
 /** Regra aprendida: organização_id já implícito (carregadas só para a org atual). */
@@ -79,6 +83,14 @@ function ruleLookup(rules: MappingRule[], field: MappingRule["field"], target: T
   if (!wanted) return undefined;
   return rules.find(r => r.field === field && r.targetType === target && keyOf(r.matchValue) === wanted)?.valueId;
 }
+
+// Fase 5 — só um sinal visual na revisão (ver loan_hint em NormalizedRow):
+// nunca decide o destino da linha nem publica nada sozinho. Depois de
+// importar como transação normal, o utilizador usa "Converter em
+// empréstimo/adiantamento" em Transações, com confirmação explícita do
+// funcionário e do tipo — a mesma ação que já existe para lançamentos
+// antigos não vindos de importação.
+const LOAN_KEYWORDS = /emprestimo|adiantamento/;
 
 const TARGET_LABEL: Record<TargetType, string> = {
   transaction: "transações",
@@ -331,8 +343,10 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   const documentTypeColumn = getField(raw, aliases.documentType);
   const documentNumberColumn = getField(raw, aliases.documentNumber);
   const documentNotesColumn = getField(raw, aliases.documentNotes);
+  const loanHint = target === "transaction" && direction === "expense"
+    && LOAN_KEYWORDS.test(normalizar(description)) && (contact?.kind === "funcionario" || contact?.kind === "ambos");
   const data: NormalizedRow = target === "transaction"
-    ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, reference: externalNumber || undefined, row_kind: rowKind, balance_declared: balanceDeclared, document_kind: parseDocumentKind(documentTypeColumn), document_number: documentNumberColumn || undefined, document_notes: documentNotesColumn || undefined }
+    ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, reference: externalNumber || undefined, row_kind: rowKind, balance_declared: balanceDeclared, document_kind: parseDocumentKind(documentTypeColumn), document_number: documentNumberColumn || undefined, document_notes: documentNotesColumn || undefined, loan_hint: loanHint }
     : { issue_date: issueDate, due_date: dueDate, amount, description, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable", row_kind: rowKind, document_notes: documentNotesColumn || undefined };
 
   // Linhas de controlo (fecho de semana, saldo inicial/final, reconciliação…)
@@ -1035,6 +1049,7 @@ export default function ImportacoesPage() {
                     {n.contact_match_tier === "fuzzy_name" && <span className="text-[10px] text-sky-400" title="Contacto encontrado por nome aproximado — confirma antes de aprovar">contacto aproximado</span>}
                     {n.contact_match_tier === "learned" && <span className="text-[10px] text-maka-400" title="Aplicado por uma regra que já ensinaste">contacto por regra</span>}
                     {n.category_matched_by_rule && <span className="text-[10px] text-maka-400" title="Categoria aplicada por uma regra que já ensinaste">categoria por regra</span>}
+                    {n.loan_hint && <span className="text-[10px] text-maka-400" title="Menciona empréstimo/adiantamento e o contacto é funcionário — depois de importar, usa 'Converter em empréstimo' em Transações">parece empréstimo</span>}
                     <span className={"text-[10px] uppercase shrink-0 " + (row.validation_status === "error" ? "text-red-400" : row.validation_status === "applied" ? "text-emerald-400" : row.decision === "discard" ? "text-ink-500" : row.decision === "keep" ? "text-emerald-400" : "text-amber-400")}>{row.validation_status === "applied" ? "lançado" : row.decision === "discard" ? "eliminado" : row.decision === "keep" ? "aprovado" : row.validation_status === "error" ? (n.row_kind === "control" ? "não lançável" : "erro") : "pendente"}</span>
                     <div className="flex gap-1 shrink-0"><button className="btn-ghost text-xs" disabled={row.validation_status === "error"} onClick={() => void decide(row, "keep")}><Check size={13} /> Aprovar</button><button className="btn-ghost text-xs text-red-400" onClick={() => void decide(row, "discard")}><Trash2 size={13} /> Eliminar</button></div>
                   </div>

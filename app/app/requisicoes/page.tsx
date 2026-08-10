@@ -1,37 +1,86 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import { fmtKz, fmtDate, CATEGORIES, Requisition, ReqItem } from "@/lib/data";
-import { Plus, X, CheckCircle2, XCircle, FileSignature, Clock, Pencil, Trash2, Printer, Trash } from "lucide-react";
+import { fmtKz, fmtDate, CATEGORIES, Requisition, ReqItem, RequisitionType, REQUISITION_TYPE_LABEL, RecoveryMethod, RECOVERY_METHOD_LABEL } from "@/lib/data";
+import { Plus, X, CheckCircle2, XCircle, FileSignature, Clock, Pencil, Trash2, Printer, Trash, Wallet } from "lucide-react";
 
 const NAVY = "#26305c";
 const blankItem = (): ReqItem => ({ description: "", qty: 1, unitPrice: 0 });
-const emptyForm = () => ({ department: "Comercial", requester: "", approver: "", items: [blankItem()], purpose: "", cat: CATEGORIES[2], date: new Date().toISOString().slice(0, 10) });
+const LOAN_TYPES: RequisitionType[] = ["employee_loan", "salary_advance", "operational_advance"];
+const emptyForm = () => ({
+  department: "Comercial", requester: "", approver: "", items: [blankItem()], purpose: "", cat: CATEGORIES[2], date: new Date().toISOString().slice(0, 10),
+  type: "expense" as RequisitionType, amount: "", beneficiaryContactId: "", dueDate: "", installments: "", recoveryMethod: "direct_payment" as RecoveryMethod,
+});
 
 const fmtAOA = (n: number) => new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " AOA";
 const fmtQty = (n: number) => new Intl.NumberFormat("pt-AO", { maximumFractionDigits: 3 }).format(n);
 const esc = (s: string) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+// Só uma pista, nunca uma decisão automática — a reclassificação em si
+// exige sempre escolher o funcionário e confirmar explicitamente.
+const normalize = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const LOAN_KEYWORDS = /emprestimo|adiantamento/;
 
 export default function RequisicoesPage() {
-  const { requisitions, accounts, company, profile, addRequisition, editRequisition, deleteRequisition, approveRequisition, rejectRequisition } = useStore();
+  const { requisitions, accounts, contacts, obligations, company, profile, addRequisition, editRequisition, deleteRequisition, approveRequisition, disburseRequisition, rejectRequisition, reclassifyRequisitionAsLoan } = useStore();
   const [filter, setFilter] = useState<"all" | Requisition["status"]>("all");
   const [show, setShow] = useState(false);
   const [editing, setEditing] = useState<Requisition | null>(null);
   const [approving, setApproving] = useState<Requisition | null>(null);
+  const [disbursing, setDisbursing] = useState<Requisition | null>(null);
   const [rejecting, setRejecting] = useState<Requisition | null>(null);
   const [payAcc, setPayAcc] = useState(accounts[0]?.id ?? "");
   const [reason, setReason] = useState("");
   const [f, setF] = useState(emptyForm());
   const [err, setErr] = useState("");
+  const isLoanType = LOAN_TYPES.includes(f.type);
+  const employeePool = useMemo(() => contacts.filter(c => !c.isArchived && (c.kind === "funcionario" || c.kind === "ambos")), [contacts]);
+  const payAccBalance = accounts.find(a => a.id === payAcc)?.currentBalance ?? 0;
 
   const list = useMemo(() => requisitions.filter((r) => filter === "all" ? true : r.status === filter), [requisitions, filter]);
   const pendingTotal = requisitions.filter((r) => r.status === "pendente").reduce((s, r) => s + r.amount, 0);
   const formTotal = f.items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
 
+  // Requisições antigas já aprovadas (despesa normal) cujo texto sugere que
+  // eram, na verdade, um empréstimo/adiantamento — nunca reclassificadas
+  // automaticamente, só sugeridas para revisão humana.
+  const linkedRequisitionIds = useMemo(() => new Set(obligations.map(o => o.sourceRequisitionId).filter(Boolean)), [obligations]);
+  const reconciliationCandidates = useMemo(() => requisitions.filter(r =>
+    r.status === "aprovado" && r.type === "expense" && !linkedRequisitionIds.has(r.id) &&
+    LOAN_KEYWORDS.test(normalize(r.purpose + " " + r.category))
+  ), [requisitions, linkedRequisitionIds]);
+
+  const [reclassifying, setReclassifying] = useState<Requisition | null>(null);
+  const [rcKind, setRcKind] = useState<"employee_loan" | "salary_advance">("employee_loan");
+  const [rcContactId, setRcContactId] = useState("");
+  const [rcDueDate, setRcDueDate] = useState("");
+  const [rcInstallments, setRcInstallments] = useState("");
+  const [rcRecoveryMethod, setRcRecoveryMethod] = useState<RecoveryMethod>("direct_payment");
+  const [rcErr, setRcErr] = useState("");
+  const openReclassify = (r: Requisition) => {
+    setReclassifying(r); setRcKind("employee_loan"); setRcContactId(employeePool[0]?.id ?? "");
+    setRcDueDate(""); setRcInstallments(""); setRcRecoveryMethod("direct_payment"); setRcErr("");
+  };
+  const submitReclassify = async () => {
+    if (!reclassifying || !rcContactId) return;
+    setRcErr("");
+    const e = await reclassifyRequisitionAsLoan(reclassifying.id, {
+      contactId: rcContactId, kind: rcKind, dueDate: rcDueDate || undefined,
+      installments: rcInstallments ? Number(rcInstallments) : undefined, recoveryMethod: rcRecoveryMethod,
+    });
+    if (e) { setRcErr(e); return; }
+    setReclassifying(null);
+  };
+
   const openNew = () => { setEditing(null); setF({ ...emptyForm(), approver: profile.name }); setErr(""); setShow(true); };
   const openEdit = (r: Requisition) => {
     setEditing(r);
-    setF({ department: r.department || "Comercial", requester: r.requester, approver: r.approver, items: r.items && r.items.length ? r.items.map((i) => ({ ...i })) : [{ description: r.purpose, qty: 1, unitPrice: r.amount }], purpose: r.purpose, cat: r.category, date: r.date });
+    setF({
+      department: r.department || "Comercial", requester: r.requester, approver: r.approver,
+      items: r.items && r.items.length ? r.items.map((i) => ({ ...i })) : [{ description: r.purpose, qty: 1, unitPrice: r.amount }],
+      purpose: r.purpose, cat: r.category, date: r.date,
+      type: r.type, amount: String(r.amount), beneficiaryContactId: r.beneficiaryContactId ?? "",
+      dueDate: r.dueDate ?? "", installments: r.installments ? String(r.installments) : "", recoveryMethod: r.recoveryMethod ?? "direct_payment",
+    });
     setErr(""); setShow(true);
   };
 
@@ -41,10 +90,26 @@ export default function RequisicoesPage() {
 
   const submit = () => {
     setErr("");
-    const items = f.items.filter((it) => it.description.trim() && Number(it.unitPrice) > 0).map((it) => ({ description: it.description.trim(), qty: Number(it.qty) || 1, unitPrice: Number(it.unitPrice) }));
     if (!f.requester.trim() || !f.approver.trim()) { setErr("Preenche o requisitante e o responsável."); return; }
+
+    if (isLoanType) {
+      if (!f.beneficiaryContactId) { setErr("Seleciona o funcionário beneficiário."); return; }
+      if (!(Number(f.amount) > 0)) { setErr("Indica um valor positivo."); return; }
+      const payload = {
+        department: f.department.trim(), requester: f.requester.trim(), approver: f.approver.trim(),
+        amount: Number(f.amount), date: f.date, purpose: f.purpose.trim(), category: REQUISITION_TYPE_LABEL[f.type],
+        type: f.type, beneficiaryContactId: f.beneficiaryContactId, dueDate: f.dueDate || undefined,
+        installments: f.installments ? Number(f.installments) : undefined, recoveryMethod: f.recoveryMethod,
+      };
+      if (editing) { const e = editRequisition(editing.id, payload); if (e) { setErr(e); return; } }
+      else addRequisition(payload);
+      setShow(false);
+      return;
+    }
+
+    const items = f.items.filter((it) => it.description.trim() && Number(it.unitPrice) > 0).map((it) => ({ description: it.description.trim(), qty: Number(it.qty) || 1, unitPrice: Number(it.unitPrice) }));
     if (items.length === 0) { setErr("Adiciona pelo menos um item com descrição e valor."); return; }
-    const payload = { department: f.department.trim(), requester: f.requester.trim(), approver: f.approver.trim(), items, amount: items.reduce((s, it) => s + it.qty * it.unitPrice, 0), date: f.date, purpose: f.purpose.trim(), category: f.cat };
+    const payload = { department: f.department.trim(), requester: f.requester.trim(), approver: f.approver.trim(), items, amount: items.reduce((s, it) => s + it.qty * it.unitPrice, 0), date: f.date, purpose: f.purpose.trim(), category: f.cat, type: f.type };
     if (editing) { const e = editRequisition(editing.id, payload); if (e) { setErr(e); return; } }
     else addRequisition(payload);
     setShow(false);
@@ -125,7 +190,9 @@ export default function RequisicoesPage() {
   const STATUS = {
     pendente: { label: "Pendente", cls: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30", icon: Clock },
     aprovado: { label: "Aprovada", cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", icon: CheckCircle2 },
-    reprovado: { label: "Reprovada", cls: "bg-red-500/15 text-red-400 border-red-500/30", icon: XCircle }
+    reprovado: { label: "Reprovada", cls: "bg-red-500/15 text-red-400 border-red-500/30", icon: XCircle },
+    aguardando_desembolso: { label: "Aguarda desembolso", cls: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: Clock },
+    desembolsada: { label: "Desembolsada", cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", icon: Wallet },
   } as const;
 
   return (
@@ -146,8 +213,26 @@ export default function RequisicoesPage() {
         <FileSignature className="text-ink-600" size={28} />
       </div>
 
+      {reconciliationCandidates.length > 0 && (
+        <div className="card p-4 border-maka-500/30">
+          <div className="text-[11px] uppercase tracking-wider text-maka-400 font-bold mb-2">Possíveis empréstimos/adiantamentos antigos</div>
+          <p className="text-[12px] text-ink-400 mb-3">Estas requisições já aprovadas mencionam &quot;empréstimo&quot; ou &quot;adiantamento&quot; mas ainda estão registadas como despesa normal. Revê e reclassifica se for o caso — nada muda sozinho.</p>
+          <div className="space-y-2">
+            {reconciliationCandidates.map(r => (
+              <div key={r.id} className="flex items-center justify-between gap-3 text-sm rounded-lg border border-ink-800 p-3">
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{r.number} · {fmtKz(r.amount)}</div>
+                  <div className="text-[11px] text-ink-500 truncate">{r.purpose} · {fmtDate(r.date)} · requisitante {r.requester}</div>
+                </div>
+                <button onClick={() => openReclassify(r)} className="btn-ghost shrink-0">Reclassificar</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2 flex-wrap">
-        {([["all", "Todas"], ["pendente", "Pendentes"], ["aprovado", "Aprovadas"], ["reprovado", "Reprovadas"]] as const).map(([v, l]) => (
+        {([["all", "Todas"], ["pendente", "Pendentes"], ["aguardando_desembolso", "Aguardam desembolso"], ["aprovado", "Aprovadas"], ["desembolsada", "Desembolsadas"], ["reprovado", "Reprovadas"]] as const).map(([v, l]) => (
           <button key={v} onClick={() => setFilter(v)}
             className={`rounded-full px-4 py-1.5 text-sm border transition-colors ${filter === v ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400 hover:border-ink-500"}`}>{l}</button>
         ))}
@@ -164,14 +249,20 @@ export default function RequisicoesPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-[12px] text-maka-400">{r.number}</span>
                     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${S.cls}`}><SIcon size={11} /> {S.label}</span>
+                    {r.type !== "expense" && <span className="text-[11px] text-ink-500">· {REQUISITION_TYPE_LABEL[r.type]}</span>}
                     {r.department && <span className="text-[11px] text-ink-500">· {r.department}</span>}
                   </div>
                   <p className="mt-1.5 text-sm text-ink-200">{r.items?.length ? r.items.map((i) => i.description).join(", ") : r.purpose}</p>
                   <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] text-ink-400 max-w-md">
                     <span>Requisitante: <span className="text-ink-200">{r.requester}</span></span>
                     <span>Responsável: <span className="text-ink-200">{r.approver}</span></span>
-                    <span>{nItems} {nItems === 1 ? "item" : "itens"}</span>
+                    {r.beneficiaryContactId ? (
+                      <span>Funcionário: <span className="text-ink-200">{contacts.find(c => c.id === r.beneficiaryContactId)?.name ?? "—"}</span></span>
+                    ) : (
+                      <span>{nItems} {nItems === 1 ? "item" : "itens"}</span>
+                    )}
                     <span>Data: <span className="text-ink-200">{fmtDate(r.date)}</span></span>
+                    {r.dueDate && <span>Vencimento: <span className="text-ink-200">{fmtDate(r.dueDate)}</span></span>}
                   </div>
                   {r.status === "reprovado" && r.reason && <p className="mt-2 text-[12px] text-red-400">Motivo: {r.reason}</p>}
                 </div>
@@ -186,7 +277,10 @@ export default function RequisicoesPage() {
                     <button onClick={() => { setApproving(r); setPayAcc(accounts[0]?.id ?? ""); }} className="btn-primary"><CheckCircle2 size={14} /> Aprovar</button>
                   </>
                 )}
-                {r.status === "aprovado" && (
+                {r.status === "aguardando_desembolso" && (
+                  <button onClick={() => { setDisbursing(r); setPayAcc(accounts[0]?.id ?? ""); }} className="btn-primary"><Wallet size={14} /> Desembolsar</button>
+                )}
+                {(r.status === "aprovado" || r.status === "desembolsada") && (
                   <button onClick={() => printReq(r)} className="btn-primary"><Printer size={14} /> Imprimir / PDF</button>
                 )}
                 {r.status === "reprovado" && (
@@ -202,6 +296,12 @@ export default function RequisicoesPage() {
       {show && (
         <Modal title={editing ? "Editar requisição" : "Nova requisição de fundos"} onClose={() => setShow(false)} wide>
           <div className="space-y-4">
+            <div>
+              <label className="label">Tipo de requisição</label>
+              <select className="input" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value as RequisitionType })}>
+                {(Object.keys(REQUISITION_TYPE_LABEL) as RequisitionType[]).map(t => <option key={t} value={t}>{REQUISITION_TYPE_LABEL[t]}</option>)}
+              </select>
+            </div>
             <div className="grid grid-cols-3 gap-3">
               <div><label className="label">Departamento</label>
                 <input className="input" list="dept-dl" value={f.department} onChange={(e) => setF({ ...f, department: e.target.value })} />
@@ -211,34 +311,64 @@ export default function RequisicoesPage() {
               <div><label className="label">Responsável Financeiro</label><input className="input" value={f.approver} onChange={(e) => setF({ ...f, approver: e.target.value })} /></div>
             </div>
 
-            <div>
-              <label className="label">Itens</label>
-              <div className="space-y-2">
-                <div className="grid grid-cols-[1fr_70px_110px_92px_28px] gap-2 text-[10px] uppercase tracking-wider text-ink-500 font-bold px-0.5">
-                  <span>Descrição</span><span>Qtd</span><span>Valor Unit.</span><span className="text-right">Total</span><span></span>
-                </div>
-                {f.items.map((it, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_70px_110px_92px_28px] gap-2 items-center">
-                    <input className="input" placeholder="Descrição do item" value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} />
-                    <input className="input" type="number" min="0" step="0.01" value={it.qty} onChange={(e) => setItem(i, { qty: Number(e.target.value) })} />
-                    <input className="input" type="number" min="0" placeholder="0" value={it.unitPrice || ""} onChange={(e) => setItem(i, { unitPrice: Number(e.target.value) })} />
-                    <div className="text-right text-[12px] font-mono text-ink-300 truncate">{fmtKz((Number(it.qty) || 0) * (Number(it.unitPrice) || 0))}</div>
-                    <button onClick={() => removeItem(i)} className="text-ink-500 hover:text-red-400 flex justify-center" disabled={f.items.length === 1}><Trash size={15} /></button>
+            {isLoanType ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Funcionário beneficiário</label>
+                    <select className="input" value={f.beneficiaryContactId} onChange={(e) => setF({ ...f, beneficiaryContactId: e.target.value })}>
+                      <option value="">— selecionar —</option>
+                      {employeePool.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    {employeePool.length === 0 && <p className="text-[11px] text-amber-400 mt-1">Cria um contacto do tipo funcionário primeiro.</p>}
                   </div>
-                ))}
-              </div>
-              <button onClick={addItem} className="btn-ghost w-full justify-center mt-2"><Plus size={14} /> Adicionar item</button>
-              <div className="flex justify-between items-center mt-3 px-1">
-                <span className="text-[12px] text-ink-400 uppercase tracking-wider font-bold">Total Geral</span>
-                <span className="font-display text-lg text-maka-400">{fmtKz(formTotal)}</span>
-              </div>
-            </div>
+                  <div><label className="label">Valor (Kz)</label><input className="input" type="number" placeholder="0" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div><label className="label">Vencimento (opcional)</label><input className="input" type="date" value={f.dueDate} onChange={(e) => setF({ ...f, dueDate: e.target.value })} /></div>
+                  <div><label className="label">Parcelas (opcional)</label><input className="input" type="number" min="1" placeholder="1" value={f.installments} onChange={(e) => setF({ ...f, installments: e.target.value })} /></div>
+                  <div>
+                    <label className="label">Método de recuperação</label>
+                    <select className="input" value={f.recoveryMethod} onChange={(e) => setF({ ...f, recoveryMethod: e.target.value as RecoveryMethod })}>
+                      {(Object.keys(RECOVERY_METHOD_LABEL) as RecoveryMethod[]).map(m => <option key={m} value={m}>{RECOVERY_METHOD_LABEL[m]}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div><label className="label">Observação</label><textarea className="input" rows={2} placeholder="Motivo do empréstimo/adiantamento" value={f.purpose} onChange={(e) => setF({ ...f, purpose: e.target.value })} /></div>
+                <div><label className="label">Data</label><input className="input" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="label">Itens</label>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-[1fr_70px_110px_92px_28px] gap-2 text-[10px] uppercase tracking-wider text-ink-500 font-bold px-0.5">
+                      <span>Descrição</span><span>Qtd</span><span>Valor Unit.</span><span className="text-right">Total</span><span></span>
+                    </div>
+                    {f.items.map((it, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_70px_110px_92px_28px] gap-2 items-center">
+                        <input className="input" placeholder="Descrição do item" value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} />
+                        <input className="input" type="number" min="0" step="0.01" value={it.qty} onChange={(e) => setItem(i, { qty: Number(e.target.value) })} />
+                        <input className="input" type="number" min="0" placeholder="0" value={it.unitPrice || ""} onChange={(e) => setItem(i, { unitPrice: Number(e.target.value) })} />
+                        <div className="text-right text-[12px] font-mono text-ink-300 truncate">{fmtKz((Number(it.qty) || 0) * (Number(it.unitPrice) || 0))}</div>
+                        <button onClick={() => removeItem(i)} className="text-ink-500 hover:text-red-400 flex justify-center" disabled={f.items.length === 1}><Trash size={15} /></button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addItem} className="btn-ghost w-full justify-center mt-2"><Plus size={14} /> Adicionar item</button>
+                  <div className="flex justify-between items-center mt-3 px-1">
+                    <span className="text-[12px] text-ink-400 uppercase tracking-wider font-bold">Total Geral</span>
+                    <span className="font-display text-lg text-maka-400">{fmtKz(formTotal)}</span>
+                  </div>
+                </div>
 
-            <div><label className="label">Observação</label><textarea className="input" rows={2} placeholder="Ex.: Compra feita no mercado do trinta" value={f.purpose} onChange={(e) => setF({ ...f, purpose: e.target.value })} /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="label">Categoria (para o lançamento)</label><select className="input" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></div>
-              <div><label className="label">Data</label><input className="input" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
-            </div>
+                <div><label className="label">Observação</label><textarea className="input" rows={2} placeholder="Ex.: Compra feita no mercado do trinta" value={f.purpose} onChange={(e) => setF({ ...f, purpose: e.target.value })} /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">Categoria (para o lançamento)</label><select className="input" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></div>
+                  <div><label className="label">Data</label><input className="input" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
+                </div>
+              </>
+            )}
             {err && <p className="text-sm text-red-400">{err}</p>}
             <button onClick={submit} className="btn-primary w-full justify-center">{editing ? "Guardar alterações" : "Emitir requisição"}</button>
           </div>
@@ -247,9 +377,23 @@ export default function RequisicoesPage() {
 
       {approving && (
         <Modal title="Aprovar requisição" onClose={() => setApproving(null)}>
-          <p className="text-sm text-ink-300">Aprovar <span className="font-semibold">{fmtKz(approving.amount)}</span> ({approving.number}) para <span className="font-semibold">{approving.requester}</span>. Ao confirmar, a saída é lançada e a requisição fica pronta para imprimir.</p>
+          <p className="text-sm text-ink-300">Aprovar <span className="font-semibold">{fmtKz(approving.amount)}</span> ({approving.number}) para <span className="font-semibold">{approving.requester}</span>.</p>
           <div className="mt-4"><label className="label">Conta que paga</label><select className="input" value={payAcc} onChange={(e) => setPayAcc(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {fmtKz(a.currentBalance)}</option>)}</select></div>
-          <div className="mt-5 flex gap-2 justify-end"><button onClick={() => setApproving(null)} className="btn-ghost">Cancelar</button><button onClick={() => { approveRequisition(approving.id, payAcc); setApproving(null); }} className="btn-primary">Confirmar aprovação</button></div>
+          <p className="text-[11px] text-ink-500 mt-2">Saldo atual: {fmtKz(payAccBalance)} · depois de desembolsar: {fmtKz(payAccBalance - approving.amount)}</p>
+          <div className="mt-5 space-y-2">
+            <button onClick={() => { approveRequisition(approving.id, payAcc, true); setApproving(null); }} className="btn-primary w-full justify-center">Aprovar e desembolsar</button>
+            <button onClick={() => { approveRequisition(approving.id, payAcc, false); setApproving(null); }} className="btn-ghost w-full justify-center">Aprovar apenas (desembolsa depois)</button>
+            <button onClick={() => setApproving(null)} className="btn-ghost w-full justify-center">Cancelar</button>
+          </div>
+        </Modal>
+      )}
+
+      {disbursing && (
+        <Modal title="Desembolsar requisição" onClose={() => setDisbursing(null)}>
+          <p className="text-sm text-ink-300">Desembolsar <span className="font-semibold">{fmtKz(disbursing.amount)}</span> ({disbursing.number}) para <span className="font-semibold">{disbursing.requester}</span>. Já foi aprovada — esta ação lança a saída no caixa.</p>
+          <div className="mt-4"><label className="label">Conta que paga</label><select className="input" value={payAcc} onChange={(e) => setPayAcc(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {fmtKz(a.currentBalance)}</option>)}</select></div>
+          <p className="text-[11px] text-ink-500 mt-2">Saldo atual: {fmtKz(payAccBalance)} · depois de desembolsar: {fmtKz(payAccBalance - disbursing.amount)}</p>
+          <div className="mt-5 flex gap-2 justify-end"><button onClick={() => setDisbursing(null)} className="btn-ghost">Cancelar</button><button onClick={() => { disburseRequisition(disbursing.id, payAcc); setDisbursing(null); }} className="btn-primary">Confirmar desembolso</button></div>
         </Modal>
       )}
 
@@ -258,6 +402,41 @@ export default function RequisicoesPage() {
           <label className="label">Motivo da reprovação</label>
           <textarea className="input" rows={3} placeholder="Explica porquê" value={reason} onChange={(e) => setReason(e.target.value)} />
           <div className="mt-5 flex gap-2 justify-end"><button onClick={() => setRejecting(null)} className="btn-ghost">Cancelar</button><button onClick={() => { rejectRequisition(rejecting.id, reason.trim() || "Sem motivo indicado"); setRejecting(null); }} className="btn-primary bg-red-500 hover:bg-red-400">Reprovar</button></div>
+        </Modal>
+      )}
+
+      {reclassifying && (
+        <Modal title="Reclassificar como empréstimo/adiantamento" onClose={() => setReclassifying(null)}>
+          <p className="text-sm text-ink-300 mb-1">{reclassifying.number} — {reclassifying.purpose}</p>
+          <p className="text-sm text-ink-300 mb-4">Valor: <span className="font-semibold">{fmtKz(reclassifying.amount)}</span></p>
+          <p className="text-[11px] text-amber-400 bg-amber-500/10 rounded-lg p-3 mb-4">
+            Já gerou uma saída de caixa quando foi aprovada. Reclassificar não cria uma nova saída — só liga esta requisição ao funcionário como empréstimo/adiantamento.
+          </p>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setRcKind("employee_loan")} className={`rounded-lg border p-3 text-sm font-semibold transition-colors ${rcKind === "employee_loan" ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400"}`}>Empréstimo</button>
+              <button onClick={() => setRcKind("salary_advance")} className={`rounded-lg border p-3 text-sm font-semibold transition-colors ${rcKind === "salary_advance" ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400"}`}>Adiantamento salarial</button>
+            </div>
+            <div>
+              <label className="label">Funcionário beneficiário</label>
+              <select className="input" value={rcContactId} onChange={(e) => setRcContactId(e.target.value)}>
+                <option value="">— selecionar —</option>
+                {employeePool.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div><label className="label">Vencimento</label><input className="input" type="date" value={rcDueDate} onChange={(e) => setRcDueDate(e.target.value)} /></div>
+              <div><label className="label">Parcelas</label><input className="input" type="number" min="1" placeholder="1" value={rcInstallments} onChange={(e) => setRcInstallments(e.target.value)} /></div>
+              <div>
+                <label className="label">Método</label>
+                <select className="input" value={rcRecoveryMethod} onChange={(e) => setRcRecoveryMethod(e.target.value as RecoveryMethod)}>
+                  {(Object.keys(RECOVERY_METHOD_LABEL) as RecoveryMethod[]).map(m => <option key={m} value={m}>{RECOVERY_METHOD_LABEL[m]}</option>)}
+                </select>
+              </div>
+            </div>
+            {rcErr && <p className="text-sm text-red-400">{rcErr}</p>}
+            <button onClick={() => void submitReclassify()} disabled={!rcContactId} className="btn-primary w-full justify-center disabled:opacity-40">Reclassificar</button>
+          </div>
         </Modal>
       )}
     </div>

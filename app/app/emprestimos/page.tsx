@@ -2,15 +2,15 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
-import { fmtKz, fmtDate, Obligation, OBLIGATION_KIND_LABEL, ObligationDocumentKind } from "@/lib/data";
-import { Plus, X, Wallet, HandCoins } from "lucide-react";
+import { fmtKz, fmtDate, daysUntil, Obligation, OBLIGATION_KIND_LABEL, ObligationDocumentKind } from "@/lib/data";
+import { Plus, X, Wallet, HandCoins, ChevronDown, ChevronUp } from "lucide-react";
 
 type LoanKind = "employee_loan" | "salary_advance";
 const KIND_LABEL: Record<LoanKind, string> = { employee_loan: "Empréstimo", salary_advance: "Adiantamento salarial" };
 const CATEGORY_NAME: Record<LoanKind, string> = { employee_loan: "Empréstimos a funcionários", salary_advance: "Adiantamentos salariais" };
 
 export default function EmprestimosPage() {
-  const { obligations, contacts, accounts, categories, grantEmployeeLoan, postSettlement } = useStore();
+  const { obligations, contacts, accounts, categories, settlements, requisitions, grantEmployeeLoan, postSettlement } = useStore();
 
   const funcionarios = useMemo(
     () => contacts.filter(c => !c.isArchived && (c.kind === "funcionario" || c.kind === "ambos")),
@@ -22,18 +22,39 @@ export default function EmprestimosPage() {
     [obligations]
   );
   const [filter, setFilter] = useState<"all" | "open" | "paid">("open");
+  const [kindFilter, setKindFilter] = useState<"all" | "employee_loan" | "salary_advance">("all");
+  const [employeeFilter, setEmployeeFilter] = useState("");
+  const [expanded, setExpanded] = useState<string | null>(null);
   const shown = useMemo(() => loans.filter(o => {
-    if (filter === "open") return o.lifecycleStatus === "open" && o.outstandingAmount > 0;
-    if (filter === "paid") return o.outstandingAmount <= 0;
+    if (filter === "open" && !(o.lifecycleStatus === "open" && o.outstandingAmount > 0)) return false;
+    if (filter === "paid" && !(o.outstandingAmount <= 0)) return false;
+    if (kindFilter !== "all" && o.documentKind !== kindFilter) return false;
+    if (employeeFilter && o.contactId !== employeeFilter) return false;
     return true;
-  }), [loans, filter]);
+  }), [loans, filter, kindFilter, employeeFilter]);
 
   const totals = useMemo(() => {
     const open = loans.filter(o => o.lifecycleStatus === "open");
-    return { outstanding: open.reduce((s, o) => s + o.outstandingAmount, 0), count: open.length };
+    const outstanding = open.reduce((s, o) => s + o.outstandingAmount, 0);
+    const granted = loans.reduce((s, o) => s + o.originalAmount, 0);
+    const recovered = loans.reduce((s, o) => s + o.paidAmount, 0);
+    const overdue = open.filter(o => o.daysOverdue > 0).reduce((s, o) => s + o.outstandingAmount, 0);
+    const due7 = open.filter(o => { const d = daysUntil(o.dueDate); return d >= 0 && d <= 7; }).reduce((s, o) => s + o.outstandingAmount, 0);
+    const due30 = open.filter(o => { const d = daysUntil(o.dueDate); return d >= 0 && d <= 30; }).reduce((s, o) => s + o.outstandingAmount, 0);
+    const loansActive = open.filter(o => o.documentKind === "employee_loan").length;
+    const advancesActive = open.filter(o => o.documentKind === "salary_advance").length;
+    return { outstanding, count: open.length, granted, recovered, overdue, due7, due30, loansActive, advancesActive };
   }, [loans]);
 
   const contactName = (id: string) => contacts.find(c => c.id === id)?.name ?? "—";
+  const obSettlements = (o: Obligation) => settlements
+    .filter(s => s.allocations.some(a => a.obligationId === o.id))
+    .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
+  const allocatedTo = (s: ReturnType<typeof obSettlements>[number], obligationId: string) => s.allocations.find(a => a.obligationId === obligationId)?.allocatedAmount ?? 0;
+  const originLabel = (o: Obligation) => {
+    if (o.sourceRequisitionId) { const r = requisitions.find(x => x.id === o.sourceRequisitionId); return r ? `Requisição ${r.number}` : "Requisição"; }
+    return "Concedido diretamente";
+  };
 
   // ---- Conceder ----
   const [showNew, setShowNew] = useState(false);
@@ -109,44 +130,90 @@ export default function EmprestimosPage() {
         </section>
       )}
 
-      <div className="card p-4">
-        <div className="text-xs text-ink-500">Total em aberto</div>
-        <div className="text-xl font-semibold mt-1">{fmtKz(totals.outstanding)}</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="card p-4"><div className="text-xs text-ink-500">Pendente</div><div className="text-lg font-semibold mt-1">{fmtKz(totals.outstanding)}</div></div>
+        <div className="card p-4"><div className="text-xs text-ink-500">Concedido (total)</div><div className="text-lg font-semibold mt-1">{fmtKz(totals.granted)}</div></div>
+        <div className="card p-4"><div className="text-xs text-ink-500">Recuperado (total)</div><div className="text-lg font-semibold mt-1 text-emerald-400">{fmtKz(totals.recovered)}</div></div>
+        <div className="card p-4"><div className="text-xs text-ink-500">Vencido</div><div className="text-lg font-semibold mt-1 text-red-400">{fmtKz(totals.overdue)}</div></div>
+        <div className="card p-4"><div className="text-xs text-ink-500">Vence em 7 dias</div><div className="text-lg font-semibold mt-1 text-amber-400">{fmtKz(totals.due7)}</div></div>
+        <div className="card p-4"><div className="text-xs text-ink-500">Vence em 30 dias</div><div className="text-lg font-semibold mt-1 text-amber-400">{fmtKz(totals.due30)}</div></div>
+        <div className="card p-4"><div className="text-xs text-ink-500">Empréstimos ativos</div><div className="text-lg font-semibold mt-1">{totals.loansActive}</div></div>
+        <div className="card p-4"><div className="text-xs text-ink-500">Adiantamentos ativos</div><div className="text-lg font-semibold mt-1">{totals.advancesActive}</div></div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 items-center">
         {(["open", "paid", "all"] as const).map(v => (
           <button key={v} onClick={() => setFilter(v)}
             className={`rounded-full px-4 py-1.5 text-sm border transition-colors ${filter === v ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400 hover:border-ink-500"}`}>
             {{ open: "Em aberto", paid: "Devolvidos", all: "Todos" }[v]}
           </button>
         ))}
+        <div className="flex-1" />
+        <select className="input text-sm py-1.5 w-auto" value={kindFilter} onChange={e => setKindFilter(e.target.value as typeof kindFilter)}>
+          <option value="all">Todos os tipos</option>
+          <option value="employee_loan">Empréstimo</option>
+          <option value="salary_advance">Adiantamento salarial</option>
+        </select>
+        <select className="input text-sm py-1.5 w-auto" value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)}>
+          <option value="">Todos os funcionários</option>
+          {funcionarios.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
       </div>
 
       <div className="card divide-y divide-ink-800">
         {shown.map(o => {
           const canPay = o.lifecycleStatus === "open" && o.outstandingAmount > 0;
+          const isOpen = expanded === o.id;
+          const hist = obSettlements(o);
           return (
-            <div key={o.id} className="p-4 flex items-center gap-3 group">
-              <div className="h-9 w-9 rounded-lg bg-maka-500/10 text-maka-400 flex items-center justify-center shrink-0"><HandCoins size={16} /></div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium truncate">
-                  {contactName(o.contactId)}
-                  <span className="ml-2 text-[11px] text-ink-500">{o.internalNumber}</span>
+            <div key={o.id}>
+              <div className="p-4 flex items-center gap-3 group cursor-pointer" onClick={() => setExpanded(isOpen ? null : o.id)}>
+                <div className="h-9 w-9 rounded-lg bg-maka-500/10 text-maka-400 flex items-center justify-center shrink-0"><HandCoins size={16} /></div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">
+                    {contactName(o.contactId)}
+                    <span className="ml-2 text-[11px] text-ink-500">{o.internalNumber}</span>
+                  </div>
+                  <div className="text-[11px] text-ink-500">
+                    {OBLIGATION_KIND_LABEL[o.documentKind as ObligationDocumentKind]} · concedido {fmtDate(o.issueDate)}
+                    {o.dueDate && o.dueDate !== o.issueDate && ` · devolução prevista ${fmtDate(o.dueDate)}`}
+                    {o.daysOverdue > 0 && <span className="text-red-400"> · {o.daysOverdue}d em atraso</span>}
+                  </div>
                 </div>
-                <div className="text-[11px] text-ink-500">
-                  {OBLIGATION_KIND_LABEL[o.documentKind as ObligationDocumentKind]} · concedido {fmtDate(o.issueDate)}
-                  {o.dueDate && o.dueDate !== o.issueDate && ` · devolução prevista ${fmtDate(o.dueDate)}`}
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-semibold">{fmtKz(o.outstandingAmount)}</div>
+                  {o.paidAmount > 0 && <div className="text-[10px] text-ink-500">devolvido {fmtKz(o.paidAmount)} de {fmtKz(o.originalAmount)}</div>}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {canPay && (
+                    <button onClick={e => { e.stopPropagation(); openPay(o); }} className="text-ink-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Registar devolução">
+                      <Wallet size={16} />
+                    </button>
+                  )}
+                  {isOpen ? <ChevronUp size={16} className="text-ink-500" /> : <ChevronDown size={16} className="text-ink-500" />}
                 </div>
               </div>
-              <div className="text-right shrink-0">
-                <div className="text-sm font-semibold">{fmtKz(o.outstandingAmount)}</div>
-                {o.paidAmount > 0 && <div className="text-[10px] text-ink-500">devolvido {fmtKz(o.paidAmount)} de {fmtKz(o.originalAmount)}</div>}
-              </div>
-              {canPay && (
-                <button onClick={() => openPay(o)} className="text-ink-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Registar devolução">
-                  <Wallet size={16} />
-                </button>
+              {isOpen && (
+                <div className="px-4 pb-4 pl-16 space-y-3">
+                  <div className="text-[11px] text-ink-500">
+                    Origem: <span className="text-ink-300">{originLabel(o)}</span>
+                    {o.notes && <> · Notas: <span className="text-ink-300">{o.notes}</span></>}
+                    {o.externalDocumentNumber && <> · Doc.: <span className="text-ink-300">{o.externalDocumentNumber}</span></>}
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-ink-500 font-bold mb-1.5">Histórico de devoluções</div>
+                    {hist.length === 0 && <p className="text-[12px] text-ink-500">Sem devoluções registadas.</p>}
+                    {hist.map(s => (
+                      <div key={s.id} className={`flex items-center justify-between text-[12px] py-1.5 border-t border-ink-800 first:border-t-0 ${s.status === "reversed" ? "opacity-50" : ""}`}>
+                        <span className="text-ink-300">{fmtDate(s.paymentDate)} · {s.internalNumber}{s.reference ? ` · ref. ${s.reference}` : ""}{s.status === "reversed" ? " · revertido" : ""}</span>
+                        <span className="font-medium">{fmtKz(allocatedTo(s, o.id))}</span>
+                      </div>
+                    ))}
+                    {hist.some(s => s.status === "posted") && (
+                      <p className="text-[11px] text-ink-500 mt-1.5">Para reverter uma devolução específica, usa <Link href="/app/faturas" className="text-maka-400 underline">A receber</Link> — procura por {o.internalNumber}.</p>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           );

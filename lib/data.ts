@@ -4,7 +4,20 @@ export type InvoiceType = "receivable" | "payable";
 export type InvoiceStatus = "pending" | "overdue" | "paid";
 export type TaxRegime = "geral" | "simplificado" | "isencao";
 export type ContactKind = "cliente" | "fornecedor" | "socio" | "funcionario" | "ambos";
-export type ReqStatus = "pendente" | "aprovado" | "reprovado";
+export type ReqStatus = "pendente" | "aprovado" | "reprovado" | "aguardando_desembolso" | "desembolsada";
+export type RequisitionType = "expense" | "purchase" | "employee_loan" | "salary_advance" | "operational_advance" | "other";
+export const REQUISITION_TYPE_LABEL: Record<RequisitionType, string> = {
+  expense: "Despesa", purchase: "Compra", employee_loan: "Empréstimo a funcionário",
+  salary_advance: "Adiantamento salarial", operational_advance: "Adiantamento operacional", other: "Outro",
+};
+export type RecoveryMethod = "direct_payment" | "salary_deduction" | "mixed";
+export const RECOVERY_METHOD_LABEL: Record<RecoveryMethod, string> = {
+  direct_payment: "Pagamento direto", salary_deduction: "Desconto salarial", mixed: "Misto",
+};
+export const REQ_STATUS_LABEL: Record<ReqStatus, string> = {
+  pendente: "Pendente", aprovado: "Aprovada", reprovado: "Reprovada",
+  aguardando_desembolso: "Aguardando desembolso", desembolsada: "Desembolsada",
+};
 export type PaymentTerm = "pronto" | "credito15" | "credito30" | "credito60" | "credito90" | "mensal";
 export type SocioRole = "gerente" | "investidor" | "outro";
 
@@ -133,6 +146,9 @@ export interface Obligation {
   // Só preenchido para documentKind employee_loan/salary_advance — aponta
   // para o lançamento que já tirou o dinheiro da conta na concessão.
   disbursementEntryId?: string;
+  // Preenchido quando a obrigação nasceu de uma requisição (criada direto
+  // ou reclassificada de uma requisição antiga já aprovada).
+  sourceRequisitionId?: string;
 }
 
 export interface SettlementAllocation { id: string; obligationId: string; allocatedAmount: number; journalEntryId?: string; }
@@ -256,6 +272,9 @@ export interface Requisition {
   department?: string; items?: ReqItem[];
   amount: number; date: string; purpose: string; category: string;
   status: ReqStatus; accountId?: string; decidedAt?: string; reason?: string;
+  type: RequisitionType;
+  // Só relevantes quando type = employee_loan/salary_advance/operational_advance.
+  beneficiaryContactId?: string; dueDate?: string; installments?: number; recoveryMethod?: RecoveryMethod;
 }
 export interface CommissionMember { id: string; name: string; percent: number; }
 export interface Commissions {
@@ -412,8 +431,8 @@ export const seedContacts: Contact[] = [
 ];
 
 export const seedRequisitions: Requisition[] = [
-  { id: "r1", number: "RQ-001/07/2026", requester: "Maria Cozinha", approver: "Erickson Fonseca", department: "Cozinha", items: [{ description: "Café torrado (pacote 1kg)", qty: 3, unitPrice: 4500 }, { description: "Açúcar (saco 5kg)", qty: 2, unitPrice: 3200 }, { description: "Chá preto (caixa)", qty: 4, unitPrice: 2000 }], amount: 28000, date: iso(-1), purpose: "Compra urgente de consumíveis para a copa, sem fatura.", category: "Consumíveis", status: "pendente" },
-  { id: "r2", number: "RQ-002/07/2026", requester: "João Entregas", approver: "Erickson Fonseca", department: "Logística", items: [{ description: "Reparação de pneu da carrinha", qty: 1, unitPrice: 12000 }], amount: 12000, date: iso(-2), purpose: "Furo no pneu dianteiro durante entrega.", category: "Transporte", status: "pendente" }
+  { id: "r1", number: "RQ-001/07/2026", requester: "Maria Cozinha", approver: "Erickson Fonseca", department: "Cozinha", items: [{ description: "Café torrado (pacote 1kg)", qty: 3, unitPrice: 4500 }, { description: "Açúcar (saco 5kg)", qty: 2, unitPrice: 3200 }, { description: "Chá preto (caixa)", qty: 4, unitPrice: 2000 }], amount: 28000, date: iso(-1), purpose: "Compra urgente de consumíveis para a copa, sem fatura.", category: "Consumíveis", status: "pendente", type: "expense" },
+  { id: "r2", number: "RQ-002/07/2026", requester: "João Entregas", approver: "Erickson Fonseca", department: "Logística", items: [{ description: "Reparação de pneu da carrinha", qty: 1, unitPrice: 12000 }], amount: 12000, date: iso(-2), purpose: "Furo no pneu dianteiro durante entrega.", category: "Transporte", status: "pendente", type: "expense" }
 ];
 
 export const seedBadges: Badge[] = [

@@ -37,6 +37,9 @@ interface Store {
   updateFinSettings: (p: Partial<FinancialSettings>) => Promise<string | null>;
   createObligation: (d: { direction: ObligationDirection; contactId: string; dueDate: string; amount: number; documentKind?: ObligationDocumentKind; externalDocumentNumber?: string; issueDate?: string; description?: string; notes?: string; categoryId?: string; isSale?: boolean }) => Promise<string | null>;
   grantEmployeeLoan: (d: { contactId: string; accountId: string; amount: number; kind: "employee_loan" | "salary_advance"; date?: string; dueDate?: string; description?: string; categoryId?: string; documentNumber?: string; notes?: string }) => Promise<string | null>;
+  convertEntryToLoan: (entryId: string, p: { contactId: string; kind: "employee_loan" | "salary_advance"; dueDate?: string; notes?: string }) => Promise<string | null>;
+  reclassifyRequisitionAsLoan: (requisitionId: string, p: { contactId: string; kind: "employee_loan" | "salary_advance"; dueDate?: string; installments?: number; recoveryMethod?: string; notes?: string }) => Promise<string | null>;
+  linkExistingRepayment: (entryId: string, obligationId: string) => Promise<string | null>;
   postSettlement: (d: { direction: SettlementDirection; contactId: string; accountId: string; allocations: { obligationId: string; amount: number }[]; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string; reserveId?: string; documentKind?: EntryDocumentKind; documentNumber?: string }) => Promise<string | null>;
   refreshCategories: (oid?: string) => Promise<void>;
   addCategory: (d: { name: string; categoryType: FinCategoryType; parentId?: string }) => Promise<string | null>;
@@ -63,7 +66,8 @@ interface Store {
   addRequisition: (r: Omit<Requisition, "id" | "number" | "status">) => void;
   editRequisition: (id: string, p: Partial<Requisition>) => string | null;
   deleteRequisition: (id: string) => string | null;
-  approveRequisition: (id: string, accountId: string) => void;
+  approveRequisition: (id: string, accountId: string, disburse?: boolean) => void;
+  disburseRequisition: (id: string, accountId: string) => void;
   rejectRequisition: (id: string, reason: string) => void;
   addCapital: (d: { partnerId: string; partnerName: string; kind: "aporte" | "retirada"; amount: number; accountId: string; date: string; description: string }) => string | null;
   updateProfile: (p: Partial<UserProfile>) => void;
@@ -163,6 +167,7 @@ const dbToObligation = (r: any): Obligation => ({
   paidAmount: Number(r.paid_amount), outstandingAmount: Number(r.outstanding_amount),
   daysOverdue: Number(r.days_overdue), financialStatus: r.financial_status,
   disbursementEntryId: r.disbursement_entry_id || undefined,
+  sourceRequisitionId: r.source_requisition_id || undefined,
 });
 
 const dbToSettlementAllocation = (r: any): SettlementAllocation => ({
@@ -249,6 +254,9 @@ const dbToRequisition = (r: any): Requisition => ({
   amount: Number(r.amount), date: r.date, purpose: r.purpose, category: r.category,
   status: r.status, accountId: r.account_id || undefined,
   decidedAt: r.decided_at || undefined, reason: r.reason || undefined,
+  type: r.type || "expense", beneficiaryContactId: r.beneficiary_contact_id || undefined,
+  dueDate: r.due_date || undefined, installments: r.installments ?? undefined,
+  recoveryMethod: r.recovery_method || undefined,
 });
 
 const dbToCompany = (r: any): Company => ({
@@ -349,6 +357,9 @@ const reqToDb = (r: Requisition, orgId: string) => ({
   approver: r.approver, department: r.department ?? null,
   items: r.items ?? [], amount: r.amount, date: r.date,
   purpose: r.purpose, category: r.category, status: r.status,
+  type: r.type, beneficiary_contact_id: r.beneficiaryContactId ?? null,
+  due_date: r.dueDate ?? null, installments: r.installments ?? null,
+  recovery_method: r.recoveryMethod ?? null,
 });
 
 const reqFieldsToDb = (p: Partial<Requisition>) => {
@@ -360,6 +371,11 @@ const reqFieldsToDb = (p: Partial<Requisition>) => {
   if (p.amount !== undefined && !p.items) r.amount = p.amount;
   if (p.purpose !== undefined) r.purpose = p.purpose;
   if (p.category !== undefined) r.category = p.category;
+  if (p.type !== undefined) r.type = p.type;
+  if (p.beneficiaryContactId !== undefined) r.beneficiary_contact_id = p.beneficiaryContactId;
+  if (p.dueDate !== undefined) r.due_date = p.dueDate;
+  if (p.installments !== undefined) r.installments = p.installments;
+  if (p.recoveryMethod !== undefined) r.recovery_method = p.recoveryMethod;
   return r;
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -969,6 +985,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
+  const convertEntryToLoan: Store["convertEntryToLoan"] = async (entryId, p) => {
+    const { error } = await sb().rpc("convert_entry_to_employee_loan", {
+      p_entry_id: entryId, p_org_id: orgIdRef.current!, p_contact_id: p.contactId, p_kind: p.kind,
+      p_due_date: p.dueDate || null, p_notes: p.notes || null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Lançamento convertido em empréstimo/adiantamento", "ok");
+    await refreshObligations();
+    return null;
+  };
+
+  const reclassifyRequisitionAsLoan: Store["reclassifyRequisitionAsLoan"] = async (requisitionId, p) => {
+    const { error } = await sb().rpc("reclassify_requisition_as_loan", {
+      p_req_id: requisitionId, p_org_id: orgIdRef.current!, p_contact_id: p.contactId, p_kind: p.kind,
+      p_due_date: p.dueDate || null, p_installments: p.installments ?? null,
+      p_recovery_method: p.recoveryMethod || null, p_notes: p.notes || null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Requisição reclassificada como empréstimo/adiantamento", "ok");
+    await Promise.all([
+      refreshObligations(),
+      sb().from("requisitions").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false })
+        .then(({ data }) => { if (data) setRequisitions(data.map(dbToRequisition)); }),
+    ]);
+    return null;
+  };
+
+  const linkExistingRepayment: Store["linkExistingRepayment"] = async (entryId, obligationId) => {
+    const { error } = await sb().rpc("link_existing_repayment", {
+      p_entry_id: entryId, p_org_id: orgIdRef.current!, p_obligation_id: obligationId,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Lançamento associado como devolução", "ok");
+    await refreshObligations();
+    return null;
+  };
+
   const postSettlement: Store["postSettlement"] = async (d) => {
     const { data, error } = await sb().rpc("post_settlement", {
       p_org_id: orgIdRef.current!, p_direction: d.direction, p_contact_id: d.contactId,
@@ -1178,31 +1231,51 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const deleteRequisition: Store["deleteRequisition"] = (id) => {
     const req = requisitions.find(r => r.id === id);
     if (!req) return "Requisição não encontrada";
-    if (req.status === "aprovado") return "Requisição aprovada não pode ser apagada (já gerou saída e serve para impressão).";
+    if (req.status !== "pendente") return "Só requisições pendentes podem ser apagadas (já avançou no fluxo e serve para histórico).";
     setRequisitions(prev => prev.filter(r => r.id !== id));
     toast("Requisição apagada", "ok");
     sb().from("requisitions").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
     return null;
   };
 
-  const approveRequisition: Store["approveRequisition"] = (id, accountId) => {
+  const approveRequisition: Store["approveRequisition"] = (id, accountId, disburse = true) => {
     const req = requisitions.find(r => r.id === id);
     if (!req) return;
-    setRequisitions(prev => prev.map(r => r.id === id ? { ...r, status: "aprovado" as const, accountId, decidedAt: new Date().toISOString() } : r));
-    toast(`${req.number} aprovada — saída lançada`, "ok");
-    gainXp(50, "Requisição aprovada");
-
-    sb().rpc("approve_requisition", { p_req_id: id, p_account_id: accountId, p_org_id: orgIdRef.current! })
+    // Otimista só quando o resultado é previsível (aprovar sem desembolsar);
+    // quando desembolsa, o estado final depende do tipo (aprovado vs
+    // desembolsada) — espera a resposta do RPC para não mostrar um estado
+    // errado por um instante.
+    if (!disburse) {
+      setRequisitions(prev => prev.map(r => r.id === id ? { ...r, status: "aguardando_desembolso" as const, decidedAt: new Date().toISOString() } : r));
+    }
+    sb().rpc("approve_requisition", { p_req_id: id, p_account_id: accountId, p_org_id: orgIdRef.current!, p_disburse: disburse })
       .then(({ error }) => {
         if (error) {
           toast("Erro: " + error.message, "warn");
-          setRequisitions(prev => prev.map(r => r.id === id ? { ...r, status: "pendente" as const, accountId: undefined, decidedAt: undefined } : r));
-        } else {
-          Promise.all([
-            refreshEntries(),
-            sb().from("requisitions").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false }),
-          ]).then(([, rqR]) => { if (rqR.data) setRequisitions(rqR.data.map(dbToRequisition)); });
+          if (!disburse) setRequisitions(prev => prev.map(r => r.id === id ? { ...r, status: "pendente" as const, decidedAt: undefined } : r));
+          return;
         }
+        toast(disburse ? `${req.number} aprovada — saída lançada` : `${req.number} aprovada — aguarda desembolso`, "ok");
+        gainXp(50, "Requisição aprovada");
+        Promise.all([
+          disburse ? refreshEntries() : Promise.resolve(),
+          sb().from("requisitions").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false }),
+        ]).then(([, rqR]) => { if (rqR.data) setRequisitions(rqR.data.map(dbToRequisition)); });
+      });
+  };
+
+  const disburseRequisition: Store["disburseRequisition"] = (id, accountId) => {
+    const req = requisitions.find(r => r.id === id);
+    if (!req) return;
+    sb().rpc("disburse_requisition", { p_req_id: id, p_account_id: accountId, p_org_id: orgIdRef.current! })
+      .then(({ error }) => {
+        if (error) { toast("Erro: " + error.message, "warn"); return; }
+        toast(`${req.number} desembolsada`, "ok");
+        gainXp(30, "Requisição desembolsada");
+        Promise.all([
+          refreshEntries(),
+          sb().from("requisitions").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false }),
+        ]).then(([, rqR]) => { if (rqR.data) setRequisitions(rqR.data.map(dbToRequisition)); });
       });
   };
 
@@ -1280,14 +1353,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,
-      createObligation, grantEmployeeLoan, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
+      createObligation, grantEmployeeLoan, convertEntryToLoan, reclassifyRequisitionAsLoan, linkExistingRepayment, postSettlement, reverseSettlement, cancelObligation, updateObligation, logInteraction,
       refreshCategories, addCategory, editCategory, archiveCategory, reactivateCategory,
       reserves, reserveCategories, reserveMovements, finSettings, trueAvailable,
       refreshAvailable, createReserve, increaseReserve, releaseReserve, cancelReserve, updateFinSettings,
       updateCompany, addAccount, editAccount, deleteAccount, updateAccountOpeningBalance,
       addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
       addContact, editContact, removeContact,
-      addRequisition, editRequisition, deleteRequisition, approveRequisition, rejectRequisition,
+      addRequisition, editRequisition, deleteRequisition, approveRequisition, disburseRequisition, rejectRequisition,
       addCapital, updateProfile, gainXp,
       taxRate: taxRateFor(company.regime),
       refreshRecurringTransactions, refreshBankStatementLines, createRecurringTransaction, setRecurringActive,

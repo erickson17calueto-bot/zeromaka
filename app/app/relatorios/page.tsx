@@ -4,14 +4,20 @@ import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, REGIMES } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import { REPORT_RPC, StatementResult, StmtLine, DrillResult, LedgerResult } from "@/lib/reports/types";
-import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2, BookOpen, Package, SlidersHorizontal } from "lucide-react";
+import { FileBarChart, TrendingUp, Scale, Receipt, Download, Loader2, FileSpreadsheet, AlertTriangle, CalendarClock, Search, X, CheckCircle2, BookOpen, Package, SlidersHorizontal, HandCoins } from "lucide-react";
 
-type Tab = "dre" | "dfc" | "impostos" | "aging" | "extrato" | "balanco";
+type Tab = "dre" | "dfc" | "impostos" | "aging" | "extrato" | "balanco" | "emprestimos";
 type Cmp = "none" | "prev" | "year";
-// extrato e balanço não usam a forma secções/totais — têm renderização própria
+// extrato, balanço e empréstimos não usam a forma secções/totais — têm renderização própria
 const TAB_REPORT: Record<Tab, keyof typeof REPORT_RPC | null> = {
   dre: "income_statement", dfc: "cash_flow_statement", impostos: "tax_control",
-  aging: "aging", extrato: null, balanco: null,
+  aging: "aging", extrato: null, balanco: null, emprestimos: null,
+};
+
+type LoansPositionResult = {
+  meta: { title: string; start: string; end: string };
+  employees: { contact_id: string; contact_name: string; outstanding: number; overdue: number; granted_period: number; recovered_period: number; loans_open: number; advances_open: number }[];
+  totals: { outstanding: number; overdue: number; granted_period: number; recovered_period: number };
 };
 const pad = (n: number) => String(n).padStart(2, "0");
 // Demonstração formal: linhas presentes mostram sempre o valor (incl. 0 Kz).
@@ -162,6 +168,7 @@ export default function RelatoriosPage() {
     { id: "aging" as Tab, label: "Antiguidade de saldos", icon: CalendarClock },
     { id: "extrato" as Tab, label: "Extrato de conta", icon: BookOpen },
     { id: "balanco" as Tab, label: "Balanço (gestão)", icon: Scale },
+    { id: "emprestimos" as Tab, label: "Empréstimos e adiantamentos", icon: HandCoins },
   ];
 
   const hasCmp = !!srv?.meta?.has_comparison;
@@ -203,6 +210,24 @@ export default function RelatoriosPage() {
     });
     return () => { cancelled = true; };
   }, [tab, orgId, ledgerAcc, period, periodDates]);
+
+  // ---- Posição de empréstimos e adiantamentos ----
+  const [loansData, setLoansData] = useState<LoansPositionResult | null>(null);
+  const [loansLoading, setLoansLoading] = useState(false);
+  const [loansErr, setLoansErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tab !== "emprestimos" || !orgId) { setLoansData(null); return; }
+    let cancelled = false;
+    setLoansLoading(true); setLoansErr(null);
+    const { start, end } = periodDates();
+    createClient().rpc("report_loans_position", { p_org_id: orgId, p_start: start, p_end: end }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) setLoansErr(error.message); else setLoansData(data as LoansPositionResult);
+      setLoansLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [tab, orgId, period, periodDates]);
 
   // ---- Detalhe da linha (drill-down) ----
   const [drill, setDrill] = useState<{ line: StmtLine; data: DrillResult | null; loading: boolean; err: string | null } | null>(null);
@@ -561,6 +586,38 @@ export default function RelatoriosPage() {
               <span className={`font-display text-lg ${bal.patrimonio >= 0 ? "text-maka-400" : "text-red-400"}`}>{fmtKz(bal.patrimonio)}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {tab === "emprestimos" && (
+        <div className="space-y-4">
+          {loansLoading && <div className="card p-8 text-center text-sm text-ink-500 flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> A carregar…</div>}
+          {loansErr && <div className="card p-4 text-sm text-red-400">{loansErr}</div>}
+          {loansData && !loansLoading && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="card p-4"><div className="text-xs text-ink-500">Pendente</div><div className="text-lg font-semibold mt-1">{fmtKz(loansData.totals.outstanding)}</div></div>
+                <div className="card p-4"><div className="text-xs text-ink-500">Vencido</div><div className="text-lg font-semibold mt-1 text-red-400">{fmtKz(loansData.totals.overdue)}</div></div>
+                <div className="card p-4"><div className="text-xs text-ink-500">Concedido no período</div><div className="text-lg font-semibold mt-1">{fmtKz(loansData.totals.granted_period)}</div></div>
+                <div className="card p-4"><div className="text-xs text-ink-500">Recuperado no período</div><div className="text-lg font-semibold mt-1 text-emerald-400">{fmtKz(loansData.totals.recovered_period)}</div></div>
+              </div>
+              <div className="card divide-y divide-ink-800">
+                <div className="p-3 grid grid-cols-5 gap-2 text-[10px] uppercase tracking-wider text-ink-500 font-bold">
+                  <span>Funcionário</span><span className="text-right">Pendente</span><span className="text-right">Vencido</span><span className="text-right">Concedido (período)</span><span className="text-right">Recuperado (período)</span>
+                </div>
+                {loansData.employees.map(e => (
+                  <div key={e.contact_id} className="p-3 grid grid-cols-5 gap-2 text-sm items-center">
+                    <span className="truncate">{e.contact_name} <span className="text-[10px] text-ink-500">({e.loans_open} empr. · {e.advances_open} adiant.)</span></span>
+                    <span className="text-right font-medium">{fmtKz(e.outstanding)}</span>
+                    <span className={`text-right ${e.overdue > 0 ? "text-red-400" : "text-ink-500"}`}>{fmtKz(e.overdue)}</span>
+                    <span className="text-right text-ink-300">{fmtKz(e.granted_period)}</span>
+                    <span className="text-right text-emerald-400">{fmtKz(e.recovered_period)}</span>
+                  </div>
+                ))}
+                {loansData.employees.length === 0 && <div className="p-8 text-center text-sm text-ink-500">Sem empréstimos ou adiantamentos registados.</div>}
+              </div>
+            </>
+          )}
         </div>
       )}
 
