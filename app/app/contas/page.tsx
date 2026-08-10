@@ -21,6 +21,7 @@ export default function ContasPage() {
   const [type, setType] = useState<AccountType>("bank");
   const [bank, setBank] = useState(BANKS[0]);
   const [initial, setInitial] = useState("");
+  const [openingDate, setOpeningDate] = useState(new Date().toISOString().slice(0, 10));
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -32,10 +33,11 @@ export default function ContasPage() {
 
   const total = accounts.reduce((s, a) => s + a.currentBalance, 0);
 
+  const today = new Date().toISOString().slice(0, 10);
   const submitNew = () => {
     if (!name.trim() || !initial) return;
-    addAccount({ name: name.trim(), type, bank: type === "bank" ? bank : undefined, initialBalance: Number(initial) });
-    setName(""); setInitial(""); setShowNew(false);
+    addAccount({ name: name.trim(), type, bank: type === "bank" ? bank : undefined, initialBalance: Number(initial), openingDate });
+    setName(""); setInitial(""); setOpeningDate(today); setShowNew(false);
   };
 
   const openEdit = (id: string) => {
@@ -126,7 +128,7 @@ export default function ContasPage() {
       </p>
 
       {(showNew || editId) && (
-        <Modal title={editId ? "Editar conta" : "Nova conta"} onClose={() => { setShowNew(false); setEditId(null); setName(""); setInitial(""); }}>
+        <Modal title={editId ? "Editar conta" : "Nova conta"} onClose={() => { setShowNew(false); setEditId(null); setName(""); setInitial(""); setOpeningDate(today); }}>
           <div className="space-y-4">
             <div>
               <label className="label">Nome da conta</label>
@@ -155,8 +157,15 @@ export default function ContasPage() {
             )}
             {!editId && (
               <div>
-                <label className="label">Saldo que tens hoje (Kz)</label>
+                <label className="label">Saldo inicial (Kz)</label>
                 <input className="input" type="number" placeholder="0" value={initial} onChange={(e) => setInitial(e.target.value)} />
+              </div>
+            )}
+            {!editId && Number(initial) > 0 && (
+              <div>
+                <label className="label">Data desse saldo</label>
+                <input className="input" type="date" max={today} value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+                <p className="text-[11px] text-ink-500 mt-1">Data em que este valor era o saldo real da conta. Lançamentos entre essa data e hoje ajustam automaticamente o saldo atual.</p>
               </div>
             )}
             {editId && <p className="text-[11px] text-ink-500">O saldo não se edita aqui — só muda por lançamentos.</p>}

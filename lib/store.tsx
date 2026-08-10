@@ -48,7 +48,7 @@ interface Store {
   updateObligation: (obligationId: string, p: { contactId?: string; description?: string; externalDocumentNumber?: string; amount?: number; issueDate?: string; dueDate?: string; categoryId?: string; notes?: string }) => Promise<string | null>;
   logInteraction: (d: { obligationId?: string; contactId: string; channel: CollectionChannel; interactionType: CollectionInteractionType; message?: string; outcome?: CollectionOutcome; promisedPaymentDate?: string; nextFollowUpAt?: string }) => Promise<string | null>;
   updateCompany: (p: Partial<Company>) => void;
-  addAccount: (a: Omit<Account, "id" | "currentBalance">) => void;
+  addAccount: (a: Omit<Account, "id" | "currentBalance"> & { openingDate?: string }) => void;
   editAccount: (id: string, p: Partial<Pick<Account, "name" | "type" | "bank">>) => void;
   deleteAccount: (id: string) => void;
   updateAccountOpeningBalance: (accountId: string, newAmount: number, reason: string) => Promise<string | null>;
@@ -686,13 +686,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ---- Accounts ----
   const addAccount: Store["addAccount"] = (a) => {
+    const { openingDate, ...acc } = a;
     const id = crypto.randomUUID();
-    setRawAccounts(prev => [...prev, { ...a, id, isArchived: false, currency: "AOA" }]);
+    setRawAccounts(prev => [...prev, { ...acc, id, isArchived: false, currency: "AOA" }]);
     gainXp(50, "Nova conta criada");
     sb().rpc("create_account_with_balance", {
       p_org_id: orgIdRef.current!, p_id: id,
       p_name: a.name, p_type: a.type, p_bank: a.bank || null,
-      p_initial_balance: a.initialBalance,
+      p_initial_balance: a.initialBalance, p_opening_date: openingDate || null,
     }).then(({ error }) => {
       if (error) {
         toast("Erro: " + error.message, "warn");
