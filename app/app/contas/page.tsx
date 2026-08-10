@@ -11,7 +11,7 @@ const TYPES: { value: AccountType; label: string; hint: string; icon: any }[] = 
 ];
 
 export default function ContasPage() {
-  const { accounts, addAccount, editAccount, deleteAccount, transfer, organizations, orgId, updateAccountOpeningBalance } = useStore();
+  const { accounts, journalEntries, addAccount, editAccount, deleteAccount, transfer, organizations, orgId, updateAccountOpeningBalance } = useStore();
   const myRole = organizations.find(o => o.id === orgId)?.role;
   const isAdmin = myRole === "owner" || myRole === "admin";
   const [showNew, setShowNew] = useState(false);
@@ -28,8 +28,16 @@ export default function ContasPage() {
   const [err, setErr] = useState("");
   const [correctFor, setCorrectFor] = useState<string | null>(null);
   const [correctAmount, setCorrectAmount] = useState("");
+  const [correctDate, setCorrectDate] = useState("");
   const [correctReason, setCorrectReason] = useState("");
   const [correctErr, setCorrectErr] = useState("");
+
+  const openingDateOf = (accountId: string) => {
+    const entry = journalEntries.find(e =>
+      e.entryType === "opening_balance" && e.status === "posted" && e.lines.some(l => l.accountId === accountId)
+    );
+    return entry?.transactionDate ?? new Date().toISOString().slice(0, 10);
+  };
 
   const total = accounts.reduce((s, a) => s + a.currentBalance, 0);
 
@@ -52,12 +60,12 @@ export default function ContasPage() {
 
   const openCorrect = (id: string) => {
     const a = accounts.find(x => x.id === id)!;
-    setCorrectFor(id); setCorrectAmount(String(a.initialBalance)); setCorrectReason(""); setCorrectErr("");
+    setCorrectFor(id); setCorrectAmount(String(a.initialBalance)); setCorrectDate(openingDateOf(id)); setCorrectReason(""); setCorrectErr("");
   };
   const submitCorrect = async () => {
-    if (!correctFor || !correctAmount || !correctReason.trim()) return;
+    if (!correctFor || !correctAmount || !correctDate || !correctReason.trim()) return;
     setCorrectErr("");
-    const e = await updateAccountOpeningBalance(correctFor, Number(correctAmount), correctReason.trim());
+    const e = await updateAccountOpeningBalance(correctFor, Number(correctAmount), correctReason.trim(), correctDate);
     if (e) { setCorrectErr(e); return; }
     setCorrectFor(null);
   };
@@ -215,11 +223,16 @@ export default function ContasPage() {
                 <input className="input" type="number" value={correctAmount} onChange={(e) => setCorrectAmount(e.target.value)} />
               </div>
               <div>
+                <label className="label">Data desse saldo</label>
+                <input className="input" type="date" max={today} value={correctDate} onChange={(e) => setCorrectDate(e.target.value)} />
+                <p className="text-[11px] text-ink-500 mt-1">Muda a data-base usada para calcular o saldo atual. Lançamentos entre essa data e hoje ajustam-se automaticamente.</p>
+              </div>
+              <div>
                 <label className="label">Motivo da correção</label>
                 <input className="input" placeholder="Ex.: saldo de abertura foi lançado com o valor errado" value={correctReason} onChange={(e) => setCorrectReason(e.target.value)} />
               </div>
               {correctErr && <p className="text-sm text-red-400">{correctErr}</p>}
-              <button onClick={submitCorrect} disabled={!correctAmount || Number(correctAmount) <= 0 || !correctReason.trim()} className="btn-primary w-full justify-center disabled:opacity-40">Confirmar correção</button>
+              <button onClick={submitCorrect} disabled={!correctAmount || Number(correctAmount) <= 0 || !correctDate || !correctReason.trim()} className="btn-primary w-full justify-center disabled:opacity-40">Confirmar correção</button>
             </div>
           </Modal>
         );

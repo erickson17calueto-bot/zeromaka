@@ -51,7 +51,7 @@ interface Store {
   addAccount: (a: Omit<Account, "id" | "currentBalance"> & { openingDate?: string }) => void;
   editAccount: (id: string, p: Partial<Pick<Account, "name" | "type" | "bank">>) => void;
   deleteAccount: (id: string) => void;
-  updateAccountOpeningBalance: (accountId: string, newAmount: number, reason: string) => Promise<string | null>;
+  updateAccountOpeningBalance: (accountId: string, newAmount: number, reason: string, newDate?: string) => Promise<string | null>;
   addTransaction: (t: Omit<Transaction, "id">) => void;
   editTransaction: (id: string, p: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
@@ -729,9 +729,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // diretamente — o saldo continua 100% derivado do livro (ver
   // current_account_balance()). Não otimista: espera confirmação do RPC
   // (só owner/admin) antes de refletir localmente.
-  const updateAccountOpeningBalance: Store["updateAccountOpeningBalance"] = async (accountId, newAmount, reason) => {
+  const updateAccountOpeningBalance: Store["updateAccountOpeningBalance"] = async (accountId, newAmount, reason, newDate) => {
     const { error } = await sb().rpc("update_account_opening_balance", {
-      p_account_id: accountId, p_new_amount: newAmount, p_reason: reason,
+      p_account_id: accountId, p_new_amount: newAmount, p_reason: reason, p_new_date: newDate || null,
     });
     if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     toast("Saldo inicial corrigido", "ok");
