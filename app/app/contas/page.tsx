@@ -25,6 +25,7 @@ export default function ContasPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
+  const [transferDate, setTransferDate] = useState(new Date().toISOString().slice(0, 10));
   const [err, setErr] = useState("");
   const [correctFor, setCorrectFor] = useState<string | null>(null);
   const [correctAmount, setCorrectAmount] = useState("");
@@ -72,9 +73,9 @@ export default function ContasPage() {
 
   const submitTransfer = () => {
     setErr("");
-    const e = transfer(from, to, Number(amount));
+    const e = transfer(from, to, Number(amount), transferDate);
     if (e) { setErr(e); return; }
-    setFrom(""); setTo(""); setAmount(""); setShowTransfer(false);
+    setFrom(""); setTo(""); setAmount(""); setTransferDate(today); setShowTransfer(false);
   };
 
   const srcBalance = accounts.find((a) => a.id === from)?.currentBalance;
@@ -204,8 +205,12 @@ export default function ContasPage() {
               <label className="label">Valor (Kz)</label>
               <input className="input" type="number" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </div>
+            <div>
+              <label className="label">Data da transferência</label>
+              <input className="input" type="date" value={transferDate} onChange={(e) => setTransferDate(e.target.value)} />
+            </div>
             {err && <p className="text-sm text-red-400">{err}</p>}
-            <button onClick={submitTransfer} disabled={!from || !to || !amount} className="btn-primary w-full justify-center disabled:opacity-50">Transferir</button>
+            <button onClick={submitTransfer} disabled={!from || !to || !amount || !transferDate} className="btn-primary w-full justify-center disabled:opacity-50">Transferir</button>
           </div>
         </Modal>
       )}

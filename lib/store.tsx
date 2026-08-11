@@ -58,7 +58,7 @@ interface Store {
   addTransaction: (t: Omit<Transaction, "id">) => void;
   editTransaction: (id: string, p: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
-  transfer: (from: string, to: string, amount: number) => string | null;
+  transfer: (from: string, to: string, amount: number, date?: string) => string | null;
   reverseEntry: (entryId: string, reason: string) => void;
   addContact: (c: Omit<Contact, "id">) => void;
   editContact: (id: string, p: Partial<Contact>) => void;
@@ -893,17 +893,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     reverseEntry(cleanId, "Apagado pelo utilizador");
   };
 
-  const transfer: Store["transfer"] = (from, to, amount) => {
+  const transfer: Store["transfer"] = (from, to, amount, date) => {
     const src = accounts.find(a => a.id === from);
     if (!src) return "Conta de origem inválida";
     if (from === to) return "As contas devem ser diferentes";
     if (src.currentBalance < amount) return "Saldo insuficiente";
 
+    const transactionDate = date || new Date().toISOString().slice(0, 10);
     // Optimistic entry
     const tempId = crypto.randomUUID();
     const tempEntry: JournalEntry = {
       id: tempId, entryNumber: "...", entryType: "transfer",
-      transactionDate: new Date().toISOString().slice(0, 10),
+      transactionDate,
       description: "Transferência interna", status: "posted", source: "manual",
       createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
       metadata: {},
@@ -917,7 +918,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     sb().rpc("post_transfer", {
       p_org_id: orgIdRef.current!, p_from_account_id: from,
-      p_to_account_id: to, p_amount: amount,
+      p_to_account_id: to, p_amount: amount, p_date: transactionDate,
     }).then(({ error }) => {
       if (error) {
         toast("Erro na transferência: " + error.message, "warn");
