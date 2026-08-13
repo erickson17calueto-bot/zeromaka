@@ -14,7 +14,20 @@ function isPublicMarketing(path: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
-  const path = request.nextUrl.pathname;
+  // O pathname chega como foi pedido, sem descodificar: `/%61pp/dashboard` é
+  // o mesmo recurso que `/app/dashboard` para o router, mas não batia com
+  // isAppPath("/app…") e a rota protegida passava sem verificação de sessão
+  // (confirmado em produção: devolvia 200 servido do CDN em vez de 307).
+  // Descodificar antes de decidir fecha essa via. Barras repetidas e
+  // segmentos `..` já são normalizados pelo Next antes de chegar aqui.
+  let path = request.nextUrl.pathname;
+  try {
+    const decoded = decodeURIComponent(path);
+    if (decoded.startsWith("/")) path = decoded;
+  } catch {
+    // percent-encoding inválido: fica o caminho original, que não bate com
+    // nenhuma rota pública e por isso segue o caminho mais restritivo.
+  }
 
   // Páginas de marketing e ficheiros para crawlers não dependem de sessão.
   // Sair já evita uma chamada de rede ao Supabase em cada visita pública.

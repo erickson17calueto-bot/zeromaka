@@ -15,6 +15,15 @@ const emptyForm = () => ({
 const fmtAOA = (n: number) => new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " AOA";
 const fmtQty = (n: number) => new Intl.NumberFormat("pt-AO", { maximumFractionDigits: 3 }).format(n);
 const esc = (s: string) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+// O HTML de impressão é escrito num iframe do MESMO origin, por isso qualquer
+// coisa que escape de um atributo corre com a sessão do utilizador. O esc()
+// acima já neutraliza o conteúdo de texto; um URL precisa também de ter o
+// esquema validado — senão um `javascript:` guardado em company.logo passaria
+// a ser executável. Só http(s) e imagens embutidas são aceites.
+const safeUrl = (u: string) => {
+  const v = String(u || "").trim();
+  return /^(https?:\/\/|data:image\/)/i.test(v) ? v : "";
+};
 // Só uma pista, nunca uma decisão automática — a reclassificação em si
 // exige sempre escolher o funcionário e confirmar explicitamente.
 const normalize = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -120,8 +129,9 @@ export default function RequisicoesPage() {
     const rows = items.map((it, i) => `<tr>
       <td class="c">${i + 1}</td><td>${esc(it.description)}</td>
       <td class="c">${fmtQty(it.qty)}</td><td class="r">${fmtAOA(it.unitPrice)}</td><td class="r">${fmtAOA(it.qty * it.unitPrice)}</td></tr>`).join("");
-    const logo = company.logo
-      ? `<img src="${company.logo}" alt="logo" style="width:64px;height:64px;object-fit:contain;border-radius:6px" />`
+    const logoSrc = safeUrl(company.logo || "");
+    const logo = logoSrc
+      ? `<img src="${esc(logoSrc)}" alt="logo" style="width:64px;height:64px;object-fit:contain;border-radius:6px" />`
       : `<div style="width:64px;height:64px;border-radius:6px;background:${NAVY};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;text-align:center;line-height:1.1">${esc((company.name || "").split(" ")[0] || "LOGO")}</div>`;
 
     const html = `<!doctype html><html lang="pt-AO"><head><meta charset="utf-8">
