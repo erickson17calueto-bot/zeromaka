@@ -17,9 +17,24 @@ interface Toast { id: number; msg: string; kind: "ok" | "xp" | "warn" }
 
 interface OrgMembership { id: string; name: string; role: string }
 
+// Papéis atribuíveis pelo painel de administração. 'owner' fica de fora de
+// propósito: a propriedade só nasce ao criar a organização e não é
+// transferível pela interface (ver add_organization_member no SQL).
+export type MemberRole = "admin" | "finance" | "viewer";
+export interface OrgMember {
+  userId: string; role: string; name: string;
+  email?: string; phone?: string; createdAt?: string;
+}
+
 interface Store {
   ready: boolean; authed: boolean; orgId: string | null;
   organizations: OrgMembership[]; switchOrganization: (orgId: string) => Promise<void>;
+  // ---- Painel de administração (owner/admin) ----
+  addOrganization: (orgName: string, companyName: string) => Promise<string | null>;
+  listMembers: (orgId?: string) => Promise<OrgMember[]>;
+  addMember: (email: string, role: MemberRole) => Promise<string | null>;
+  changeMemberRole: (userId: string, role: MemberRole) => Promise<string | null>;
+  removeMember: (userId: string) => Promise<string | null>;
   refreshEntries: (oid?: string) => Promise<void>;
   logout: () => Promise<void>;
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
@@ -692,6 +707,82 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await loadOrgData(newOrgId);
   }, [sb, loadOrgData, toast]);
 
+  // ---- Painel de administração ----
+  // Recarrega a lista de organizações a que o utilizador pertence. Chamada
+  // depois de criar uma empresa, para o seletor passar a mostrá-la.
+  const refreshOrganizations = useCallback(async () => {
+    if (!userIdRef.current) return;
+    const { data } = await sb().from("organization_members")
+      .select("role, organizations(id, name)").eq("user_id", userIdRef.current);
+    if (data) {
+      setOrganizations(data
+        .filter((m: any) => m.organizations) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role }))); // eslint-disable-line @typescript-eslint/no-explicit-any
+    }
+  }, [sb]);
+
+  // Cria uma empresa adicional e passa a trabalhar nela. Distinta de
+  // createOrganization (usada no onboarding): esta não mexe no nome do
+  // utilizador, porque quem já tem conta não está a registar-se de novo.
+  const addOrganization: Store["addOrganization"] = async (orgName, companyName) => {
+    const supabase = sb();
+    const { data: newOrgId, error } = await supabase.rpc("create_organization", {
+      p_name: orgName, p_slug: slugify(orgName),
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    await Promise.all([
+      supabase.from("companies").update({ name: companyName || orgName }).eq("organization_id", newOrgId),
+      supabase.rpc("seed_default_categories", { p_org_id: newOrgId }),
+      supabase.rpc("seed_reserve_categories", { p_org_id: newOrgId }),
+    ]);
+    await refreshOrganizations();
+    // Entrar já na empresa nova é o que se espera de "criar empresa"; passa
+    // também por profiles.current_org_id, para persistir entre sessões.
+    await supabase.from("profiles").update({ current_org_id: newOrgId }).eq("id", userIdRef.current!);
+    setOrgId(newOrgId);
+    await loadOrgData(newOrgId);
+    toast(`Empresa "${orgName}" criada`, "ok");
+    return null;
+  };
+
+  const listMembers: Store["listMembers"] = async (orgIdArg) => {
+    const target = orgIdArg || orgIdRef.current;
+    if (!target) return [];
+    const { data, error } = await sb().rpc("list_organization_members", { p_org_id: target });
+    if (error) { toast("Erro: " + error.message, "warn"); return []; }
+    return ((data as any[]) || []).map(m => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+      userId: m.user_id, role: m.role, name: m.name,
+      email: m.email || undefined, phone: m.phone || undefined, createdAt: m.created_at || undefined,
+    }));
+  };
+
+  const addMember: Store["addMember"] = async (email, role) => {
+    const { error } = await sb().rpc("add_organization_member", {
+      p_org_id: orgIdRef.current!, p_email: email, p_role: role,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Membro adicionado", "ok");
+    return null;
+  };
+
+  const changeMemberRole: Store["changeMemberRole"] = async (userId, role) => {
+    const { error } = await sb().rpc("change_organization_member_role", {
+      p_org_id: orgIdRef.current!, p_user_id: userId, p_role: role,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Permissão atualizada", "ok");
+    return null;
+  };
+
+  const removeMember: Store["removeMember"] = async (userId) => {
+    const { error } = await sb().rpc("remove_organization_member", {
+      p_org_id: orgIdRef.current!, p_user_id: userId,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Membro removido", "ok");
+    return null;
+  };
+
   // ---- Company ----
   const updateCompany: Store["updateCompany"] = (p) => {
     setCompany(c => ({ ...c, ...p }));
@@ -1351,6 +1442,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
+      addOrganization, listMembers, addMember, changeMemberRole, removeMember,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,

@@ -8,11 +8,17 @@ import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
   Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins,
   Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X, Tags,
+  type LucideIcon,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { ROUTES } from "@/lib/routes";
 
-const SECTIONS = [
+// Tipado explicitamente: sem isto, juntar SECTIONS com ADMIN_SECTION (que não
+// tem badges) faz o TypeScript inferir um tipo sem `badge` e perder o campo.
+type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string };
+type NavSection = { title: string; items: NavItem[] };
+
+const SECTIONS: NavSection[] = [
   { title: "Finanças", items: [
     { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
     { href: "/app/contas", label: "Contas", icon: Wallet },
@@ -42,6 +48,13 @@ const SECTIONS = [
   ]}
 ];
 
+// Secção separada porque só aparece a quem é owner/admin DESTA organização.
+// A página revalida a permissão por si (e o servidor também, em cada RPC) —
+// esconder aqui é só para não mostrar um caminho sem saída a quem não pode.
+const ADMIN_SECTION: NavSection = { title: "Administração", items: [
+  { href: "/app/administracao", label: "Empresas e equipa", icon: ShieldCheck }
+]};
+
 const COLLAPSED_KEY = "zeromaka_sidebar_collapsed";
 const CLOSED_SECTIONS_KEY = "zeromaka_sidebar_closed_sections";
 
@@ -50,6 +63,11 @@ export default function Sidebar() {
   const router = useRouter();
   const { profile, obligations, requisitions, logout, orgId, organizations, switchOrganization } = useStore();
   const currentOrg = organizations.find(o => o.id === orgId);
+  // A secção de administração só aparece a quem é owner/admin desta
+  // organização. Não é a proteção real — essa está na página e em cada RPC do
+  // servidor; aqui é só para não mostrar um caminho sem saída.
+  const isAdmin = currentOrg?.role === "owner" || currentOrg?.role === "admin";
+  const visibleSections = isAdmin ? [...SECTIONS, ADMIN_SECTION] : SECTIONS;
   const [switching, setSwitching] = useState(false);
   const lv = levelFor(profile.xp);
   const isOverdue = (s: string) => s === "overdue" || s === "partial_overdue";
@@ -187,7 +205,7 @@ export default function Sidebar() {
       )}
 
       <nav className="flex-1 space-y-3">
-        {SECTIONS.map((sec) => {
+        {visibleSections.map((sec) => {
           const isClosed = closed.includes(sec.title);
           return (
             <div key={sec.title}>
