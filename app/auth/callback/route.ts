@@ -5,7 +5,9 @@ import { ROUTES, safeNext } from "@/lib/routes";
 export const dynamic = "force-dynamic";
 
 // Destino dos links de confirmação de e-mail e de recuperação de palavra-passe.
-// Troca o código PKCE por uma sessão em cookies httpOnly, do lado do servidor.
+// Troca o código PKCE por uma sessão, do lado do servidor. Os cookies gravados
+// NÃO são httpOnly — ver a nota em lib/supabase/server.ts para o porquê e para
+// as mitigações em vigor.
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");

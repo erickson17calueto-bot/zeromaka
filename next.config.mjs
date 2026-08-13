@@ -7,14 +7,11 @@
 // alheio e enganar o utilizador a clicar em "Aprovar").
 //
 // O que a CSP tem de deixar passar, confirmado no código:
-//   - script inline: app/layout.tsx injeta o NO_FLASH_SCRIPT com
-//     dangerouslySetInnerHTML, daí o 'unsafe-inline' em script-src. O ideal
-//     seria um nonce, mas isso obriga a tornar o layout dinâmico — fica como
-//     melhoria futura, não como bloqueio agora.
 //   - fontes do Google (fonts.googleapis.com / fonts.gstatic.com)
 //   - o browser fala diretamente com o Supabase (connect-src)
 //   - logos de empresa por URL https e imagens embutidas (data:)
-//   - o mapa de origem em dev precisa de 'unsafe-eval'
+//   - em dev, o Fast Refresh do Next precisa de 'unsafe-eval' e de scripts
+//     inline próprios; em produção nada disso é permitido.
 const supabaseOrigin = (() => {
   try {
     return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin;
@@ -27,6 +24,23 @@ const isDev = process.env.NODE_ENV === "development";
 
 const csp = [
   "default-src 'self'",
+  // 'unsafe-inline' é aqui uma limitação conhecida e deliberada, não um
+  // descuido. Foi tentado restringir por hash (SHA-256 do NO_FLASH_SCRIPT) e
+  // verificou-se num build de produção que parte a aplicação: além do nosso
+  // script, o Next injeta os seus próprios scripts inline de hidratação
+  // (self.__next_f.push(...)), cujo conteúdo varia com os dados de cada página
+  // e por isso não tem hash fixo. Com a CSP por hash, o browser bloqueia-os e
+  // a página fica servida mas sem interatividade nenhuma.
+  //
+  // A alternativa oficial é um nonce por pedido gerado no middleware, mas isso
+  // obriga o layout raiz a ler headers() a cada pedido, o que torna TODO o
+  // site dinâmico e faz perder o rendering estático das páginas públicas —
+  // uma decisão de custo/arquitetura, não uma correção de segurança simples.
+  //
+  // O que continua a proteger, mesmo com 'unsafe-inline': connect-src impede
+  // exfiltração para domínios de terceiros, frame-ancestors bloqueia
+  // clickjacking, object-src/base-uri/form-action fecham vetores clássicos, e
+  // o XSS que existia está corrigido na origem (escape + validação de URL).
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
