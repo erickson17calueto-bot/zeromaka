@@ -7,7 +7,7 @@ import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
   Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins,
-  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X, Tags,
+  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X, Tags, Layers,
   type LucideIcon,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -67,7 +67,15 @@ export default function Sidebar() {
   // organização. Não é a proteção real — essa está na página e em cada RPC do
   // servidor; aqui é só para não mostrar um caminho sem saída.
   const isAdmin = currentOrg?.role === "owner" || currentOrg?.role === "admin";
-  const visibleSections = isAdmin ? [...SECTIONS, ADMIN_SECTION] : SECTIONS;
+  // "Painel de grupo" só faz sentido a quem tem mais do que uma empresa —
+  // não depende de isAdmin porque é uma leitura agregada de dados a que o
+  // utilizador já tem acesso individual, não uma ação administrativa.
+  const baseSections = organizations.length > 1
+    ? SECTIONS.map(sec => sec.title === "Análise"
+        ? { ...sec, items: [{ href: "/app/grupo", label: "Painel de grupo", icon: Layers }, ...sec.items] }
+        : sec)
+    : SECTIONS;
+  const visibleSections = isAdmin ? [...baseSections, ADMIN_SECTION] : baseSections;
   const [switching, setSwitching] = useState(false);
   const lv = levelFor(profile.xp);
   const isOverdue = (s: string) => s === "overdue" || s === "partial_overdue";

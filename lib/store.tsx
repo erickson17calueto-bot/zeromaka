@@ -26,12 +26,22 @@ export interface OrgMember {
   email?: string; phone?: string; createdAt?: string;
 }
 
+// Resumo do mês para o Painel de Grupo (ver get_org_snapshot). Não é um
+// membro da lista de contas/lançamentos da organização ativa — é só um
+// retrato agregado de UMA organização, pedido sob demanda por empresa.
+export interface OrgSnapshot {
+  balance: number; income: number; expense: number; result: number;
+  receivableOpen: number; payableOpen: number;
+}
+
 interface Store {
   ready: boolean; authed: boolean; orgId: string | null;
   organizations: OrgMembership[]; switchOrganization: (orgId: string) => Promise<void>;
   // ---- Painel de administração (owner/admin) ----
   addOrganization: (orgName: string, companyName: string) => Promise<string | null>;
   listMembers: (orgId?: string) => Promise<OrgMember[]>;
+  // ---- Painel de grupo (leitura agregada entre empresas do próprio utilizador) ----
+  getOrgSnapshot: (orgId: string, monthStart: string, monthEnd: string) => Promise<OrgSnapshot | null>;
   addMember: (email: string, role: MemberRole) => Promise<string | null>;
   changeMemberRole: (userId: string, role: MemberRole) => Promise<string | null>;
   removeMember: (userId: string) => Promise<string | null>;
@@ -745,6 +755,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
+  // Retrato de UMA organização para o Painel de Grupo. Sem SECURITY DEFINER
+  // no lado do banco — se o utilizador não for membro de orgId, o RLS das
+  // tabelas base devolve zeros, não erro nem dados de outra empresa (testado
+  // ao vivo antes de existir esta função, ver 20260810_0059).
+  const getOrgSnapshot: Store["getOrgSnapshot"] = async (targetOrgId, monthStart, monthEnd) => {
+    const { data, error } = await sb().rpc("get_org_snapshot", {
+      p_org_id: targetOrgId, p_month_start: monthStart, p_month_end: monthEnd,
+    });
+    if (error || !data) return null;
+    const d = data as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return {
+      balance: Number(d.balance), income: Number(d.income), expense: Number(d.expense),
+      result: Number(d.result), receivableOpen: Number(d.receivable_open), payableOpen: Number(d.payable_open),
+    };
+  };
+
   const listMembers: Store["listMembers"] = async (orgIdArg) => {
     const target = orgIdArg || orgIdRef.current;
     if (!target) return [];
@@ -1442,7 +1468,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
-      addOrganization, listMembers, addMember, changeMemberRole, removeMember,
+      addOrganization, listMembers, addMember, changeMemberRole, removeMember, getOrgSnapshot,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,
