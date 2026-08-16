@@ -610,34 +610,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Carrega tudo o que depende de "quem é o utilizador": perfil, organizações
+  // a que pertence e os dados da organização ativa. Extraído para fora do
+  // arranque porque é preciso nos DOIS momentos em que uma sessão aparece —
+  // ao abrir a app já autenticado, e ao entrar sem recarregar a página.
+  const loadUserContext = useCallback(async (userId: string, email?: string) => {
+    const supabase = createClient();
+    // Perfil e adesões não dependem um do outro — só dependem de userId, que
+    // já temos. Em sequência somavam mais uma ida e volta completa ao
+    // servidor (em eu-west-3, cada uma custa a mais para quem acede de
+    // Angola) sem nenhuma razão para não serem paralelas.
+    const [{ data: dbProfile }, { data: memberships }] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", userId).single(),
+      supabase.from("organization_members").select("role, organizations(id, name, is_archived)").eq("user_id", userId),
+    ]);
+    if (dbProfile) {
+      setProfile(p => ({ ...p, name: dbProfile.full_name || "", phone: dbProfile.phone || "", bi: dbProfile.bi || "", email: email || "" }));
+      if (dbProfile.current_org_id) {
+        setOrgId(dbProfile.current_org_id);
+        await loadOrgData(dbProfile.current_org_id);
+      }
+    }
+    if (memberships) {
+      // Organizações arquivadas ficam fora do seletor/lista — archive_organization()
+      // já limpa current_org_id de quem apontava para lá, isto cobre o resto da UI.
+      setOrganizations(memberships
+        .filter((m: any) => m.organizations && !m.organizations.is_archived) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role }))); // eslint-disable-line @typescript-eslint/no-explicit-any
+    }
+  }, [loadOrgData]);
+
   useEffect(() => {
     const supabase = createClient();
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setAuthed(true);
-        userIdRef.current = user.id;
-        // Perfil e adesões não dependem um do outro — só dependem de user.id,
-        // que já temos. Antes corriam em sequência, o que soma mais uma ida
-        // e volta completa ao servidor (em eu-west-3, cada uma custa a mais
-        // para quem acede de Angola) sem nenhuma razão para não serem paralelas.
-        const [{ data: dbProfile }, { data: memberships }] = await Promise.all([
-          supabase.from("profiles").select("*").eq("id", user.id).single(),
-          supabase.from("organization_members").select("role, organizations(id, name, is_archived)").eq("user_id", user.id),
-        ]);
-        if (dbProfile) {
-          setProfile(p => ({ ...p, name: dbProfile.full_name || "", phone: dbProfile.phone || "", bi: dbProfile.bi || "", email: user.email || "" }));
-          if (dbProfile.current_org_id) {
-            setOrgId(dbProfile.current_org_id);
-            await loadOrgData(dbProfile.current_org_id);
-          }
-        }
-        if (memberships) {
-          // Organizações arquivadas ficam fora do seletor/lista — archive_organization()
-          // já limpa current_org_id de quem apontava para lá, isto cobre o resto da UI.
-          setOrganizations(memberships
-            .filter((m: any) => m.organizations && !m.organizations.is_archived)
-            .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role })));
+        // Guardado pelo ref: o onAuthStateChange abaixo dispara INITIAL_SESSION
+        // e pode chegar aqui primeiro. Sem esta verificação, os dois carregavam
+        // o mesmo utilizador em paralelo, duplicando todas as queries.
+        if (userIdRef.current !== user.id) {
+          userIdRef.current = user.id;
+          await loadUserContext(user.id, user.email);
         }
       }
       setReady(true);
@@ -645,8 +659,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthed(!!session?.user);
-      if (!session?.user) {
+      const user = session?.user;
+      setAuthed(!!user);
+      if (!user) {
         userIdRef.current = null;
         setOrgId(null);
         setRawAccounts([]); setJournalEntries([]); setRecurringTransactions([]); setBankStatementLines([]); setCategories([]);
@@ -654,10 +669,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setRawObligations([]); setSettlements([]); setCollectionInteractions([]);
         setReserves([]); setReserveCategories([]); setReserveMovements([]);
         setFinSettings(defaultFinSettings); setTrueAvailable(null);
+        return;
+      }
+      // ENTRAR SEM RECARREGAR A PÁGINA: o login faz router.push(), que é
+      // navegação do lado do cliente, por isso este provider (que vive no
+      // layout raiz) nunca é desmontado e o init() acima não volta a correr.
+      // Antes daqui só saía setAuthed(true) — o orgId ficava a null, o layout
+      // de /app mandava para /onboarding, o onboarding via o registo já
+      // concluído e mandava de volta, em ciclo infinito de redirecionamentos.
+      // Só um refresh manual quebrava o ciclo, porque remontava o provider.
+      //
+      // A comparação com o ref também evita recarregar em TOKEN_REFRESHED,
+      // que dispara periodicamente para o mesmo utilizador.
+      if (user.id !== userIdRef.current) {
+        userIdRef.current = user.id;
+        void loadUserContext(user.id, user.email);
       }
     });
     return () => subscription.unsubscribe();
-  }, [loadOrgData]);
+  }, [loadUserContext]);
 
   // Gamification: localStorage
   useEffect(() => {
