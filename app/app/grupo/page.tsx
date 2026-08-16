@@ -54,7 +54,7 @@ export default function GrupoPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <header>
-        <h1 className="font-display text-2xl md:text-3xl tracking-tight flex items-center gap-2">
+        <h1 className="h-page flex items-center gap-2">
           <Layers size={24} className="text-maka-400" /> Painel de grupo
         </h1>
         <p className="text-sm text-ink-400 mt-1">

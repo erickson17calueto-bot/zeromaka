@@ -39,7 +39,7 @@ export default function CapitalPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Capital dos sócios</h1>
+          <h1 className="h-page">Capital dos sócios</h1>
           <p className="text-sm text-ink-400 mt-1">Aportes e retiradas (suprimentos). Não contam como receita nem despesa.</p>
         </div>
         <button onClick={() => setShow(true)} className="btn-primary"><Plus size={15} /> Novo movimento</button>

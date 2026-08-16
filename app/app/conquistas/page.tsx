@@ -11,7 +11,7 @@ export default function ConquistasPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <header>
-        <h1 className="font-display text-2xl md:text-3xl tracking-tight">Conquistas</h1>
+        <h1 className="h-page">Conquistas</h1>
         <p className="text-sm text-ink-400 mt-1">Cada boa decisão financeira vale XP. Sobe de nível gerindo bem o teu dinheiro.</p>
       </header>
 

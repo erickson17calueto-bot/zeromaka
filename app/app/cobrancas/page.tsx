@@ -85,7 +85,7 @@ export default function CobrancasPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <header>
-        <h1 className="font-display text-2xl md:text-3xl tracking-tight">Cobranças</h1>
+        <h1 className="h-page">Cobranças</h1>
         <p className="text-sm text-ink-400 mt-1">Prioriza quem cobrar hoje. As mensagens abrem no WhatsApp — nada é enviado automaticamente.</p>
       </header>
 

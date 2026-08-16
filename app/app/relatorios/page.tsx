@@ -285,7 +285,7 @@ export default function RelatoriosPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Relatórios</h1>
+          <h1 className="h-page">Relatórios</h1>
           <p className="text-sm text-ink-400 mt-1">{company.name} · {REGIMES[company.regime].short} · base de caixa</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

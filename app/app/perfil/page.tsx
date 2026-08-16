@@ -34,7 +34,7 @@ export default function PerfilPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <header><h1 className="font-display text-2xl md:text-3xl tracking-tight">Meu perfil</h1></header>
+      <header><h1 className="h-page">Meu perfil</h1></header>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-start">
         <div className="card p-6 md:col-span-2 md:sticky md:top-6 text-center">

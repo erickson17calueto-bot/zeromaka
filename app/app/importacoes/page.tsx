@@ -804,7 +804,7 @@ export default function ImportacoesPage() {
     <div className="max-w-6xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Importar lançamentos</h1>
+          <h1 className="h-page">Importar lançamentos</h1>
           <p className="text-sm text-ink-400 mt-1">Migra dados antigos para {label} com revisão antes de lançar.</p>
         </div>
         <button className="btn-ghost" onClick={() => setShowHistory(v => !v)}><RotateCcw size={14} /> Histórico</button>

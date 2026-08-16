@@ -115,7 +115,7 @@ export default function EmprestimosPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Empréstimos e adiantamentos</h1>
+          <h1 className="h-page">Empréstimos e adiantamentos</h1>
           <p className="text-sm text-ink-400 mt-1">
             {totals.count} em aberto · o dinheiro sai do caixa já na concessão — a devolução é acompanhada aqui.
           </p>

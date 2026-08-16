@@ -83,7 +83,7 @@ export default function Dashboard() {
     <div className="max-w-6xl mx-auto space-y-8">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Bom dia, {profile.name.split(" ")[0]}</h1>
+          <h1 className="h-page">Bom dia, {profile.name.split(" ")[0]}</h1>
           <p className="text-sm text-ink-400 mt-1">Aqui está o pulso do teu negócio hoje.</p>
         </div>
         <Link href="/app/transacoes" className="btn-primary">Novo lançamento <ArrowRight size={15} /></Link>

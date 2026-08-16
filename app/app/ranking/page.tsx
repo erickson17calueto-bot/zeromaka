@@ -14,7 +14,7 @@ export default function RankingPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <header>
-        <h1 className="font-display text-2xl md:text-3xl tracking-tight">Ranking semanal</h1>
+        <h1 className="h-page">Ranking semanal</h1>
         <p className="text-sm text-ink-400 mt-1">Compara a tua disciplina financeira com outros gestores ZeroMaka.</p>
       </header>
 

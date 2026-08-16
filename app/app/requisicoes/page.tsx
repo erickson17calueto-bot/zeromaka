@@ -209,7 +209,7 @@ export default function RequisicoesPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Requisições de fundos</h1>
+          <h1 className="h-page">Requisições de fundos</h1>
           <p className="text-sm text-ink-400 mt-1">Para compras sem fatura — com itens, aprovação e PDF para imprimir e assinar.</p>
         </div>
         <button onClick={openNew} className="btn-primary"><Plus size={15} /> Nova requisição</button>

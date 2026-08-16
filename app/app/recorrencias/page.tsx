@@ -68,7 +68,7 @@ export default function RecorrenciasPage() {
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 text-maka-400 text-sm font-semibold"><Repeat2 size={17} /> Automação controlada</div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight mt-1">Recorrências</h1>
+          <h1 className="h-page mt-1">Recorrências</h1>
           <p className="text-sm text-ink-400 mt-1">Programas lançamentos repetitivos sem esconder o movimento no diário.</p>
         </div>
         <button className="btn-primary" onClick={generate} disabled={generating || dueCount === 0}>

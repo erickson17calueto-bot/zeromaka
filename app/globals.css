@@ -34,7 +34,7 @@ body { background: var(--ink-950); color: var(--ink-100); }
 :root.light .text-maka-400 { color: #c2410c; }
 :root.light .text-maka-300 { color: #9a3412; }
 /* Cartão ganha sombra suave em vez de depender só da borda */
-:root.light .card { box-shadow: 0 1px 2px rgb(28 25 23 / 0.06), 0 1px 3px rgb(28 25 23 / 0.04); }
+:root.light .card { box-shadow: 0 1px 2px rgb(28 25 23 / 0.06), 0 1px 3px rgb(28 25 23 / 0.04), 0 10px 24px -8px rgb(28 25 23 / 0.08); }
 
 ::-webkit-scrollbar { height: 6px; width: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
@@ -57,10 +57,18 @@ body { background: var(--ink-950); color: var(--ink-100); }
 .stagger > *:nth-child(5) { animation-delay: .20s; }
 .stagger > *:nth-child(6) { animation-delay: .24s; }
 
+/* Sombra em camadas (contacto + meio + ambiente), não uma só linha plana —
+   é o que separa um cartão "colado no fundo" de um cartão com profundidade
+   real. Os tons ficam próximos do fundo (ink-950 é quase preto), mas a
+   sobreposição de opacidades continua a ler-se como elevação, tal como em
+   fundos igualmente escuros de referência (apify.com, firecrawl.dev). */
 .card { @apply bg-ink-900 border border-ink-800 rounded-xl;
+  box-shadow: 0 1px 2px rgba(0,0,0,.28), 0 4px 10px rgba(0,0,0,.22), 0 14px 28px -6px rgba(0,0,0,.28);
   transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
 /* Só cartões acionáveis levantam ao passar o cursor */
-a.card:hover, button.card:hover, .card-hover:hover { transform: translateY(-2px); }
+a.card:hover, button.card:hover, .card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(0,0,0,.32), 0 8px 16px rgba(0,0,0,.26), 0 20px 36px -8px rgba(0,0,0,.32); }
 :root.light a.card:hover, :root.light button.card:hover, :root.light .card-hover:hover {
   box-shadow: 0 6px 16px rgb(28 25 23 / 0.10), 0 2px 6px rgb(28 25 23 / 0.06); }
 
@@ -117,3 +125,13 @@ a.card:hover, button.card:hover, .card-hover:hover { transform: translateY(-2px)
 .btn-ghost { @apply btn border border-ink-700 text-ink-300 hover:bg-ink-800 hover:text-ink-100; }
 .input { @apply w-full rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-sm outline-none focus:border-maka-500 transition-colors placeholder:text-ink-500; }
 .label { @apply block text-[11px] font-bold uppercase tracking-wider text-ink-400 mb-1.5; }
+
+/* Título de página dentro da app (Dashboard, Administração, Relatórios...).
+   Archivo Black (font-display) fica reservado para os poucos momentos de
+   marca — logótipo, hero do site público — onde o seu peso fixo e pesado tem
+   propósito. Repeti-lo em todos os cabeçalhos de página, vistos dezenas de
+   vezes por dia, lia-se como modelo genérico em vez de produto trabalhado;
+   Inter a negrito com tracking apertado é o mesmo tratamento que produtos
+   como o próprio Apify usam nas suas telas de trabalho (a Archivo Black
+   deles só aparece no hero de marketing, nunca dentro da consola). */
+.h-page { @apply font-bold text-2xl md:text-3xl tracking-tight; }

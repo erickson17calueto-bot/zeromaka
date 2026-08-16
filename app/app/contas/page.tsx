@@ -84,7 +84,7 @@ export default function ContasPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Contas e carteiras</h1>
+          <h1 className="h-page">Contas e carteiras</h1>
           <p className="text-sm text-ink-400 mt-1">Total consolidado: <span className="text-maka-400 font-semibold">{fmtKz(total)}</span></p>
         </div>
         <div className="flex gap-2">

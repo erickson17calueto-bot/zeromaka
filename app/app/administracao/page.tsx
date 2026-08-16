@@ -272,7 +272,7 @@ export default function AdministracaoPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <header>
-        <h1 className="font-display text-2xl md:text-3xl tracking-tight">Administração</h1>
+        <h1 className="h-page">Administração</h1>
         <p className="text-sm text-ink-400 mt-1">
           Empresas, perfil, equipa, governança e histórico — sempre no contexto de <strong>{company.name || "esta empresa"}</strong>.
         </p>

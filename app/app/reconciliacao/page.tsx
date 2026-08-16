@@ -118,7 +118,7 @@ export default function ReconciliacaoPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
-        <div><div className="flex items-center gap-2 text-maka-400 text-sm font-semibold"><GitCompareArrows size={17} /> Controlo bancário</div><h1 className="font-display text-2xl md:text-3xl tracking-tight mt-1">Reconciliação</h1><p className="text-sm text-ink-400 mt-1">Importa o extrato e confirma quais movimentos já estão no diário.</p></div>
+        <div><div className="flex items-center gap-2 text-maka-400 text-sm font-semibold"><GitCompareArrows size={17} /> Controlo bancário</div><h1 className="h-page mt-1">Reconciliação</h1><p className="text-sm text-ink-400 mt-1">Importa o extrato e confirma quais movimentos já estão no diário.</p></div>
         <button className="btn-ghost" onClick={() => refreshBankStatementLines()}><RefreshCw size={15} /> Atualizar</button>
       </header>
 

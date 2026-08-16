@@ -55,7 +55,7 @@ export default function ContactosPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">Contactos</h1>
+          <h1 className="h-page">Contactos</h1>
           <p className="text-sm text-ink-400 mt-1">Clientes, fornecedores e sócios — com forma de pagamento e função.</p>
         </div>
         <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo contacto</button>
