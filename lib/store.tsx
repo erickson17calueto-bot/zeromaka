@@ -45,6 +45,7 @@ interface Store {
   addMember: (email: string, role: MemberRole) => Promise<string | null>;
   changeMemberRole: (userId: string, role: MemberRole) => Promise<string | null>;
   removeMember: (userId: string) => Promise<string | null>;
+  transferOwnership: (newOwnerUserId: string) => Promise<string | null>;
   refreshEntries: (oid?: string) => Promise<void>;
   logout: () => Promise<void>;
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
@@ -814,6 +815,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
+  // O chamador deixa de ser owner (passa a admin) — refreshOrganizations
+  // atualiza o papel guardado localmente, para a UI parar de mostrar ações
+  // de proprietário a quem já não o é.
+  const transferOwnership: Store["transferOwnership"] = async (newOwnerUserId) => {
+    const { error } = await sb().rpc("transfer_organization_ownership", {
+      p_org_id: orgIdRef.current!, p_new_owner_user_id: newOwnerUserId,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    await refreshOrganizations();
+    toast("Propriedade transferida", "ok");
+    return null;
+  };
+
   // ---- Company ----
   const updateCompany: Store["updateCompany"] = (p) => {
     setCompany(c => ({ ...c, ...p }));
@@ -1473,7 +1487,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
-      addOrganization, listMembers, addMember, changeMemberRole, removeMember, getOrgSnapshot,
+      addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, getOrgSnapshot,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,

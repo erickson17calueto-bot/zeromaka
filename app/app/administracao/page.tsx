@@ -36,7 +36,7 @@ const monthEnd = () => { const d = new Date(); d.setMonth(d.getMonth() + 1, 0); 
 export default function AdministracaoPage() {
   const {
     orgId, organizations, switchOrganization, company, updateCompany,
-    addOrganization, listMembers, addMember, changeMemberRole, removeMember,
+    addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership,
   } = useStore();
   const sb = useMemo(() => createClient(), []);
 
@@ -130,8 +130,32 @@ export default function AdministracaoPage() {
   }, [listMembers]);
 
   useEffect(() => {
-    if (tab === "equipa" && orgId) void loadMembers();
+    // A Zona de perigo também precisa da lista de membros (select de
+    // "transferir propriedade") — reaproveita o mesmo estado em vez de
+    // duplicar a carga.
+    if ((tab === "equipa" || tab === "perigo") && orgId) void loadMembers();
   }, [tab, orgId, loadMembers]);
+
+  // ---- Transferir propriedade ----
+  const transferCandidates = members.filter(m => m.role !== "owner");
+  const [transferTargetId, setTransferTargetId] = useState("");
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [transferConfirm, setTransferConfirm] = useState("");
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferErr, setTransferErr] = useState("");
+  const transferTarget = members.find(m => m.userId === transferTargetId);
+  const transferTargetLabel = transferTarget?.name || transferTarget?.email || "";
+  const transferMatches = !!transferTargetLabel && transferConfirm.trim().toLowerCase() === transferTargetLabel.trim().toLowerCase();
+
+  const doTransfer = async () => {
+    if (!transferTargetId || !transferMatches) return;
+    setTransferBusy(true); setTransferErr("");
+    const e = await transferOwnership(transferTargetId);
+    setTransferBusy(false);
+    if (e) { setTransferErr(e); return; }
+    setShowTransfer(false); setTransferConfirm(""); setTransferTargetId("");
+    await loadMembers();
+  };
 
   const submitAddMember = async () => {
     if (!newEmail.trim()) return;
@@ -482,6 +506,40 @@ export default function AdministracaoPage() {
       {tab === "perigo" && (
         <div className="space-y-4 max-w-2xl">
           <p className="text-sm text-ink-400">Ações irreversíveis (ou quase) sobre <strong>{company.name || "esta empresa"}</strong>. Só o proprietário pode executá-las.</p>
+
+          <section className="card p-5">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400 shrink-0">
+                <Users size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="font-semibold text-[15px]">Transferir propriedade</h2>
+                <p className="text-[12px] text-ink-500 mt-1 leading-snug">
+                  Passa a ser <strong className="text-ink-300">administrador</strong> — manténs acesso a tudo, exceto
+                  a poder voltar a transferir ou apagar a empresa. A pessoa escolhida tem de já ser membro.
+                </p>
+                {transferCandidates.length === 0 ? (
+                  <p className="text-[12px] text-ink-500 mt-3">Não há mais ninguém na equipa para se tornar proprietário.</p>
+                ) : (
+                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                    <select className="input text-sm flex-1" value={transferTargetId}
+                      onChange={e => setTransferTargetId(e.target.value)}>
+                      <option value="">Escolhe uma pessoa…</option>
+                      {transferCandidates.map(m => (
+                        <option key={m.userId} value={m.userId}>{m.name || m.email || m.userId} — {ROLE_INFO[m.role]?.label || m.role}</option>
+                      ))}
+                    </select>
+                    <button onClick={() => { setShowTransfer(true); setTransferConfirm(""); setTransferErr(""); }}
+                      disabled={!transferTargetId}
+                      className="rounded-lg border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 shrink-0">
+                      Transferir
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
           <DangerZone />
         </div>
       )}
@@ -532,6 +590,29 @@ export default function AdministracaoPage() {
             <button onClick={() => void submitAddMember()} disabled={!newEmail.trim() || busy}
               className="btn-primary w-full justify-center disabled:opacity-40">
               {busy ? "A adicionar…" : "Adicionar"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {showTransfer && transferTarget && (
+        <Modal title="Transferir propriedade" onClose={() => setShowTransfer(false)}>
+          <p className="text-sm text-ink-300 mb-2">
+            <strong>{transferTargetLabel}</strong> passa a proprietário de {company.name || "esta empresa"}.
+            Tu passas a administrador.
+          </p>
+          <p className="text-[11px] text-ink-500 mb-4">Esta ação fica registada na auditoria e pode ser feita ao contrário mais tarde pelo novo proprietário.</p>
+          <label className="label">
+            Escreve <span className="text-amber-400">{transferTargetLabel}</span> para confirmar
+          </label>
+          <input className="input" value={transferConfirm} onChange={e => setTransferConfirm(e.target.value)}
+            placeholder={transferTargetLabel} autoFocus autoComplete="off" />
+          {transferErr && <p className="text-[12px] text-red-400 mt-2">{transferErr}</p>}
+          <div className="flex gap-2 justify-end mt-5">
+            <button onClick={() => setShowTransfer(false)} className="btn-ghost">Cancelar</button>
+            <button onClick={() => void doTransfer()} disabled={!transferMatches || transferBusy}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-40 transition-colors">
+              {transferBusy ? "A transferir…" : "Transferir propriedade"}
             </button>
           </div>
         </Modal>
