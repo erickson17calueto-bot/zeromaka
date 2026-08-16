@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import DangerZone from "@/components/DangerZone";
 import {
   Building2, Building, Users, ScrollText, Plus, X, Trash2, ShieldCheck, Check,
-  Upload, Percent, BookLock, RefreshCw, AlertTriangle, Loader2,
+  Upload, Percent, BookLock, RefreshCw, AlertTriangle, Loader2, Archive,
 } from "lucide-react";
 
 type Tab = "empresas" | "perfil" | "equipa" | "governanca" | "auditoria" | "perigo";
@@ -36,7 +36,7 @@ const monthEnd = () => { const d = new Date(); d.setMonth(d.getMonth() + 1, 0); 
 export default function AdministracaoPage() {
   const {
     orgId, organizations, switchOrganization, company, updateCompany,
-    addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership,
+    addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, archiveOrganization,
   } = useStore();
   const sb = useMemo(() => createClient(), []);
 
@@ -155,6 +155,33 @@ export default function AdministracaoPage() {
     if (e) { setTransferErr(e); return; }
     setShowTransfer(false); setTransferConfirm(""); setTransferTargetId("");
     await loadMembers();
+  };
+
+  // ---- Arquivar organização ----
+  // A confirmação compara com organizations.name (mesmo padrão do
+  // DangerZone existente) — pode diferir do nome comercial em company.name.
+  const [orgTrueName, setOrgTrueName] = useState("");
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    sb.from("organizations").select("name").eq("id", orgId).single()
+      .then(({ data }) => { if (!cancelled && data?.name) setOrgTrueName(data.name); });
+    return () => { cancelled = true; };
+  }, [orgId, sb]);
+
+  const [showArchive, setShowArchive] = useState(false);
+  const [archiveConfirm, setArchiveConfirm] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveErr, setArchiveErr] = useState("");
+  const archiveMatches = !!orgTrueName && archiveConfirm.trim().toLowerCase() === orgTrueName.trim().toLowerCase();
+
+  const doArchive = async () => {
+    if (!archiveMatches) return;
+    setArchiveBusy(true); setArchiveErr("");
+    const e = await archiveOrganization(archiveConfirm.trim());
+    setArchiveBusy(false);
+    if (e) { setArchiveErr(e); return; }
+    setShowArchive(false); setArchiveConfirm("");
   };
 
   const submitAddMember = async () => {
@@ -541,6 +568,26 @@ export default function AdministracaoPage() {
           </section>
 
           <DangerZone />
+
+          <section className="card border-red-500/40 p-5">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-red-500/10 flex items-center justify-center text-red-400 shrink-0">
+                <Archive size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="font-semibold text-[15px] text-red-400">Arquivar organização</h2>
+                <p className="text-[12px] text-ink-500 mt-1 leading-snug">
+                  Esconde <strong>{orgTrueName || "esta organização"}</strong> do seletor e do Painel de Grupo, e bloqueia
+                  novos lançamentos, faturas e alterações — nada é apagado, e continuas a poder consultar o histórico.
+                  Reverter só é possível pedindo diretamente, ainda não há botão para isso.
+                </p>
+                <button onClick={() => { setShowArchive(true); setArchiveConfirm(""); setArchiveErr(""); }}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 px-3 py-1.5 text-xs font-semibold transition-colors">
+                  <Archive size={14} /> Arquivar organização
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
       )}
 
@@ -613,6 +660,32 @@ export default function AdministracaoPage() {
             <button onClick={() => void doTransfer()} disabled={!transferMatches || transferBusy}
               className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-40 transition-colors">
               {transferBusy ? "A transferir…" : "Transferir propriedade"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {showArchive && (
+        <Modal title="Arquivar organização" onClose={() => setShowArchive(false)}>
+          <p className="text-sm text-ink-300 mb-2">
+            <strong>{orgTrueName}</strong> deixa de aparecer no seletor de organizações e para de aceitar novos
+            lançamentos, faturas ou alterações. Os dados ficam guardados e continuas a poder consultá-los.
+          </p>
+          <p className="text-[11px] text-ink-500 mb-4">
+            Depois de arquivar, vais entrar automaticamente noutra organização (se tiveres mais alguma) ou seguir para
+            criar uma nova.
+          </p>
+          <label className="label">
+            Escreve <span className="text-red-400">{orgTrueName}</span> para confirmar
+          </label>
+          <input className="input" value={archiveConfirm} onChange={e => setArchiveConfirm(e.target.value)}
+            placeholder={orgTrueName} autoFocus autoComplete="off" />
+          {archiveErr && <p className="text-[12px] text-red-400 mt-2">{archiveErr}</p>}
+          <div className="flex gap-2 justify-end mt-5">
+            <button onClick={() => setShowArchive(false)} className="btn-ghost">Cancelar</button>
+            <button onClick={() => void doArchive()} disabled={!archiveMatches || archiveBusy}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-40 transition-colors">
+              {archiveBusy ? "A arquivar…" : "Arquivar organização"}
             </button>
           </div>
         </Modal>

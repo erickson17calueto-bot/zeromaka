@@ -46,6 +46,7 @@ interface Store {
   changeMemberRole: (userId: string, role: MemberRole) => Promise<string | null>;
   removeMember: (userId: string) => Promise<string | null>;
   transferOwnership: (newOwnerUserId: string) => Promise<string | null>;
+  archiveOrganization: (confirmation: string) => Promise<string | null>;
   refreshEntries: (oid?: string) => Promise<void>;
   logout: () => Promise<void>;
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
@@ -622,7 +623,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // para quem acede de Angola) sem nenhuma razão para não serem paralelas.
         const [{ data: dbProfile }, { data: memberships }] = await Promise.all([
           supabase.from("profiles").select("*").eq("id", user.id).single(),
-          supabase.from("organization_members").select("role, organizations(id, name)").eq("user_id", user.id),
+          supabase.from("organization_members").select("role, organizations(id, name, is_archived)").eq("user_id", user.id),
         ]);
         if (dbProfile) {
           setProfile(p => ({ ...p, name: dbProfile.full_name || "", phone: dbProfile.phone || "", bi: dbProfile.bi || "", email: user.email || "" }));
@@ -632,8 +633,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
         }
         if (memberships) {
+          // Organizações arquivadas ficam fora do seletor/lista — archive_organization()
+          // já limpa current_org_id de quem apontava para lá, isto cobre o resto da UI.
           setOrganizations(memberships
-            .filter((m: any) => m.organizations)
+            .filter((m: any) => m.organizations && !m.organizations.is_archived)
             .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role })));
         }
       }
@@ -726,15 +729,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- Painel de administração ----
   // Recarrega a lista de organizações a que o utilizador pertence. Chamada
   // depois de criar uma empresa, para o seletor passar a mostrá-la.
-  const refreshOrganizations = useCallback(async () => {
-    if (!userIdRef.current) return;
+  // Devolve a lista atualizada (não só a grava no estado) para quem chama
+  // poder decidir logo a seguir — p.ex. archiveOrganization precisa de saber
+  // se sobrou alguma organização para trocar, sem esperar por um novo render.
+  const refreshOrganizations = useCallback(async (): Promise<OrgMembership[]> => {
+    if (!userIdRef.current) return [];
     const { data } = await sb().from("organization_members")
-      .select("role, organizations(id, name)").eq("user_id", userIdRef.current);
-    if (data) {
-      setOrganizations(data
-        .filter((m: any) => m.organizations) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role }))); // eslint-disable-line @typescript-eslint/no-explicit-any
-    }
+      .select("role, organizations(id, name, is_archived)").eq("user_id", userIdRef.current);
+    const list = (data || [])
+      .filter((m: any) => m.organizations && !m.organizations.is_archived) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role })); // eslint-disable-line @typescript-eslint/no-explicit-any
+    setOrganizations(list);
+    return list;
   }, [sb]);
 
   // Cria uma empresa adicional e passa a trabalhar nela. Distinta de
@@ -825,6 +831,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     await refreshOrganizations();
     toast("Propriedade transferida", "ok");
+    return null;
+  };
+
+  // A organização arquivada some da lista logo a seguir (archive_organization
+  // já limpou profiles.current_org_id no servidor). Se sobrar outra, entra
+  // nela; se não sobrar nenhuma, limpa o estado local tal como no logout —
+  // sem isto a UI continuaria a mostrar dados da organização que acabou de
+  // desaparecer, até um refresh manual.
+  const archiveOrganization: Store["archiveOrganization"] = async (confirmation) => {
+    const archivedOrgId = orgIdRef.current!;
+    const { error } = await sb().rpc("archive_organization", {
+      p_org_id: archivedOrgId, p_confirmation: confirmation,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    const remaining = await refreshOrganizations();
+    if (remaining.length > 0) {
+      // remaining[0].id nunca é igual a archivedOrgId (já foi filtrado fora
+      // por refreshOrganizations), por isso switchOrganization prossegue
+      // normalmente sem precisar de limpar orgId primeiro.
+      await switchOrganization(remaining[0].id);
+    } else {
+      setOrgId(null);
+      setRawAccounts([]); setJournalEntries([]); setRecurringTransactions([]); setBankStatementLines([]); setCategories([]);
+      setContacts([]); setRequisitions([]); setCompany(defaultCompany);
+      setRawObligations([]); setSettlements([]); setCollectionInteractions([]);
+      setReserves([]); setReserveCategories([]); setReserveMovements([]);
+      setFinSettings(defaultFinSettings); setTrueAvailable(null);
+    }
+    toast("Organização arquivada", "ok");
     return null;
   };
 
@@ -1487,7 +1522,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
-      addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, getOrgSnapshot,
+      addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, archiveOrganization, getOrgSnapshot,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,
