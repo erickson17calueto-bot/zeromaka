@@ -97,7 +97,11 @@ select:focus-visible, [tabindex]:focus-visible {
    real. Os tons ficam próximos do fundo (ink-950 é quase preto), mas a
    sobreposição de opacidades continua a ler-se como elevação, tal como em
    fundos igualmente escuros de referência (apify.com, firecrawl.dev). */
-.card { @apply bg-ink-900 border rounded-xl;
+/* 14px em vez dos 12px do rounded-xl. As duas referências usam raios
+   maiores nos cartões (Apify 16px, Firecrawl 16–20px); 12px lê-se hoje
+   como definição por omissão de framework. 14px moderniza sem ficar
+   bolhudo nos cartões pequenos de indicador. */
+.card { @apply bg-ink-900 border rounded-[14px];
   border-color: var(--hairline);
   box-shadow: 0 1px 2px rgba(0,0,0,.28), 0 4px 10px rgba(0,0,0,.22), 0 14px 28px -6px rgba(0,0,0,.28);
   transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
@@ -187,4 +191,8 @@ a.card:hover, button.card:hover, .card-hover:hover {
    Inter a negrito com tracking apertado é o mesmo tratamento que produtos
    como o próprio Apify usam nas suas telas de trabalho (a Archivo Black
    deles só aparece no hero de marketing, nunca dentro da consola). */
-.h-page { @apply font-bold text-2xl md:text-3xl tracking-tight; }
+/* Peso 600, não 700. Nas duas referências os títulos grandes usam pesos
+   MÉDIOS com tracking apertado (Firecrawl: 60px a 500) — é o tracking que
+   dá a firmeza, não a gordura da letra. A 700 o título grita; a 600 com
+   -0.025em lê-se com a mesma presença e bastante mais classe. */
+.h-page { @apply font-semibold text-2xl md:text-3xl tracking-tight; }
