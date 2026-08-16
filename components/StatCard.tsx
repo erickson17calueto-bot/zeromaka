@@ -35,7 +35,11 @@ export default function StatCard({ label, value, hint, icon: Icon, tone = "neutr
         <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold leading-tight">{label}</div>
         {Icon && <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${t.chip}`}><Icon size={14} /></div>}
       </div>
-      <div className={`mt-2 font-display text-xl leading-none ${t.value}`}>{value}</div>
+      {/* Inter semibold + tabular-nums em vez de Archivo Black: a fonte de
+          marca não tem algarismos de largura fixa, por isso uma grelha de
+          indicadores ficava com os valores desalinhados entre si — e o peso
+          fixo dela torna números longos em Kz pesados de ler. */}
+      <div className={`mt-2 text-xl font-semibold tracking-tight tabular-nums leading-none ${t.value}`}>{value}</div>
       {hint && <p className="mt-2 text-[11px] leading-snug text-ink-500">{hint}</p>}
       {footer && <div className="mt-2 text-[11px] text-ink-400 font-medium">{footer}</div>}
       {href && (

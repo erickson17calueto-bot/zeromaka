@@ -11,6 +11,12 @@
   --ink-600: #57534e; --ink-500: #78716c; --ink-400: #a8a29e; --ink-300: #d6d3d1;
   --ink-200: #e7e5e4; --ink-100: #f5f5f4;
   --scroll: #44403c;
+  /* Borda em alfa em vez de cinzento sólido: acompanha o que estiver por
+     baixo e lê-se como fio de cabelo, não como caixa desenhada. É o que
+     apify.com e firecrawl.dev usam (rgba sobre a superfície, nunca um
+     cinzento fixo) e é a diferença entre "cartão" e "div com border". */
+  --hairline: rgb(255 255 255 / .08);
+  --hairline-strong: rgb(255 255 255 / .14);
 }
 :root.light {
   color-scheme: light;
@@ -20,9 +26,38 @@
   --ink-600: #8a827a; --ink-500: #6b6259; --ink-400: #4a433c; --ink-300: #2b2622;
   --ink-200: #1c1917; --ink-100: #14110f;
   --scroll: #c7c1b8;
+  --hairline: rgb(28 25 23 / .10);
+  --hairline-strong: rgb(28 25 23 / .16);
 }
 
-body { background: var(--ink-950); color: var(--ink-100); }
+body {
+  background: var(--ink-950); color: var(--ink-100);
+  /* Suavização de texto: o Inter sem isto fica visivelmente mais "gordo" e
+     sujo em ecrãs normais — é metade da razão pela qual uma interface parece
+     amadora ao lado de uma bem acabada. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Algarismos de largura fixa. Numa app financeira isto não é detalhe
+   estético: sem `tabular-nums`, o "1" é mais estreito que o "8", por isso
+   uma coluna de valores em Kz fica com as casas desalinhadas e os totais
+   não assentam por baixo das parcelas. Aplicado a tudo o que é tabela e
+   disponível como utilitário (.tnum) para cartões de indicadores. */
+table, .tnum { font-variant-numeric: tabular-nums; }
+
+/* Seleção de texto na cor da marca — detalhe pequeno, mas é dos sinais que
+   distinguem produto trabalhado de modelo por configurar. */
+::selection { background: rgb(249 115 22 / .26); color: var(--ink-100); }
+
+/* Anel de foco visível só para navegação por teclado (nunca no clique de
+   rato), obrigatório para acessibilidade e ausente até agora. */
+a:focus-visible, button:focus-visible, [role="button"]:focus-visible,
+select:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid rgb(249 115 22 / .65);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
 
 /* Os tons -300/-400 das cores semânticas foram escolhidos para fundo escuro;
    sobre branco perdem contraste. Em modo claro usamos as variantes escuras.
@@ -62,12 +97,14 @@ body { background: var(--ink-950); color: var(--ink-100); }
    real. Os tons ficam próximos do fundo (ink-950 é quase preto), mas a
    sobreposição de opacidades continua a ler-se como elevação, tal como em
    fundos igualmente escuros de referência (apify.com, firecrawl.dev). */
-.card { @apply bg-ink-900 border border-ink-800 rounded-xl;
+.card { @apply bg-ink-900 border rounded-xl;
+  border-color: var(--hairline);
   box-shadow: 0 1px 2px rgba(0,0,0,.28), 0 4px 10px rgba(0,0,0,.22), 0 14px 28px -6px rgba(0,0,0,.28);
   transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
 /* Só cartões acionáveis levantam ao passar o cursor */
 a.card:hover, button.card:hover, .card-hover:hover {
   transform: translateY(-2px);
+  border-color: var(--hairline-strong);
   box-shadow: 0 2px 4px rgba(0,0,0,.32), 0 8px 16px rgba(0,0,0,.26), 0 20px 36px -8px rgba(0,0,0,.32); }
 :root.light a.card:hover, :root.light button.card:hover, :root.light .card-hover:hover {
   box-shadow: 0 6px 16px rgb(28 25 23 / 0.10), 0 2px 6px rgb(28 25 23 / 0.06); }
@@ -119,11 +156,27 @@ a.card:hover, button.card:hover, .card-hover:hover {
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 
-.btn { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors; }
+/* `transition-all` (e não só cores) para a escala e a sombra animarem.
+   `active:scale` dá a resposta táctil ao clique que ambas as referências
+   têm e que faz o botão parecer um objeto em vez de um retângulo. */
+.btn { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200 active:scale-[.98]; }
 /* texto sobre laranja fixo escuro em ambos os temas (bom contraste no laranja) */
-.btn-primary { @apply btn bg-maka-500 hover:bg-maka-400; color: #1c1917; }
-.btn-ghost { @apply btn border border-ink-700 text-ink-300 hover:bg-ink-800 hover:text-ink-100; }
-.input { @apply w-full rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-sm outline-none focus:border-maka-500 transition-colors placeholder:text-ink-500; }
+.btn-primary { @apply btn bg-maka-500 hover:bg-maka-400; color: #1c1917;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .20); }
+/* Brilho na cor do próprio botão ao passar o cursor — copiado do padrão do
+   Firecrawl (sombra tingida do laranja, não preta), que é o que faz o botão
+   principal "acender" em vez de só mudar de tom. */
+.btn-primary:hover { box-shadow: 0 4px 14px rgb(249 115 22 / .30); }
+.btn-ghost { @apply btn border text-ink-300 hover:bg-ink-800 hover:text-ink-100;
+  border-color: var(--hairline-strong); }
+.btn-ghost:hover { border-color: var(--hairline-strong); }
+/* Borda + anel no foco: o anel cresce para fora e não empurra o conteúdo,
+   por isso o campo não "salta" ao receber foco (problema clássico de mudar
+   a espessura da borda). */
+.input { @apply w-full rounded-lg bg-ink-950 border px-3 py-2 text-sm outline-none focus:border-maka-500 transition-all placeholder:text-ink-500;
+  border-color: var(--hairline-strong); }
+.input:hover { border-color: rgb(249 115 22 / .35); }
+.input:focus { box-shadow: 0 0 0 3px rgb(249 115 22 / .15); }
 .label { @apply block text-[11px] font-bold uppercase tracking-wider text-ink-400 mb-1.5; }
 
 /* Título de página dentro da app (Dashboard, Administração, Relatórios...).

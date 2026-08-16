@@ -120,7 +120,7 @@ export default function Dashboard() {
                   <div className={`h-7 w-7 rounded-lg flex items-center justify-center ${st.chip} ${st.tint}`}><Icon size={14} /></div>
                 </div>
                 <div className="mt-2 text-sm font-semibold truncate">{a.name}</div>
-                <div className="mt-1 font-display text-xl">{fmtKz(a.currentBalance)}</div>
+                <div className="mt-1 text-xl font-semibold tracking-tight tabular-nums">{fmtKz(a.currentBalance)}</div>
               </div>
             );
           })}
@@ -130,7 +130,7 @@ export default function Dashboard() {
               <div className="h-7 w-7 rounded-lg bg-maka-500/15 flex items-center justify-center text-maka-400"><Wallet size={14} /></div>
             </div>
             <div className="mt-2 text-sm font-semibold">Todas as contas</div>
-            <div className="mt-1 font-display text-xl text-maka-400">{fmtKz(totalBalance)}</div>
+            <div className="mt-1 text-xl font-semibold tracking-tight tabular-nums text-maka-400">{fmtKz(totalBalance)}</div>
             <p className="mt-2 text-[11px] leading-snug text-ink-500">Soma de todas as contas. Não inclui o que tens a receber.</p>
           </div>
           {accounts.length === 0 && (
