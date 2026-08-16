@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
-  Users, BarChart3, Trophy, Medal, Building2, UserCircle, LogOut, Flame, HandCoins,
+  Users, BarChart3, Trophy, Medal, UserCircle, LogOut, Flame, HandCoins,
   Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X, Tags, Layers,
   type LucideIcon,
 } from "lucide-react";
@@ -242,7 +242,6 @@ export default function Sidebar() {
       <div className="mt-4 pt-3 border-t border-ink-800 space-y-0.5">
         {!collapsed && <div className="px-1 pb-2"><ThemeToggle /></div>}
         {navLink("/app/categorias", "Categorias", Tags, 0, path === "/app/categorias")}
-        {navLink("/app/empresa", "Empresa", Building2, 0, path === "/app/empresa")}
         {navLink("/app/perfil", "Meu perfil", UserCircle, 0, path === "/app/perfil")}
         <button onClick={async () => { await logout(); router.push(ROUTES.entrar); router.refresh(); }}
           title={collapsed ? "Sair" : undefined}
