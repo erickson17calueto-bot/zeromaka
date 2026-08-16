@@ -69,7 +69,13 @@ export default function OnboardingPage() {
   // Retoma o rascunho e o nome já conhecido do utilizador.
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      // getSession() lê o cookie local, sem ida ao servidor — o middleware já
+      // validou a sessão com getUser() antes de servir esta página; repetir
+      // essa validação aqui só soma mais uma ida e volta completa (o dobro em
+      // eu-west-3, para quem acede de Angola) sem reforçar segurança nenhuma:
+      // a fronteira real continua no middleware e no RLS de cada tabela.
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) { router.replace(ROUTES.entrar); return; }
       const { data: perfil } = await supabase
         .from("profiles").select("full_name, onboarding_step, onboarding_draft, onboarding_status")

@@ -615,7 +615,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (user) {
         setAuthed(true);
         userIdRef.current = user.id;
-        const { data: dbProfile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+        // Perfil e adesões não dependem um do outro — só dependem de user.id,
+        // que já temos. Antes corriam em sequência, o que soma mais uma ida
+        // e volta completa ao servidor (em eu-west-3, cada uma custa a mais
+        // para quem acede de Angola) sem nenhuma razão para não serem paralelas.
+        const [{ data: dbProfile }, { data: memberships }] = await Promise.all([
+          supabase.from("profiles").select("*").eq("id", user.id).single(),
+          supabase.from("organization_members").select("role, organizations(id, name)").eq("user_id", user.id),
+        ]);
         if (dbProfile) {
           setProfile(p => ({ ...p, name: dbProfile.full_name || "", phone: dbProfile.phone || "", bi: dbProfile.bi || "", email: user.email || "" }));
           if (dbProfile.current_org_id) {
@@ -623,8 +630,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             await loadOrgData(dbProfile.current_org_id);
           }
         }
-        const { data: memberships } = await supabase.from("organization_members")
-          .select("role, organizations(id, name)").eq("user_id", user.id);
         if (memberships) {
           setOrganizations(memberships
             .filter((m: any) => m.organizations)
