@@ -17,11 +17,14 @@ const ACC_STYLE = {
   cash: { icon: Banknote, tint: "text-yellow-400", chip: "bg-yellow-500/10", label: "Caixa físico" }
 } as const;
 
+// Usa .pill (medido no Cota: 12px, cantos redondos, ponto de estado antes
+// do texto). Passa de 10px/700 com borda para 12px/500 sem borda: a 10px o
+// texto era quase ilegível, e a borda a somar ao fundo tingido fazia três
+// sinais visuais para dizer uma coisa só.
 function DirTag({ direction }: { direction: "receivable" | "payable" }) {
   const recv = direction === "receivable";
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${recv ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border-red-500/40 bg-red-500/10 text-red-300"}`}>
-      {recv ? <ArrowDownLeft size={10} /> : <ArrowUpRight size={10} />}
+    <span className={`pill ${recv ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
       {recv ? "A receber · cliente" : "A pagar · fornecedor"}
     </span>
   );
@@ -208,26 +211,52 @@ export default function Dashboard() {
         <div className="card p-5 lg:col-span-3">
           <div className="flex items-center justify-between mb-1"><h2 className="font-semibold text-[15px]">Últimos lançamentos</h2><Link href="/app/transacoes" className="text-xs text-maka-400 hover:underline font-semibold">Ver todos</Link></div>
           <p className="text-[12px] text-ink-500 mb-3">As entradas e saídas mais recentes das tuas contas.</p>
-          <div className="divide-y divide-ink-800">
-            {transactions.slice(0, 6).map((t) => {
-              const isIn = t.type === "income" || t.type === "transfer_in" || t.type === "capital_in";
-              return (
-                <div key={t.id} className="py-2.5 flex items-center gap-3">
-                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${isIn ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>{isIn ? <TrendingUp size={15} /> : <TrendingDown size={15} />}</div>
-                  <div className="min-w-0 flex-1"><div className="text-sm truncate">{t.description}</div><div className="text-[11px] text-ink-500">{t.category} · {fmtDate(t.date)}</div></div>
-                  <div className={`text-sm font-semibold ${isIn ? "text-emerald-400" : "text-red-400"}`}>{isIn ? "+" : "−"}{fmtKz(t.amount)}</div>
-                </div>
-              );
-            })}
-            {transactions.length === 0 && <div className="py-6 text-center text-sm text-ink-500">Sem lançamentos ainda.</div>}
-          </div>
+          {/* Tabela em vez de linhas soltas: com cabeçalho, a coluna de valores
+              ganha um título e os montantes alinham-se à direita numa coluna
+              própria. É o padrão do Cota ("Pedido / Estado / Prazo") e é o que
+              separa uma tabela de dados de uma lista empilhada. */}
+          <table className="tbl tbl-flush">
+            <thead>
+              <tr>
+                {/* max-w-0 + w-full: uma tabela dimensiona-se ao conteúdo, por
+                    isso uma descrição longa empurra a largura para fora do
+                    cartão (medido: transbordava 53px) e o `truncate` interior
+                    nunca chegava a atuar. Encolher a célula ao mínimo é o que
+                    devolve o controlo ao truncate. */}
+                <th className="max-w-0 w-full">Lançamento</th>
+                <th className="!text-right whitespace-nowrap">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.slice(0, 6).map((t) => {
+                const isIn = t.type === "income" || t.type === "transfer_in" || t.type === "capital_in";
+                return (
+                  <tr key={t.id}>
+                    <td className="max-w-0 w-full">
+                      <div className="flex items-center gap-3">
+                        <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${isIn ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>{isIn ? <TrendingUp size={15} /> : <TrendingDown size={15} />}</div>
+                        <div className="min-w-0">
+                          <div className="text-sm truncate">{t.description}</div>
+                          <div className="text-[12px] text-ink-500 truncate">{t.category} · {fmtDate(t.date)}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className={`text-right font-semibold whitespace-nowrap pl-3 ${isIn ? "text-emerald-400" : "text-red-400"}`}>{isIn ? "+" : "−"}{fmtKz(t.amount)}</td>
+                  </tr>
+                );
+              })}
+              {transactions.length === 0 && (
+                <tr><td colSpan={2} className="py-6 text-center text-sm text-ink-500">Sem lançamentos ainda.</td></tr>
+              )}
+            </tbody>
+          </table>
           {topOverdueClients.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-ink-800">
-              <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Principais clientes em atraso</div>
-              <p className="text-[11px] text-ink-500 mt-0.5 mb-2">Quem te deve há mais tempo — começa a cobrança por aqui.</p>
+            <div className="mt-4 pt-4" style={{ borderTop: "1px solid var(--hairline)" }}>
+              <div className="text-[13px] font-medium">Principais clientes em atraso</div>
+              <p className="text-[12px] text-ink-500 mt-0.5 mb-2">Quem te deve há mais tempo — começa a cobrança por aqui.</p>
               <div className="space-y-1.5">
                 {topOverdueClients.map(([cid, val]) => (
-                  <div key={cid} className="flex justify-between text-sm"><span className="text-ink-300">{contactName(cid)}</span><span className="font-semibold text-red-400">{fmtKz(val)}</span></div>
+                  <div key={cid} className="flex justify-between text-sm"><span className="text-ink-300">{contactName(cid)}</span><span className="font-semibold text-red-400 tabular-nums">{fmtKz(val)}</span></div>
                 ))}
               </div>
             </div>

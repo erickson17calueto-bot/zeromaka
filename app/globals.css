@@ -201,6 +201,11 @@ a.card:hover, button.card:hover, .card-hover:hover {
 .tbl thead th { @apply text-[12px] font-medium text-ink-400 text-left px-4 h-9 whitespace-nowrap; }
 .tbl tbody td { @apply px-4 py-3 align-middle; }
 .tbl tbody tr { border-top: 1px solid var(--hairline); }
+/* Dentro de um cartão que já tem recuo próprio, as células não devem
+   repeti-lo — senão o texto da tabela fica desalinhado do título do cartão
+   por cima dela. As linhas separadoras continuam a atravessar toda a
+   largura interior, que é o que dá o aspeto de tabela e não de lista. */
+.tbl-flush thead th, .tbl-flush tbody td { @apply px-0; }
 
 /* Etiqueta de estado. O ponto redondo antes do texto não é enfeite: dá um
    segundo sinal além da cor, para quem não distingue as cores conseguir
