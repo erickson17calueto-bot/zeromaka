@@ -716,6 +716,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [loadUserContext]);
 
+  // Expira a sessão após 30 minutos de INATIVIDADE. O Supabase mantém a sessão
+  // viva sozinho enquanto a aba está aberta (renova o token periodicamente),
+  // por isso "inatividade" tem de ser medida por nós: qualquer ação real do
+  // utilizador (rato, teclas, toque, scroll) reinicia o contador; passados 30
+  // minutos sem nenhuma, termina a sessão — o onAuthStateChange acima trata do
+  // resto (limpa o estado, o layout de /app redireciona para /entrar).
+  //
+  // Só corre quando há sessão, e é por-aba: não obriga a base de dados a nada,
+  // é um temporizador local.
+  useEffect(() => {
+    if (!authed) return;
+    const IDLE_MS = 30 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void createClient().auth.signOut(); }, IDLE_MS);
+    };
+    const eventos = ["mousedown", "keydown", "scroll", "touchstart", "click", "mousemove"] as const;
+    eventos.forEach(e => window.addEventListener(e, arm, { passive: true }));
+    arm();
+    return () => {
+      if (timer) clearTimeout(timer);
+      eventos.forEach(e => window.removeEventListener(e, arm));
+    };
+  }, [authed]);
+
   // Gamification: localStorage
   useEffect(() => {
     try {
