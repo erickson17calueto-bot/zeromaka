@@ -78,9 +78,9 @@ export default function RecorrenciasPage() {
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-500 font-bold">Ativas</div><div className="font-display text-2xl mt-1">{activeCount}</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-500 font-bold">A gerar</div><div className="font-display text-2xl mt-1 text-amber-400">{dueCount}</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-wider text-ink-500 font-bold">Estimativa líquida/mês</div><div className={`font-display text-2xl mt-1 ${monthlyEstimate >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(monthlyEstimate)}</div></div>
+        <div className="card p-5"><div className="text-[12.5px] text-ink-400 font-medium">Ativas</div><div className="text-2xl font-semibold tracking-tight tabular-nums mt-1">{activeCount}</div></div>
+        <div className="card p-5"><div className="text-[12.5px] text-ink-400 font-medium">A gerar</div><div className="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-amber-400">{dueCount}</div></div>
+        <div className="card p-5"><div className="text-[12.5px] text-ink-400 font-medium">Estimativa líquida/mês</div><div className={`text-2xl font-semibold tracking-tight tabular-nums mt-1 ${monthlyEstimate >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(monthlyEstimate)}</div></div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-5 items-start">

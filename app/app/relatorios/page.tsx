@@ -410,7 +410,7 @@ export default function RelatoriosPage() {
             <h2 className="font-semibold">{srv.meta.title}</h2>
             <p className="text-[11px] text-ink-500">Calculado no servidor · {srv.meta.start} a {srv.meta.end}{hasCmp ? ` · comparação ${srv.meta.cmp_start} a ${srv.meta.cmp_end}` : ""}</p>
           </div>
-          <div className="flex items-center gap-2 px-3 py-2 bg-ink-900/40 border-b border-ink-800 text-[10px] uppercase tracking-wider text-ink-500 font-bold">
+          <div className="flex items-center gap-2 px-3 py-2 bg-ink-900/40 border-b border-ink-800 text-[12px] text-ink-500 font-medium">
             <div className="flex-1">Rubrica</div>
             <div className="w-28 text-right">Atual</div>
             {hasCmp && <div className="w-28 text-right">Anterior</div>}
@@ -457,21 +457,21 @@ export default function RelatoriosPage() {
           {ledger && !ledgerLoading && (
             <>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
-                <div className="card p-4">
-                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Saldo inicial</div>
-                  <div className="mt-1.5 font-display text-xl">{fmtKz(ledger.opening)}</div>
+                <div className="card p-5">
+                  <div className="text-[12.5px] text-ink-400 font-medium">Saldo inicial</div>
+                  <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{fmtKz(ledger.opening)}</div>
                 </div>
-                <div className="card p-4">
-                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Entradas</div>
-                  <div className="mt-1.5 font-display text-xl text-emerald-400">{fmtKz(ledger.inflow)}</div>
+                <div className="card p-5">
+                  <div className="text-[12.5px] text-ink-400 font-medium">Entradas</div>
+                  <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-emerald-400">{fmtKz(ledger.inflow)}</div>
                 </div>
-                <div className="card p-4">
-                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Saídas</div>
-                  <div className="mt-1.5 font-display text-xl text-red-400">{fmtKz(ledger.outflow)}</div>
+                <div className="card p-5">
+                  <div className="text-[12.5px] text-ink-400 font-medium">Saídas</div>
+                  <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-red-400">{fmtKz(ledger.outflow)}</div>
                 </div>
-                <div className="card p-4 border-maka-500/40 bg-maka-500/[0.06]">
-                  <div className="text-[11px] uppercase tracking-wider text-maka-400 font-bold">Saldo final</div>
-                  <div className="mt-1.5 font-display text-xl text-maka-400">{fmtKz(ledger.closing)}</div>
+                <div className="card p-5 border-maka-500/40 bg-maka-500/[0.06]">
+                  <div className="text-[12.5px] text-maka-400 font-medium">Saldo final</div>
+                  <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-maka-400">{fmtKz(ledger.closing)}</div>
                 </div>
               </div>
 
@@ -485,13 +485,13 @@ export default function RelatoriosPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm min-w-[720px]">
                     <thead>
-                      <tr className="bg-ink-800/60 text-[10px] uppercase tracking-wider text-ink-400">
-                        <th className="text-left font-bold px-4 py-2">Data</th>
-                        <th className="text-left font-bold px-2 py-2">Documento</th>
-                        <th className="text-left font-bold px-2 py-2">Contacto</th>
-                        <th className="text-right font-bold px-2 py-2">Entrada</th>
-                        <th className="text-right font-bold px-2 py-2">Saída</th>
-                        <th className="text-right font-bold px-4 py-2">Saldo</th>
+                      <tr className="bg-ink-800/60 text-[12px] text-ink-400">
+                        <th className="text-left font-medium px-4 py-2">Data</th>
+                        <th className="text-left font-medium px-2 py-2">Documento</th>
+                        <th className="text-left font-medium px-2 py-2">Contacto</th>
+                        <th className="text-right font-medium px-2 py-2">Entrada</th>
+                        <th className="text-right font-medium px-2 py-2">Saída</th>
+                        <th className="text-right font-medium px-4 py-2">Saldo</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -602,7 +602,7 @@ export default function RelatoriosPage() {
                 <div className="card p-4"><div className="text-xs text-ink-500">Recuperado no período</div><div className="text-lg font-semibold mt-1 text-emerald-400">{fmtKz(loansData.totals.recovered_period)}</div></div>
               </div>
               <div className="card divide-y divide-ink-800">
-                <div className="p-3 grid grid-cols-5 gap-2 text-[10px] uppercase tracking-wider text-ink-500 font-bold">
+                <div className="p-3 grid grid-cols-5 gap-2 text-[12px] text-ink-500 font-medium">
                   <span>Funcionário</span><span className="text-right">Pendente</span><span className="text-right">Vencido</span><span className="text-right">Concedido (período)</span><span className="text-right">Recuperado (período)</span>
                 </div>
                 {loansData.employees.map(e => (
@@ -657,11 +657,11 @@ export default function RelatoriosPage() {
                   ) : (
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-ink-900">
-                        <tr className="text-[10px] uppercase tracking-wider text-ink-500">
-                          <th className="text-left font-bold py-2">Data</th>
-                          <th className="text-left font-bold py-2">Documento</th>
-                          <th className="text-left font-bold py-2">Contacto</th>
-                          <th className="text-right font-bold py-2">Valor</th>
+                        <tr className="text-[12px] text-ink-500">
+                          <th className="text-left font-medium py-2">Data</th>
+                          <th className="text-left font-medium py-2">Documento</th>
+                          <th className="text-left font-medium py-2">Contacto</th>
+                          <th className="text-right font-medium py-2">Valor</th>
                         </tr>
                       </thead>
                       <tbody>

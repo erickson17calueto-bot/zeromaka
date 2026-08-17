@@ -201,7 +201,7 @@ export default function EmprestimosPage() {
                     {o.externalDocumentNumber && <> · Doc.: <span className="text-ink-300">{o.externalDocumentNumber}</span></>}
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-ink-500 font-bold mb-1.5">Histórico de devoluções</div>
+                    <div className="text-[12.5px] text-ink-400 font-medium mb-1.5">Histórico de devoluções</div>
                     {hist.length === 0 && <p className="text-[12px] text-ink-500">Sem devoluções registadas.</p>}
                     {hist.map(s => (
                       <div key={s.id} className={`flex items-center justify-between text-[12px] py-1.5 border-t border-ink-800 first:border-t-0 ${s.status === "reversed" ? "opacity-50" : ""}`}>

@@ -29,7 +29,7 @@ export default function ConquistasPage() {
           </div>
           <div className="text-center">
             <div className="flex items-center gap-1.5 text-maka-400 font-display text-xl"><Flame size={19} />{profile.streak}</div>
-            <div className="text-[11px] text-ink-500 uppercase tracking-wider font-bold">Dias de streak</div>
+            <div className="text-[12px] text-ink-500 font-medium">Dias de streak</div>
           </div>
         </div>
       </div>

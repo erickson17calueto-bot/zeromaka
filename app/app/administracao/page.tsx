@@ -462,7 +462,7 @@ export default function AdministracaoPage() {
           </div>
 
           <div className="card p-4">
-            <div className="text-[10px] uppercase tracking-wider text-ink-500 font-bold mb-2">O que cada permissão dá</div>
+            <div className="text-[12.5px] text-ink-400 font-medium mb-2">O que cada permissão dá</div>
             <div className="space-y-1.5">
               {(["admin", "finance", "viewer"] as const).map(r => (
                 <div key={r} className="text-[12px] text-ink-400">

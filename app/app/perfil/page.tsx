@@ -41,7 +41,7 @@ export default function PerfilPage() {
           <div className="h-20 w-20 mx-auto rounded-full bg-maka-500 flex items-center justify-center font-display text-2xl text-onbrand">{initials}</div>
           <div className="mt-3 font-display text-lg">{name}</div>
           <div className="text-[12px] text-ink-400">{email}</div>
-          <div className="mt-3 inline-flex rounded-full bg-maka-500/15 border border-maka-500/40 text-maka-300 text-[11px] font-bold uppercase tracking-wider px-3 py-1">Plano {profile.plan}</div>
+          <div className="mt-3 inline-flex rounded-full bg-maka-500/15 border border-maka-500/40 text-maka-300 text-[12px] font-medium px-3 py-1">Plano {profile.plan}</div>
           <div className="mt-4 h-1.5 rounded-full bg-ink-800 overflow-hidden"><div className="h-full bg-maka-500" style={{ width: `${Math.round(lv.progress * 100)}%` }} /></div>
           <div className="mt-2 text-[11px] text-ink-400">Nível {lv.level} · {lv.name} · {profile.xp.toLocaleString("pt-AO")} XP</div>
           <div className="mt-3 flex justify-center gap-4 text-[12px] text-ink-300"><span className="flex items-center gap-1 text-maka-400"><Flame size={13} /> {profile.streak} dias</span><span>Membro desde 2026</span></div>

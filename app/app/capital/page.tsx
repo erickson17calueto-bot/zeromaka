@@ -47,8 +47,8 @@ export default function CapitalPage() {
 
       <div className="card p-4 flex items-center justify-between border-maka-500/30">
         <div>
-          <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Capital dos sócios na empresa</div>
-          <div className="mt-1 font-display text-xl text-maka-400">{fmtKz(totalInCompany)}</div>
+          <div className="text-[12.5px] text-ink-400 font-medium">Capital dos sócios na empresa</div>
+          <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-maka-400">{fmtKz(totalInCompany)}</div>
           <div className="text-[11px] text-ink-500 mt-0.5">É um passivo — dinheiro que a empresa deve aos sócios.</div>
         </div>
         <Landmark className="text-ink-600" size={28} />
@@ -61,16 +61,16 @@ export default function CapitalPage() {
             <div className="text-[11px] text-ink-500">{b.notes || "Sócio"}</div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-ink-500 font-bold">Aportou</div>
-                <div className="text-sm font-semibold text-emerald-400 mt-0.5">{fmtKz(b.contributed)}</div>
+                <div className="text-[12px] text-ink-500 font-medium">Aportou</div>
+                <div className="text-sm font-semibold text-emerald-400 mt-0.5 tabular-nums">{fmtKz(b.contributed)}</div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-ink-500 font-bold">Retirou</div>
-                <div className="text-sm font-semibold text-red-400 mt-0.5">{fmtKz(b.withdrawn)}</div>
+                <div className="text-[12px] text-ink-500 font-medium">Retirou</div>
+                <div className="text-sm font-semibold text-red-400 mt-0.5 tabular-nums">{fmtKz(b.withdrawn)}</div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-ink-500 font-bold">Saldo</div>
-                <div className="text-sm font-semibold mt-0.5">{fmtKz(b.balance)}</div>
+                <div className="text-[12px] text-ink-500 font-medium">Saldo</div>
+                <div className="text-sm font-semibold mt-0.5 tabular-nums">{fmtKz(b.balance)}</div>
               </div>
             </div>
           </div>

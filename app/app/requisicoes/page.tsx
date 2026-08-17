@@ -217,15 +217,15 @@ export default function RequisicoesPage() {
 
       <div className="card p-4 flex items-center justify-between">
         <div>
-          <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">Pendente de aprovação</div>
-          <div className="mt-1 font-display text-xl text-yellow-400">{fmtKz(pendingTotal)}</div>
+          <div className="text-[12.5px] text-ink-400 font-medium">Pendente de aprovação</div>
+          <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-yellow-400">{fmtKz(pendingTotal)}</div>
         </div>
         <FileSignature className="text-ink-600" size={28} />
       </div>
 
       {reconciliationCandidates.length > 0 && (
         <div className="card p-4 border-maka-500/30">
-          <div className="text-[11px] uppercase tracking-wider text-maka-400 font-bold mb-2">Possíveis empréstimos/adiantamentos antigos</div>
+          <div className="text-[13px] text-maka-400 font-medium mb-2">Possíveis empréstimos/adiantamentos antigos</div>
           <p className="text-[12px] text-ink-400 mb-3">Estas requisições já aprovadas mencionam &quot;empréstimo&quot; ou &quot;adiantamento&quot; mas ainda estão registadas como despesa normal. Revê e reclassifica se for o caso — nada muda sozinho.</p>
           <div className="space-y-2">
             {reconciliationCandidates.map(r => (
@@ -352,7 +352,7 @@ export default function RequisicoesPage() {
                 <div>
                   <label className="label">Itens</label>
                   <div className="space-y-2">
-                    <div className="grid grid-cols-[1fr_70px_110px_92px_28px] gap-2 text-[10px] uppercase tracking-wider text-ink-500 font-bold px-0.5">
+                    <div className="grid grid-cols-[1fr_70px_110px_92px_28px] gap-2 text-[12px] text-ink-500 font-medium px-0.5">
                       <span>Descrição</span><span>Qtd</span><span>Valor Unit.</span><span className="text-right">Total</span><span></span>
                     </div>
                     {f.items.map((it, i) => (
@@ -367,8 +367,8 @@ export default function RequisicoesPage() {
                   </div>
                   <button onClick={addItem} className="btn-ghost w-full justify-center mt-2"><Plus size={14} /> Adicionar item</button>
                   <div className="flex justify-between items-center mt-3 px-1">
-                    <span className="text-[12px] text-ink-400 uppercase tracking-wider font-bold">Total Geral</span>
-                    <span className="font-display text-lg text-maka-400">{fmtKz(formTotal)}</span>
+                    <span className="text-[13px] text-ink-400 font-medium">Total geral</span>
+                    <span className="text-lg font-semibold tabular-nums text-maka-400">{fmtKz(formTotal)}</span>
                   </div>
                 </div>
 
