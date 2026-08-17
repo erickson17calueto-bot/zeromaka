@@ -598,19 +598,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (bankRes.data) setBankStatementLines(bankRes.data.map(dbToBankStatementLine));
 
     // Processa automaticamente ocorrências vencidas ao abrir a organização.
-    // A RPC é idempotente através de recurring_transaction_occurrences.
-    const autoRecurrence = await supabase.rpc("generate_due_recurring_transactions", {
-      p_org_id: oid, p_as_of_date: new Date().toISOString().slice(0, 10),
-    });
-    const generated = Number((autoRecurrence.data as any)?.generated || 0);
-    if (!autoRecurrence.error && generated > 0) {
-      const [freshEntries, freshRecurring] = await Promise.all([
-        supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
-        supabase.from("recurring_transactions").select("*").eq("organization_id", oid).order("next_run_date"),
-      ]);
-      if (freshEntries.data) setJournalEntries(freshEntries.data.map(dbToJournalEntry));
-      if (freshRecurring.data) setRecurringTransactions(freshRecurring.data.map(dbToRecurringTransaction));
-    }
+    // NÃO é esperado (sem await): é uma RPC de ESCRITA que corria a seguir às
+    // 16 leituras, em cada carregamento, e prendia a app a aparecer atrás de
+    // mais uma (por vezes três) idas a Paris. Como é idempotente e o que gera
+    // é raro, corre em segundo plano — quando termina, se criou algo, actualiza
+    // os lançamentos e as recorrências no ecrã. A app já apareceu muito antes.
+    void (async () => {
+      const autoRecurrence = await supabase.rpc("generate_due_recurring_transactions", {
+        p_org_id: oid, p_as_of_date: new Date().toISOString().slice(0, 10),
+      });
+      const generated = Number((autoRecurrence.data as any)?.generated || 0);
+      if (!autoRecurrence.error && generated > 0) {
+        const [freshEntries, freshRecurring] = await Promise.all([
+          supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
+          supabase.from("recurring_transactions").select("*").eq("organization_id", oid).order("next_run_date"),
+        ]);
+        if (freshEntries.data) setJournalEntries(freshEntries.data.map(dbToJournalEntry));
+        if (freshRecurring.data) setRecurringTransactions(freshRecurring.data.map(dbToRecurringTransaction));
+      }
+    })();
   }, []);
 
   // Carrega tudo o que depende de "quem é o utilizador": perfil, organizações
@@ -665,7 +671,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
 
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      // getSession() lê o cookie local, SEM ida à rede. O middleware já
+      // validou o JWT no servidor Supabase neste mesmo pedido antes de servir
+      // a página — repetir essa validação aqui com getUser() só somava mais
+      // uma ida e volta completa a Paris no caminho crítico até a app
+      // aparecer, sem reforçar segurança nenhuma (a fronteira real é o
+      // middleware + o RLS de cada tabela).
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (user) {
         setAuthed(true);
         await ensureUserLoaded(user.id, user.email);
