@@ -44,7 +44,7 @@ export default function StatCard({ label, value, hint, icon: Icon, tone = "neutr
           marca não tem algarismos de largura fixa, por isso uma grelha de
           indicadores ficava com os valores desalinhados entre si — e o peso
           fixo dela torna números longos em Kz pesados de ler. */}
-      <div className={`mt-2 text-xl font-semibold tracking-tight tabular-nums leading-none ${t.value}`}>{value}</div>
+      <div className={`mt-2 text-2xl font-semibold tracking-tight tabular-nums leading-none ${t.value}`}>{value}</div>
       {hint && <p className="mt-2 text-[11px] leading-snug text-ink-500">{hint}</p>}
       {footer && <div className="mt-2 text-[11px] text-ink-400 font-medium">{footer}</div>}
       {href && (

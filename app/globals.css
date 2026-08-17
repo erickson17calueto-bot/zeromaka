@@ -188,6 +188,26 @@ a.card:hover, button.card:hover, .card-hover:hover {
    vinha em caixa normal — era só o CSS a transformá-lo. */
 .label { @apply block text-[13px] font-medium text-ink-400 mb-1.5; }
 
+/* ---------------- Tabela de dados ----------------
+   Medidas tiradas do projeto Cota (localhost:57983), que o dono aponta
+   como a referência do estilo pretendido e que segue o mesmo padrão da
+   Apify/Firecrawl. Valores medidos, não estimados:
+     cabeçalho  12px / peso 500 / cor secundária / CAIXA NORMAL / 36px alto
+     célula     14px / peso 400 / 12px vertical, 16px horizontal
+   O ponto importante é o cabeçalho em caixa normal: MAIÚSCULAS miúdas num
+   cabeçalho de tabela é o mesmo vício das micro-etiquetas, e nenhuma das
+   três referências o faz. */
+.tbl { @apply w-full text-sm; }
+.tbl thead th { @apply text-[12px] font-medium text-ink-400 text-left px-4 h-9 whitespace-nowrap; }
+.tbl tbody td { @apply px-4 py-3 align-middle; }
+.tbl tbody tr { border-top: 1px solid var(--hairline); }
+
+/* Etiqueta de estado. O ponto redondo antes do texto não é enfeite: dá um
+   segundo sinal além da cor, para quem não distingue as cores conseguir
+   ler o estado à mesma. */
+.pill { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium whitespace-nowrap; }
+.pill::before { content: ""; @apply h-1.5 w-1.5 rounded-full bg-current shrink-0; }
+
 /* Título de página dentro da app (Dashboard, Administração, Relatórios...).
    Archivo Black (font-display) fica reservado para os poucos momentos de
    marca — logótipo, hero do site público — onde o seu peso fixo e pesado tem

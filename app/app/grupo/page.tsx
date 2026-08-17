@@ -73,18 +73,18 @@ export default function GrupoPage() {
         <>
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="tbl">
                 <thead>
-                  <tr className="border-b border-ink-800 text-[11px] uppercase tracking-wider text-ink-500">
-                    <th className="text-left font-semibold px-4 py-3">Empresa</th>
-                    <th className="text-right font-semibold px-4 py-3">Saldo atual</th>
-                    <th className="text-right font-semibold px-4 py-3">Resultado do mês</th>
-                    <th className="text-right font-semibold px-4 py-3">A receber (aberto)</th>
-                    <th className="text-right font-semibold px-4 py-3">A pagar (aberto)</th>
-                    <th className="px-4 py-3" />
+                  <tr>
+                    <th>Empresa</th>
+                    <th className="!text-right">Saldo atual</th>
+                    <th className="!text-right">Resultado do mês</th>
+                    <th className="!text-right">A receber (aberto)</th>
+                    <th className="!text-right">A pagar (aberto)</th>
+                    <th />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-ink-800">
+                <tbody>
                   {rows === null && (
                     <tr><td colSpan={6} className="p-8 text-center text-ink-500">
                       <Loader2 className="mx-auto mb-2 animate-spin" size={20} /> A carregar…
@@ -94,24 +94,24 @@ export default function GrupoPage() {
                     const active = r.id === orgId;
                     return (
                       <tr key={r.id} className={active ? "bg-maka-500/5" : ""}>
-                        <td className="px-4 py-3">
+                        <td>
                           <div className="flex items-center gap-2 min-w-0">
                             <Building2 size={15} className={active ? "text-maka-400 shrink-0" : "text-ink-500 shrink-0"} />
                             <span className="truncate font-medium">{r.name}</span>
-                            {active && <span className="shrink-0 text-[10px] text-maka-400 font-bold uppercase">aqui</span>}
+                            {active && <span className="pill shrink-0 bg-maka-500/10 text-maka-400">aqui</span>}
                           </div>
                         </td>
                         {r.error ? (
-                          <td colSpan={4} className="px-4 py-3 text-right text-[12px] text-red-400">Não foi possível carregar</td>
+                          <td colSpan={4} className="text-right text-[12px] text-red-400">Não foi possível carregar</td>
                         ) : (
                           <>
-                            <td className="px-4 py-3 text-right font-medium">{fmtKz(r.snapshot!.balance)}</td>
-                            <td className={`px-4 py-3 text-right font-medium ${r.snapshot!.result >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(r.snapshot!.result)}</td>
-                            <td className="px-4 py-3 text-right text-ink-300">{fmtKz(r.snapshot!.receivableOpen)}</td>
-                            <td className="px-4 py-3 text-right text-ink-300">{fmtKz(r.snapshot!.payableOpen)}</td>
+                            <td className="text-right font-medium">{fmtKz(r.snapshot!.balance)}</td>
+                            <td className={`text-right font-medium ${r.snapshot!.result >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(r.snapshot!.result)}</td>
+                            <td className="text-right text-ink-300">{fmtKz(r.snapshot!.receivableOpen)}</td>
+                            <td className="text-right text-ink-300">{fmtKz(r.snapshot!.payableOpen)}</td>
                           </>
                         )}
-                        <td className="px-4 py-3 text-right">
+                        <td className="text-right">
                           {!active && (
                             <button onClick={() => void doSwitch(r.id)} disabled={switching === r.id}
                               className="btn-ghost text-xs shrink-0 disabled:opacity-40">
@@ -125,7 +125,7 @@ export default function GrupoPage() {
                 </tbody>
                 {totals && rows && rows.length > 0 && (
                   <tfoot>
-                    <tr className="border-t border-ink-800 text-sm font-semibold">
+                    <tr className="text-sm font-semibold" style={{ borderTop: "1px solid var(--hairline-strong)" }}>
                       <td className="px-4 py-3">Total do grupo</td>
                       <td className="px-4 py-3 text-right">{fmtKz(totals.balance)}</td>
                       <td className={`px-4 py-3 text-right ${totals.result >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtKz(totals.result)}</td>
