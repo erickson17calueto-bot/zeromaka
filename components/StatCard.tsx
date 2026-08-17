@@ -32,7 +32,12 @@ export default function StatCard({ label, value, hint, icon: Icon, tone = "neutr
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
-        <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold leading-tight">{label}</div>
+        {/* Caixa normal, não MAIÚSCULAS a 11px/700. As duas referências usam
+            caixa normal a 14–16px nas etiquetas de cartão ("Credits used",
+            "API tokens"); maiúsculas miúdas a negrito são linguagem de painel
+            administrativo antigo e eram o sinal mais forte de "genérico" aqui.
+            O texto já vem em caixa normal — era o CSS que o gritava. */}
+        <div className="text-[12.5px] text-ink-400 font-medium leading-tight">{label}</div>
         {Icon && <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${t.chip}`}><Icon size={14} /></div>}
       </div>
       {/* Inter semibold + tabular-nums em vez de Archivo Black: a fonte de
@@ -50,7 +55,10 @@ export default function StatCard({ label, value, hint, icon: Icon, tone = "neutr
     </>
   );
 
-  const cls = "card p-4 flex flex-col h-full";
+  // p-5 (20px): com etiqueta + valor + explicação + rodapé, 16px apertava o
+  // conteúdo contra a borda. As referências dão 20–24px a cartões com esta
+  // densidade de texto.
+  const cls = "card p-5 flex flex-col h-full";
   return href
     ? <Link href={href} className={`${cls} hover:border-maka-500/50 transition-colors`}>{body}</Link>
     : <div className={cls}>{body}</div>;

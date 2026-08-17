@@ -116,7 +116,7 @@ export default function Dashboard() {
             return (
               <div key={a.id} className="card min-w-[200px] p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] uppercase tracking-wider text-ink-400 font-bold">{st.label}</div>
+                  <div className="text-[12.5px] text-ink-400 font-medium">{st.label}</div>
                   <div className={`h-7 w-7 rounded-lg flex items-center justify-center ${st.chip} ${st.tint}`}><Icon size={14} /></div>
                 </div>
                 <div className="mt-2 text-sm font-semibold truncate">{a.name}</div>
@@ -126,7 +126,7 @@ export default function Dashboard() {
           })}
           <div className="card min-w-[200px] p-4 border-maka-500/40 bg-maka-500/[0.06]">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-wider text-maka-400 font-bold">Total geral</div>
+              <div className="text-[12.5px] text-maka-400 font-medium">Total geral</div>
               <div className="h-7 w-7 rounded-lg bg-maka-500/15 flex items-center justify-center text-maka-400"><Wallet size={14} /></div>
             </div>
             <div className="mt-2 text-sm font-semibold">Todas as contas</div>

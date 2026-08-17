@@ -181,7 +181,12 @@ a.card:hover, button.card:hover, .card-hover:hover {
   border-color: var(--hairline-strong); }
 .input:hover { border-color: rgb(249 115 22 / .35); }
 .input:focus { box-shadow: 0 0 0 3px rgb(249 115 22 / .15); }
-.label { @apply block text-[11px] font-bold uppercase tracking-wider text-ink-400 mb-1.5; }
+/* Etiqueta de campo em caixa normal, 13px, peso médio — igual ao que a
+   Firecrawl faz ("Email", "Password" a 14px/450) e a Apify a 14px. Antes
+   era 11px NEGRITO MAIÚSCULAS com tracking largo: além de gritar, obrigava
+   a decifrar "PALAVRA-PASSE *" em vez de ler "Palavra-passe". O texto já
+   vinha em caixa normal — era só o CSS a transformá-lo. */
+.label { @apply block text-[13px] font-medium text-ink-400 mb-1.5; }
 
 /* Título de página dentro da app (Dashboard, Administração, Relatórios...).
    Archivo Black (font-display) fica reservado para os poucos momentos de

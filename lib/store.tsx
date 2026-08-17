@@ -431,6 +431,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const orgIdRef = useRef<string | null>(null);
   const [organizations, setOrganizations] = useState<OrgMembership[]>([]);
   const userIdRef = useRef<string | null>(null);
+  // Promessa do carregamento de contexto em curso, partilhada entre o arranque
+  // e o onAuthStateChange para nenhum dos dois seguir em frente cedo demais.
+  const loadPromiseRef = useRef<Promise<void> | null>(null);
 
   const [company, setCompany] = useState<Company>(defaultCompany);
   const [rawAccounts, setRawAccounts] = useState<Omit<Account, "currentBalance">[]>([]);
@@ -642,17 +645,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const supabase = createClient();
+
+    // Devolve SEMPRE a promessa do carregamento em curso para este utilizador,
+    // quer tenha sido este chamador a iniciá-lo quer não.
+    //
+    // Uma versão anterior limitava-se a saltar quando já havia carregamento a
+    // decorrer. Isso evitava o trabalho duplicado mas criava uma corrida: se o
+    // onAuthStateChange (INITIAL_SESSION) começasse primeiro, o init() saltava
+    // e marcava ready=true com o carregamento ainda a meio — ou seja, com
+    // orgId ainda a null — e o layout de /app desviava para /onboarding antes
+    // de os dados chegarem. Partilhar a promessa resolve as duas coisas: não
+    // duplica E não deixa ninguém seguir em frente antes de estar pronto.
+    const ensureUserLoaded = (userId: string, email?: string) => {
+      if (userIdRef.current !== userId || !loadPromiseRef.current) {
+        userIdRef.current = userId;
+        loadPromiseRef.current = loadUserContext(userId, email);
+      }
+      return loadPromiseRef.current;
+    };
+
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setAuthed(true);
-        // Guardado pelo ref: o onAuthStateChange abaixo dispara INITIAL_SESSION
-        // e pode chegar aqui primeiro. Sem esta verificação, os dois carregavam
-        // o mesmo utilizador em paralelo, duplicando todas as queries.
-        if (userIdRef.current !== user.id) {
-          userIdRef.current = user.id;
-          await loadUserContext(user.id, user.email);
-        }
+        await ensureUserLoaded(user.id, user.email);
       }
       setReady(true);
     };
@@ -663,6 +679,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setAuthed(!!user);
       if (!user) {
         userIdRef.current = null;
+        loadPromiseRef.current = null;
         setOrgId(null);
         setRawAccounts([]); setJournalEntries([]); setRecurringTransactions([]); setBankStatementLines([]); setCategories([]);
         setContacts([]); setRequisitions([]); setCompany(defaultCompany);
@@ -681,10 +698,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       //
       // A comparação com o ref também evita recarregar em TOKEN_REFRESHED,
       // que dispara periodicamente para o mesmo utilizador.
-      if (user.id !== userIdRef.current) {
-        userIdRef.current = user.id;
-        void loadUserContext(user.id, user.email);
-      }
+      void ensureUserLoaded(user.id, user.email);
     });
     return () => subscription.unsubscribe();
   }, [loadUserContext]);
