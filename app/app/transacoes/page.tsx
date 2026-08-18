@@ -2,9 +2,19 @@
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, JournalEntry, EntryDocumentKind, ENTRY_DOCUMENT_KIND_LABEL } from "@/lib/data";
-import { Plus, TrendingUp, TrendingDown, ArrowLeftRight, RotateCcw, ChevronLeft, ChevronRight, X, Landmark } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, ArrowLeftRight, RotateCcw, ChevronLeft, ChevronRight, X, Landmark, Printer } from "lucide-react";
 
 const PAGE_SIZE = 20;
+const NAVY = "#26305c";
+const fmtAOA = (n: number) => new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " AOA";
+const esc = (s: string) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+// Mesma regra da impressão de requisições: o HTML corre num iframe do MESMO
+// origin, por isso um logo com esquema `javascript:` seria executável — só
+// http(s) e imagens embutidas são aceites.
+const safeUrl = (u: string) => {
+  const v = String(u || "").trim();
+  return /^(https?:\/\/|data:image\/)/i.test(v) ? v : "";
+};
 // Empréstimo/adiantamento: caixa mexe na mesma direção de uma receita
 // (repayment) ou despesa (disbursement), mas o entry_type é um dos 4 tipos
 // dedicados — não 'income'/'expense' — para não entrar na DRE. A UI trata
@@ -18,7 +28,7 @@ const LOAN_ENTRY_LABEL: Record<string, string> = {
 };
 
 export default function TransacoesPage() {
-  const { journalEntries, accounts, categories, contacts, obligations, addTransaction, reverseEntry, convertEntryToLoan } = useStore();
+  const { journalEntries, accounts, categories, contacts, obligations, company, addTransaction, reverseEntry, convertEntryToLoan } = useStore();
   const [converting, setConverting] = useState<JournalEntry | null>(null);
   const [cvKind, setCvKind] = useState<"employee_loan" | "salary_advance">("employee_loan");
   const [cvContactId, setCvContactId] = useState("");
@@ -113,6 +123,72 @@ export default function TransacoesPage() {
     setShowReverse(null); setReverseReason("");
   };
 
+  // Comprovativo para arquivar no físico — mesmo padrão da requisição de
+  // fundos (empresa + título + dados-chave + assinaturas), pedido do dono
+  // para poder guardar prova em papel de uma transferência entre contas.
+  const printTransfer = (e: JournalEntry) => {
+    const from = e.lines.find(l => l.direction === "credit");
+    const to = e.lines.find(l => l.direction === "debit");
+    const amount = e.lines[0]?.amount ?? 0;
+    const logoSrc = safeUrl(company.logo || "");
+    const logo = logoSrc
+      ? `<img src="${esc(logoSrc)}" alt="logo" style="width:64px;height:64px;object-fit:contain;border-radius:6px" />`
+      : `<div style="width:64px;height:64px;border-radius:6px;background:${NAVY};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;text-align:center;line-height:1.1">${esc((company.name || "").split(" ")[0] || "LOGO")}</div>`;
+
+    const html = `<!doctype html><html lang="pt-AO"><head><meta charset="utf-8">
+    <title>${esc(e.entryNumber)}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Helvetica,Arial,sans-serif;color:#1f2430;padding:38px 42px;font-size:12.5px;line-height:1.5}
+      .head{display:flex;align-items:center;gap:16px;padding-bottom:16px}
+      .head h1{font-size:16px;color:${NAVY};letter-spacing:.2px}
+      .head .nif{color:#5b6472;font-size:12px;margin-top:3px}
+      .rule{height:2px;background:${NAVY};margin:0 0 26px}
+      .title{text-align:center;margin-bottom:24px}
+      .title h2{color:${NAVY};font-size:24px;letter-spacing:.5px}
+      .title .ref{color:#6b7280;font-size:12.5px;margin-top:4px}
+      .band{display:grid;grid-template-columns:1fr 1fr;gap:8px;background:#f3f4f6;border-radius:8px;padding:16px 20px;margin-bottom:22px}
+      .band .k{font-size:10px;letter-spacing:.8px;color:#8a93a3;text-transform:uppercase;font-weight:700;margin-bottom:5px}
+      .band .v{color:${NAVY};font-weight:600;font-size:13px}
+      .amount{text-align:center;background:#f3f4f6;border-radius:8px;padding:22px;margin-bottom:24px}
+      .amount .k{font-size:10px;letter-spacing:.8px;color:#8a93a3;text-transform:uppercase;font-weight:700;margin-bottom:6px}
+      .amount .v{color:${NAVY};font-weight:800;font-size:28px}
+      .obs-t{font-size:11px;letter-spacing:.8px;color:#8a93a3;text-transform:uppercase;font-weight:700;margin-bottom:8px}
+      .obs{border:1px solid ${NAVY}33;border-radius:8px;padding:16px;min-height:50px;color:#333;font-size:12.5px}
+      .sign{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:120px}
+      .sign .c{text-align:center}
+      .sign .line{border-top:1px solid #9aa2b1;margin-bottom:8px}
+      .sign .lbl{font-size:11px;color:#5b6472}
+      .foot{text-align:center;color:#aab0bd;font-size:10px;margin-top:60px}
+      @media print{body{padding:24px 30px}@page{margin:14mm}}
+    </style></head><body>
+      <div class="head">${logo}<div><h1>${esc(company.name || "")}</h1><div class="nif">NIF: ${esc(company.nif || "—")}</div></div></div>
+      <div class="rule"></div>
+      <div class="title"><h2>COMPROVATIVO DE TRANSFERÊNCIA INTERNA</h2><div class="ref">Referência: ${esc(e.entryNumber)}</div></div>
+      <div class="band">
+        <div><div class="k">Data</div><div class="v">${esc(e.transactionDate)}</div></div>
+        <div><div class="k">Estado</div><div class="v">${e.status === "reversed" ? "Revertida" : "Confirmada"}</div></div>
+        <div><div class="k">Conta de origem</div><div class="v">${esc(accName(from?.accountId || ""))}</div></div>
+        <div><div class="k">Conta de destino</div><div class="v">${esc(accName(to?.accountId || ""))}</div></div>
+      </div>
+      <div class="amount"><div class="k">Valor transferido</div><div class="v">${fmtAOA(amount)}</div></div>
+      <div class="obs-t">Descrição</div>
+      <div class="obs">${esc(e.description || "")}</div>
+      <div class="sign">
+        <div class="c"><div class="line"></div><div class="lbl">Autorizado por</div></div>
+        <div class="c"><div class="line"></div><div class="lbl">Confirmado por</div></div>
+      </div>
+      <div class="foot">${esc(e.entryNumber)} · Gerado por ZeroMaka</div>
+    </body></html>`;
+
+    const frame = document.createElement("iframe");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+    document.body.appendChild(frame);
+    const doc = frame.contentWindow!.document;
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => { frame.contentWindow!.focus(); frame.contentWindow!.print(); setTimeout(() => frame.remove(), 1200); }, 350);
+  };
+
   const entryIcon = (e: JournalEntry) => e.entryType === "transfer" ? ArrowLeftRight : LOAN_ENTRY_TYPES.has(e.entryType) ? Landmark : INFLOW_TYPES.has(e.entryType) ? TrendingUp : TrendingDown;
   const entryBg = (e: JournalEntry) => {
     if (e.status === "reversed") return "bg-ink-900 text-ink-600";
@@ -193,6 +269,9 @@ export default function TransacoesPage() {
                 <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 flex items-center gap-1">
                   {isConvertible(e) && (
                     <button onClick={() => openConvert(e)} className="text-ink-500 hover:text-maka-400" title="Converter em empréstimo/adiantamento"><Landmark size={14} /></button>
+                  )}
+                  {e.entryType === "transfer" && (
+                    <button onClick={() => printTransfer(e)} className="text-ink-500 hover:text-maka-400" title="Imprimir comprovativo"><Printer size={14} /></button>
                   )}
                   <button onClick={() => { setShowReverse(e); setReverseReason(""); }}
                     className="text-ink-500 hover:text-red-400" title="Reverter"><RotateCcw size={14} /></button>

@@ -3,14 +3,26 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, daysUntil, Obligation, OBLIGATION_KIND_LABEL, ObligationDocumentKind } from "@/lib/data";
-import { Plus, X, Wallet, HandCoins, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, X, Wallet, HandCoins, ChevronDown, ChevronUp, Printer } from "lucide-react";
 
 type LoanKind = "employee_loan" | "salary_advance";
 const KIND_LABEL: Record<LoanKind, string> = { employee_loan: "Empréstimo", salary_advance: "Adiantamento salarial" };
 const CATEGORY_NAME: Record<LoanKind, string> = { employee_loan: "Empréstimos a funcionários", salary_advance: "Adiantamentos salariais" };
+const DOC_TITLE: Record<LoanKind, string> = { employee_loan: "TERMO DE EMPRÉSTIMO A FUNCIONÁRIO", salary_advance: "TERMO DE ADIANTAMENTO SALARIAL" };
+
+const NAVY = "#26305c";
+const fmtAOA = (n: number) => new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " AOA";
+const esc = (s: string) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+// Mesma regra da impressão de requisições: o HTML corre num iframe do MESMO
+// origin, por isso um logo com esquema `javascript:` seria executável — só
+// http(s) e imagens embutidas são aceites.
+const safeUrl = (u: string) => {
+  const v = String(u || "").trim();
+  return /^(https?:\/\/|data:image\/)/i.test(v) ? v : "";
+};
 
 export default function EmprestimosPage() {
-  const { obligations, contacts, accounts, categories, settlements, requisitions, grantEmployeeLoan, postSettlement } = useStore();
+  const { obligations, contacts, accounts, categories, settlements, requisitions, company, grantEmployeeLoan, postSettlement } = useStore();
 
   const funcionarios = useMemo(
     () => contacts.filter(c => !c.isArchived && (c.kind === "funcionario" || c.kind === "ambos")),
@@ -97,6 +109,72 @@ export default function EmprestimosPage() {
   const [payAccount, setPayAccount] = useState("");
   const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
   const [payReference, setPayReference] = useState("");
+  // Termo para arquivar no físico — mesmo padrão da requisição de fundos e do
+  // comprovativo de transferência, pedido do dono para ter prova em papel de
+  // cada empréstimo/adiantamento concedido.
+  const printLoan = (o: Obligation) => {
+    const kind = (o.documentKind === "salary_advance" ? "salary_advance" : "employee_loan") as LoanKind;
+    const logoSrc = safeUrl(company.logo || "");
+    const logo = logoSrc
+      ? `<img src="${esc(logoSrc)}" alt="logo" style="width:64px;height:64px;object-fit:contain;border-radius:6px" />`
+      : `<div style="width:64px;height:64px;border-radius:6px;background:${NAVY};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;text-align:center;line-height:1.1">${esc((company.name || "").split(" ")[0] || "LOGO")}</div>`;
+
+    const html = `<!doctype html><html lang="pt-AO"><head><meta charset="utf-8">
+    <title>${esc(o.internalNumber)}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Helvetica,Arial,sans-serif;color:#1f2430;padding:38px 42px;font-size:12.5px;line-height:1.5}
+      .head{display:flex;align-items:center;gap:16px;padding-bottom:16px}
+      .head h1{font-size:16px;color:${NAVY};letter-spacing:.2px}
+      .head .nif{color:#5b6472;font-size:12px;margin-top:3px}
+      .rule{height:2px;background:${NAVY};margin:0 0 26px}
+      .title{text-align:center;margin-bottom:24px}
+      .title h2{color:${NAVY};font-size:22px;letter-spacing:.5px}
+      .title .ref{color:#6b7280;font-size:12.5px;margin-top:4px}
+      .band{display:grid;grid-template-columns:1fr 1fr;gap:8px;background:#f3f4f6;border-radius:8px;padding:16px 20px;margin-bottom:22px}
+      .band .k{font-size:10px;letter-spacing:.8px;color:#8a93a3;text-transform:uppercase;font-weight:700;margin-bottom:5px}
+      .band .v{color:${NAVY};font-weight:600;font-size:13px}
+      .amount{text-align:center;background:#f3f4f6;border-radius:8px;padding:22px;margin-bottom:24px}
+      .amount .k{font-size:10px;letter-spacing:.8px;color:#8a93a3;text-transform:uppercase;font-weight:700;margin-bottom:6px}
+      .amount .v{color:${NAVY};font-weight:800;font-size:28px}
+      .terms{border:1px solid ${NAVY}33;border-radius:8px;padding:16px;color:#333;font-size:12px;line-height:1.7;margin-bottom:8px}
+      .sign{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:110px}
+      .sign .c{text-align:center}
+      .sign .line{border-top:1px solid #9aa2b1;margin-bottom:8px}
+      .sign .lbl{font-size:11px;color:#5b6472}
+      .foot{text-align:center;color:#aab0bd;font-size:10px;margin-top:50px}
+      @media print{body{padding:24px 30px}@page{margin:14mm}}
+    </style></head><body>
+      <div class="head">${logo}<div><h1>${esc(company.name || "")}</h1><div class="nif">NIF: ${esc(company.nif || "—")}</div></div></div>
+      <div class="rule"></div>
+      <div class="title"><h2>${DOC_TITLE[kind]}</h2><div class="ref">Referência: ${esc(o.internalNumber)}</div></div>
+      <div class="band">
+        <div><div class="k">Beneficiário</div><div class="v">${esc(o.contactName || "—")}</div></div>
+        <div><div class="k">Data de concessão</div><div class="v">${esc(o.issueDate)}</div></div>
+        <div><div class="k">Devolução prevista</div><div class="v">${o.dueDate ? esc(o.dueDate) : "Não definida"}</div></div>
+        <div><div class="k">Saldo em aberto</div><div class="v">${fmtAOA(o.outstandingAmount)}</div></div>
+      </div>
+      <div class="amount"><div class="k">Valor concedido</div><div class="v">${fmtAOA(o.originalAmount)}</div></div>
+      <div class="terms">
+        Eu, <strong>${esc(o.contactName || "—")}</strong>, declaro ter recebido de <strong>${esc(company.name || "")}</strong>
+        o valor de <strong>${fmtAOA(o.originalAmount)}</strong> a título de ${kind === "salary_advance" ? "adiantamento sobre salário" : "empréstimo"},
+        comprometendo-me a devolvê-lo${o.dueDate ? ` até ${esc(o.dueDate)}` : ""}, nos termos acordados com a empresa.
+      </div>
+      <div class="sign">
+        <div class="c"><div class="line"></div><div class="lbl">${esc(o.contactName || "Funcionário")}</div></div>
+        <div class="c"><div class="line"></div><div class="lbl">Responsável Financeiro</div></div>
+      </div>
+      <div class="foot">${esc(o.internalNumber)} · Gerado por ZeroMaka</div>
+    </body></html>`;
+
+    const frame = document.createElement("iframe");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+    document.body.appendChild(frame);
+    const doc = frame.contentWindow!.document;
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => { frame.contentWindow!.focus(); frame.contentWindow!.print(); setTimeout(() => frame.remove(), 1200); }, 350);
+  };
+
   const openPay = (o: Obligation) => {
     setPayFor(o); setPayAmount(String(o.outstandingAmount));
     setPayAccount(accounts[0]?.id ?? ""); setPayDate(new Date().toISOString().slice(0, 10)); setPayReference("");
@@ -185,6 +263,9 @@ export default function EmprestimosPage() {
                   {o.paidAmount > 0 && <div className="text-[10px] text-ink-500">devolvido {fmtKz(o.paidAmount)} de {fmtKz(o.originalAmount)}</div>}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={e => { e.stopPropagation(); printLoan(o); }} className="text-ink-500 hover:text-maka-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Imprimir termo">
+                    <Printer size={16} />
+                  </button>
                   {canPay && (
                     <button onClick={e => { e.stopPropagation(); openPay(o); }} className="text-ink-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Registar devolução">
                       <Wallet size={16} />
