@@ -22,7 +22,29 @@ const ROLE_INFO: Record<string, { label: string; desc: string; tone: string }> =
   finance: { label: "Financeiro", desc: "Lança e regista movimentos, mas não gere equipa nem reverte.", tone: "bg-sky-500/15 text-sky-400 border-sky-500/30" },
   member: { label: "Membro", desc: "Só leitura (papel antigo, equivalente a Consulta).", tone: "bg-ink-800 text-ink-300 border-ink-700" },
   viewer: { label: "Consulta", desc: "Vê tudo, não altera nada.", tone: "bg-ink-800 text-ink-300 border-ink-700" },
+  // Papéis de âmbito estreito — cada um só vê e altera o que está descrito
+  // aqui, nada de financeiro fora disso (sem dashboards, saldos, relatórios
+  // nem dívidas de outras áreas). Espelha exatamente a matriz de permissões
+  // em role_resource_permissions.
+  requisitante: { label: "Requisitante", desc: "Cria e acompanha requisições de fundos. Não vê contas, saldos nem relatórios.", tone: "bg-violet-500/15 text-violet-400 border-violet-500/30" },
+  aprovador: { label: "Aprovador", desc: "Aprova ou rejeita requisições pendentes. Nunca desembolsa — isso continua a exigir financeiro ou administrador.", tone: "bg-violet-500/15 text-violet-400 border-violet-500/30" },
+  cobrador: { label: "Cobrador", desc: "Vê e recebe pagamentos das contas a receber. Não vê despesas nem contas a pagar.", tone: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30" },
+  pagador: { label: "Pagador", desc: "Vê e regista pagamentos a fornecedores. Não vê receitas nem cobranças.", tone: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
+  rh: { label: "Recursos Humanos", desc: "Gere empréstimos e adiantamentos a funcionários. Não vê vendas nem dívidas de clientes/fornecedores.", tone: "bg-pink-500/15 text-pink-400 border-pink-500/30" },
+  caixa: { label: "Operador de caixa", desc: "Vê contas e lança movimentos. Não vê relatórios, dívidas nem reservas.", tone: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
+  contabilista: { label: "Contabilista", desc: "Vê tudo o que é financeiro para fechar contas e exportar. Nunca lança, gere equipa nem reverte.", tone: "bg-teal-500/15 text-teal-400 border-teal-500/30" },
+  auditor: { label: "Auditor", desc: "Vê tudo, incluindo o registo de auditoria. Nunca altera nada — nem o contabilista vê a auditoria.", tone: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" },
+  convidado_temp: { label: "Convidado temporário", desc: "Sem acesso a nada por omissão — ajusta-se caso a caso. Pode ter uma data de expiração.", tone: "bg-ink-800 text-ink-400 border-ink-700" },
 };
+
+// As descrições completas (para o painel "o que cada permissão dá") ficam a
+// cargo de ROLE_INFO acima; esta lista só define que opções aparecem nos
+// dois seletores (convidar e mudar papel) — sempre as mesmas, e sempre sem
+// 'owner' nem 'member' (legado, não se atribui de novo).
+const ASSIGNABLE_ROLES: MemberRole[] = [
+  "admin", "finance", "viewer",
+  "requisitante", "aprovador", "cobrador", "pagador", "rh", "caixa", "contabilista", "auditor", "convidado_temp",
+];
 
 type AuditRow = {
   id: string; action: string; table_name: string; created_at: string;
@@ -443,9 +465,7 @@ export default function AdministracaoPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       <select className="input text-xs py-1 w-auto" value={m.role}
                         onChange={e => void doChangeRole(m, e.target.value as MemberRole)}>
-                        <option value="admin">Administrador</option>
-                        <option value="finance">Financeiro</option>
-                        <option value="viewer">Consulta</option>
+                        {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_INFO[r].label}</option>)}
                         {m.role === "member" && <option value="member" disabled>Membro (antigo)</option>}
                       </select>
                       <button onClick={() => setConfirmRemove(m)} className="text-ink-500 hover:text-red-400" title="Remover da empresa">
@@ -464,14 +484,14 @@ export default function AdministracaoPage() {
           <div className="card p-4">
             <div className="text-[12.5px] text-ink-400 font-medium mb-2">O que cada permissão dá</div>
             <div className="space-y-1.5">
-              {(["admin", "finance", "viewer"] as const).map(r => (
+              {ASSIGNABLE_ROLES.map(r => (
                 <div key={r} className="text-[12px] text-ink-400">
                   <span className="text-ink-200 font-medium">{ROLE_INFO[r].label}</span> — {ROLE_INFO[r].desc}
                 </div>
               ))}
             </div>
             <p className="text-[11px] text-amber-400 mt-3">
-              Atenção: todas as permissões, incluindo Consulta, veem os saldos, faturas e contactos desta empresa. A diferença está no que podem alterar.
+              Atenção: Administrador, Financeiro e Consulta veem sempre os saldos, faturas e contactos desta empresa — a diferença está no que podem alterar. As permissões de âmbito estreito (Requisitante, Cobrador, Pagador...) já não veem tudo — só o que está descrito acima.
             </p>
           </div>
         </div>
@@ -627,9 +647,7 @@ export default function AdministracaoPage() {
             <div>
               <label className="label">Permissão</label>
               <select className="input" value={newRole} onChange={e => setNewRole(e.target.value as MemberRole)}>
-                <option value="viewer">Consulta — vê tudo, não altera nada</option>
-                <option value="finance">Financeiro — lança movimentos</option>
-                <option value="admin">Administrador — controlo quase total</option>
+                {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_INFO[r].label}</option>)}
               </select>
               <p className="text-[11px] text-ink-500 mt-1">{ROLE_INFO[newRole].desc}</p>
             </div>

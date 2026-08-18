@@ -55,6 +55,48 @@ const ADMIN_SECTION: NavSection = { title: "Administração", items: [
   { href: "/app/administracao", label: "Empresas e equipa", icon: ShieldCheck }
 ]};
 
+// Navegação reduzida para os 9 papéis de âmbito estreito — mostra só as
+// páginas que a pessoa realmente consegue ver, para não a mandar para telas
+// em branco por falta de permissão (o RLS bloqueia os dados; isto é só para
+// não mostrar o caminho). Espelha a matriz de role_resource_permissions no
+// servidor — se aquela mudar, isto tem de mudar também. Ausência de entrada
+// (ex.: 'convidado_temp') significa sem nenhuma secção própria, só os itens
+// fixos no fundo (Categorias, Empresa, Perfil).
+const NARROW_ROLE_SECTIONS: Partial<Record<string, NavSection[]>> = {
+  requisitante: [{ title: "Requisições", items: [
+    { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList },
+  ]}],
+  aprovador: [{ title: "Requisições", items: [
+    { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
+  ]}],
+  cobrador: [{ title: "Cobranças", items: [
+    { href: "/app/faturas", label: "A receber", icon: FileText, badge: "overdue" },
+    { href: "/app/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
+    { href: "/app/contactos", label: "Contactos", icon: Users },
+  ]}],
+  pagador: [{ title: "Pagamentos", items: [
+    { href: "/app/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" },
+    { href: "/app/contactos", label: "Contactos", icon: Users },
+  ]}],
+  rh: [{ title: "Recursos Humanos", items: [
+    { href: "/app/emprestimos", label: "Empréstimos e adiantamentos", icon: HandCoins },
+    { href: "/app/contactos", label: "Contactos", icon: Users },
+  ]}],
+  caixa: [{ title: "Caixa", items: [
+    { href: "/app/contas", label: "Contas", icon: Wallet },
+    { href: "/app/transacoes", label: "Transações", icon: ArrowLeftRight },
+  ]}],
+  contabilista: [{ title: "Finanças", items: [
+    { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
+    { href: "/app/transacoes", label: "Transações", icon: ArrowLeftRight },
+    { href: "/app/relatorios", label: "Relatórios", icon: BarChart3 },
+  ]}],
+  auditor: [{ title: "Auditoria", items: [
+    { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
+    { href: "/app/relatorios", label: "Relatórios", icon: BarChart3 },
+  ]}],
+};
+
 const COLLAPSED_KEY = "zeromaka_sidebar_collapsed";
 const CLOSED_SECTIONS_KEY = "zeromaka_sidebar_closed_sections";
 
@@ -67,14 +109,19 @@ export default function Sidebar() {
   // organização. Não é a proteção real — essa está na página e em cada RPC do
   // servidor; aqui é só para não mostrar um caminho sem saída.
   const isAdmin = currentOrg?.role === "owner" || currentOrg?.role === "admin";
-  // "Painel de grupo" só faz sentido a quem tem mais do que uma empresa —
-  // não depende de isAdmin porque é uma leitura agregada de dados a que o
-  // utilizador já tem acesso individual, não uma ação administrativa.
-  const baseSections = organizations.length > 1
+  // Papéis de âmbito estreito usam uma navegação própria, bem mais curta —
+  // ver NARROW_ROLE_SECTIONS. Os 5 papéis "clássicos" (owner/admin/finance/
+  // viewer/member) continuam a ver a navegação completa, como sempre viram.
+  const narrowSections = currentOrg?.role ? NARROW_ROLE_SECTIONS[currentOrg.role] : undefined;
+  // "Painel de grupo" só faz sentido a quem tem mais do que uma empresa E vê
+  // a navegação completa — não faz sentido oferecê-lo a um papel de âmbito
+  // estreito, que já não vê dados financeiros de UMA empresa, quanto mais
+  // comparar várias.
+  const baseSections = narrowSections ?? (organizations.length > 1
     ? SECTIONS.map(sec => sec.title === "Análise"
         ? { ...sec, items: [{ href: "/app/grupo", label: "Painel de grupo", icon: Layers }, ...sec.items] }
         : sec)
-    : SECTIONS;
+    : SECTIONS);
   const visibleSections = isAdmin ? [...baseSections, ADMIN_SECTION] : baseSections;
   const [switching, setSwitching] = useState(false);
   const lv = levelFor(profile.xp);

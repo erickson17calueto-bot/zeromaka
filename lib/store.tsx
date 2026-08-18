@@ -20,7 +20,10 @@ interface OrgMembership { id: string; name: string; role: string }
 // Papéis atribuíveis pelo painel de administração. 'owner' fica de fora de
 // propósito: a propriedade só nasce ao criar a organização e não é
 // transferível pela interface (ver add_organization_member no SQL).
-export type MemberRole = "admin" | "finance" | "viewer";
+// Espelha o enum member_role no servidor (menos 'owner', nunca atribuível
+// por aqui, e 'member', papel legado que já não se volta a atribuir).
+export type MemberRole = "admin" | "finance" | "viewer"
+  | "requisitante" | "cobrador" | "pagador" | "contabilista" | "caixa" | "aprovador" | "rh" | "auditor" | "convidado_temp";
 export interface OrgMember {
   userId: string; role: string; name: string;
   email?: string; phone?: string; createdAt?: string;
