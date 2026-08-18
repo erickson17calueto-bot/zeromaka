@@ -36,6 +36,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Tentativa sempre feita, mesmo fora do fluxo de convite: se não houver
+  // convite pendente para o email autenticado, a RPC devolve accepted:false
+  // sem efeito nenhum — inofensivo para um login ou confirmação normal.
+  // Quando aceita, a adesão à organização já fica criada aqui; falta só a
+  // pessoa escolher nome e palavra-passe em /aceitar-convite antes do painel.
+  const { data: acceptResult } = await supabase.rpc("accept_organization_invite");
+  if ((acceptResult as { accepted?: boolean } | null)?.accepted) {
+    return NextResponse.redirect(new URL("/aceitar-convite", origin));
+  }
+
   // Sem organização o layout de /app encaminha para o onboarding, por isso
   // basta apontar para o destino pedido ou para o dashboard.
   return NextResponse.redirect(new URL(next || ROUTES.dashboard, origin));

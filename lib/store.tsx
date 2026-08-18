@@ -28,6 +28,9 @@ export interface OrgMember {
   userId: string; role: string; name: string;
   email?: string; phone?: string; createdAt?: string;
 }
+export interface OrgInvite {
+  id: string; email: string; role: string; status: string; createdAt: string; expiresAt: string;
+}
 
 // Resumo do mês para o Painel de Grupo (ver get_org_snapshot). Não é um
 // membro da lista de contas/lançamentos da organização ativa — é só um
@@ -48,6 +51,12 @@ interface Store {
   addMember: (email: string, role: MemberRole) => Promise<string | null>;
   changeMemberRole: (userId: string, role: MemberRole) => Promise<string | null>;
   removeMember: (userId: string) => Promise<string | null>;
+  // Convite por email real — a pessoa não precisa de já ter conta. A escrita
+  // do convite corre por RPC (create/revoke), mas o ENVIO do email passa
+  // pela rota /api/organizacoes/convites (só ela toca na service_role).
+  listInvites: (orgId?: string) => Promise<OrgInvite[]>;
+  createInvite: (email: string, role: MemberRole) => Promise<string | null>;
+  revokeInvite: (inviteId: string) => Promise<string | null>;
   transferOwnership: (newOwnerUserId: string) => Promise<string | null>;
   archiveOrganization: (confirmation: string) => Promise<string | null>;
   refreshEntries: (oid?: string) => Promise<void>;
@@ -889,6 +898,46 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
+  const listInvites: Store["listInvites"] = async (orgIdArg) => {
+    const target = orgIdArg || orgIdRef.current;
+    if (!target) return [];
+    const { data, error } = await sb().rpc("list_organization_invites", { p_org_id: target });
+    if (error) { toast("Erro: " + error.message, "warn"); return []; }
+    return ((data as any[]) || []).map(i => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+      id: i.id, email: i.email, role: i.role, status: i.status, createdAt: i.created_at, expiresAt: i.expires_at,
+    }));
+  };
+
+  const createInvite: Store["createInvite"] = async (email, role) => {
+    try {
+      const res = await fetch("/api/organizacoes/convites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId: orgIdRef.current, email, role }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = json.error || "Falha ao enviar convite";
+        toast("Erro: " + msg, "warn");
+        return msg;
+      }
+      toast("Convite enviado", "ok");
+      return null;
+    } catch {
+      toast("Erro: Falha ao enviar convite", "warn");
+      return "Falha ao enviar convite";
+    }
+  };
+
+  const revokeInvite: Store["revokeInvite"] = async (inviteId) => {
+    const { error } = await sb().rpc("revoke_organization_invite", {
+      p_org_id: orgIdRef.current!, p_invite_id: inviteId,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Convite revogado", "ok");
+    return null;
+  };
+
   const changeMemberRole: Store["changeMemberRole"] = async (userId, role) => {
     const { error } = await sb().rpc("change_organization_member_role", {
       p_org_id: orgIdRef.current!, p_user_id: userId, p_role: role,
@@ -1609,6 +1658,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
       addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, archiveOrganization, getOrgSnapshot,
+      listInvites, createInvite, revokeInvite,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
       journalEntries, categories, recurringTransactions, bankStatementLines,
       obligations, settlements, collectionInteractions,

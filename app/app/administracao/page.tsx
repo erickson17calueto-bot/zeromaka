@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useStore, OrgMember, MemberRole } from "@/lib/store";
+import { useStore, OrgMember, OrgInvite, MemberRole } from "@/lib/store";
 import { fmtDate, REGIMES, TaxRegime, CommissionMember } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import DangerZone from "@/components/DangerZone";
 import {
   Building2, Building, Users, ScrollText, Plus, X, Trash2, ShieldCheck, Check,
-  Upload, Percent, BookLock, RefreshCw, AlertTriangle, Loader2, Archive,
+  Upload, Percent, BookLock, RefreshCw, AlertTriangle, Loader2, Archive, Mail, Clock,
 } from "lucide-react";
 
 type Tab = "empresas" | "perfil" | "equipa" | "governanca" | "auditoria" | "perigo";
@@ -59,6 +59,7 @@ export default function AdministracaoPage() {
   const {
     orgId, organizations, switchOrganization, company, updateCompany,
     addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, archiveOrganization,
+    listInvites, createInvite, revokeInvite,
   } = useStore();
   const sb = useMemo(() => createClient(), []);
 
@@ -157,6 +158,37 @@ export default function AdministracaoPage() {
     // duplicar a carga.
     if ((tab === "equipa" || tab === "perigo") && orgId) void loadMembers();
   }, [tab, orgId, loadMembers]);
+
+  // ---- Convite por email ----
+  const [invites, setInvites] = useState<OrgInvite[]>([]);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<MemberRole>("viewer");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteErr, setInviteErr] = useState("");
+
+  const loadInvites = useCallback(async () => {
+    setInvites(await listInvites());
+  }, [listInvites]);
+
+  useEffect(() => {
+    if (tab === "equipa" && orgId) void loadInvites();
+  }, [tab, orgId, loadInvites]);
+
+  const submitInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviteBusy(true); setInviteErr("");
+    const e = await createInvite(inviteEmail.trim(), inviteRole);
+    setInviteBusy(false);
+    if (e) { setInviteErr(e); return; }
+    setShowInvite(false); setInviteEmail(""); setInviteRole("viewer");
+    await loadInvites();
+  };
+
+  const doRevokeInvite = async (inviteId: string) => {
+    const e = await revokeInvite(inviteId);
+    if (!e) await loadInvites();
+  };
 
   // ---- Transferir propriedade ----
   const transferCandidates = members.filter(m => m.role !== "owner");
@@ -444,7 +476,10 @@ export default function AdministracaoPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <p className="text-sm text-ink-400">Quem tem acesso a <strong>{company.name || "esta empresa"}</strong> e com que permissões.</p>
-            <button onClick={() => { setShowAdd(true); setErr(""); }} className="btn-primary"><Plus size={15} /> Adicionar pessoa</button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setShowInvite(true); setInviteErr(""); }} className="btn-ghost"><Mail size={15} /> Convidar por email</button>
+              <button onClick={() => { setShowAdd(true); setErr(""); }} className="btn-primary"><Plus size={15} /> Adicionar por conta existente</button>
+            </div>
           </div>
 
           <div className="card divide-y divide-ink-800">
@@ -480,6 +515,29 @@ export default function AdministracaoPage() {
               <div className="p-8 text-center text-sm text-ink-500">Ainda só tu tens acesso a esta empresa.</div>
             )}
           </div>
+
+          {invites.length > 0 && (
+            <div className="card divide-y divide-ink-800">
+              <div className="px-4 py-3 text-[12px] font-semibold text-ink-400 flex items-center gap-2">
+                <Clock size={14} /> Convites pendentes
+              </div>
+              {invites.map(i => {
+                const info = ROLE_INFO[i.role] || { label: i.role, desc: "", tone: "bg-ink-800 text-ink-300 border-ink-700" };
+                return (
+                  <div key={i.id} className="p-4 flex items-center gap-3 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{i.email}</div>
+                      <div className="text-[11px] text-ink-500 truncate">Convidado a {fmtDate(i.createdAt.slice(0, 10))} · expira a {fmtDate(i.expiresAt.slice(0, 10))}</div>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${info.tone}`}>{info.label}</span>
+                    <button onClick={() => void doRevokeInvite(i.id)} className="text-ink-500 hover:text-red-400 shrink-0" title="Revogar convite">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div className="card p-4">
             <div className="text-[12.5px] text-ink-400 font-medium mb-2">O que cada permissão dá</div>
@@ -634,8 +692,34 @@ export default function AdministracaoPage() {
         </Modal>
       )}
 
+      {showInvite && (
+        <Modal title="Convidar por email" onClose={() => setShowInvite(false)}>
+          <div className="space-y-4">
+            <p className="text-[11px] text-ink-400 bg-ink-800/60 rounded-lg p-3">
+              A pessoa não precisa de já ter conta — recebe um email com um link para escolher o nome e a palavra-passe dela.
+            </p>
+            <div>
+              <label className="label">Email da pessoa</label>
+              <input className="input" type="email" placeholder="nome@empresa.ao" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Permissão</label>
+              <select className="input" value={inviteRole} onChange={e => setInviteRole(e.target.value as MemberRole)}>
+                {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_INFO[r].label}</option>)}
+              </select>
+              <p className="text-[11px] text-ink-500 mt-1">{ROLE_INFO[inviteRole].desc}</p>
+            </div>
+            {inviteErr && <p className="text-sm text-red-400">{inviteErr}</p>}
+            <button onClick={() => void submitInvite()} disabled={!inviteEmail.trim() || inviteBusy}
+              className="btn-primary w-full justify-center disabled:opacity-40">
+              {inviteBusy ? "A enviar…" : "Enviar convite"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {showAdd && (
-        <Modal title="Adicionar pessoa à equipa" onClose={() => setShowAdd(false)}>
+        <Modal title="Adicionar por conta existente" onClose={() => setShowAdd(false)}>
           <div className="space-y-4">
             <p className="text-[11px] text-amber-400 bg-amber-500/10 rounded-lg p-3">
               A pessoa tem de já ter conta no ZeroMaka. Pede-lhe para criar conta primeiro em zeromaka.com e depois adiciona-a aqui pelo email que usou.
