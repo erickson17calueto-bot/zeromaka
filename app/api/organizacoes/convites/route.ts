@@ -50,9 +50,16 @@ export async function POST(req: NextRequest) {
     return bad(500, e instanceof Error ? e.message : "Serviço de email não configurado");
   }
 
+  // O id do convite viaja no próprio link (query string do redirectTo, que o
+  // Supabase preserva e só acrescenta o code= dele por cima — mesmo padrão
+  // já usado em next= no fluxo de recuperação de senha). Sem isto,
+  // accept_organization_invite() teria de adivinhar "qual convite pendente
+  // para este email", o que permitia outra organização sequestrar a adesão
+  // criando um convite mais recente para o mesmo email antes de a pessoa
+  // clicar no link genuíno.
   const origin = req.nextUrl.origin;
   const { error: sendErr } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/aceitar-convite")}`,
+    redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/aceitar-convite")}&invite=${encodeURIComponent(inviteId)}`,
   });
   if (sendErr) {
     await supabase.rpc("revoke_organization_invite", { p_org_id: orgId, p_invite_id: inviteId });
