@@ -1,16 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
-  Users, BarChart3, Trophy, Medal, UserCircle, LogOut, Flame, HandCoins,
+  Users, BarChart3, Trophy, Medal, Flame, HandCoins,
   Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X, Tags, Layers,
   type LucideIcon,
 } from "lucide-react";
-import ThemeToggle from "@/components/ThemeToggle";
+import AccountMenu from "@/components/AccountMenu";
 import { ROUTES } from "@/lib/routes";
 
 // Tipado explicitamente: sem isto, juntar SECTIONS com ADMIN_SECTION (que não
@@ -102,7 +102,6 @@ const CLOSED_SECTIONS_KEY = "zeromaka_sidebar_closed_sections";
 
 export default function Sidebar() {
   const path = usePathname();
-  const router = useRouter();
   const { profile, obligations, requisitions, logout, orgId, organizations, switchOrganization } = useStore();
   const currentOrg = organizations.find(o => o.id === orgId);
   // A secção de administração só aparece a quem é owner/admin desta
@@ -287,15 +286,10 @@ export default function Sidebar() {
       </nav>
 
       <div className="mt-4 pt-3 border-t border-ink-800 space-y-0.5">
-        {!collapsed && <div className="px-1 pb-2"><ThemeToggle /></div>}
         {navLink("/app/categorias", "Categorias", Tags, 0, path === "/app/categorias")}
-        {navLink("/app/perfil", "Meu perfil", UserCircle, 0, path === "/app/perfil")}
-        <button onClick={async () => { await logout(); router.push(ROUTES.entrar); router.refresh(); }}
-          title={collapsed ? "Sair" : undefined}
-          className={`group w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-400 hover:bg-ink-900 hover:text-ink-100 transition-colors ${collapsed ? "justify-center px-0" : ""}`}>
-          <LogOut size={17} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />
-          {!collapsed && "Sair"}
-        </button>
+      </div>
+      <div className="mt-2 pt-2 border-t border-ink-800">
+        <AccountMenu name={profile.name} email={profile.email} initials={initials} collapsed={collapsed} onLogout={logout} />
       </div>
       </aside>
     </>
