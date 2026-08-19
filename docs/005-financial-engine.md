@@ -19,7 +19,11 @@ Fase 2 da migração SaaS. Substitui a tabela `transactions` por um sistema de p
 | `financial_categories` | Categorias receita/despesa, seed por RPC |
 | `journal_entry_sequences` | Controlo de sequência por org+ano |
 
-## RPCs (SECURITY INVOKER)
+## RPCs
+
+Todas `SECURITY DEFINER` hoje (não `SECURITY INVOKER` como este documento
+dizia originalmente — alinhadas ao resto das RPCs financeiras desde
+`20260810_0046`/`20260817_0062`, reconfirmado em `20260819_0074`).
 
 | RPC | Função |
 |-----|--------|
@@ -28,8 +32,9 @@ Fase 2 da migração SaaS. Substitui a tabela `transactions` por um sistema de p
 | `post_transfer` | Transferência: credit origem + debit destino, 2 linhas |
 | `reverse_journal_entry` | Marca original como reversed, cria contra-lançamento |
 | `create_account_with_balance` | Cria conta + opening_balance entry (escreve também `accounts.initial_balance` — [coluna legada](#accountsinitial_balance--coluna-legada)) |
-| `mark_invoice_paid` | Liquida fatura + cria income/expense entry |
-| `approve_requisition` | Aprova requisição + cria expense entry |
+| `approve_requisition` | Decide (sem desembolso) ou decide+desembolsa requisição num passo — ver `docs/004-rls-policies.md#atualização-2026-08-19` para quem pode chamar cada caminho |
+| `reject_requisition` | Rejeita requisição pendente, motivo obrigatório |
+| `disburse_requisition` | Desembolsa requisição já decidida (`aguardando_desembolso`) — único caminho aberto a `caixa`, sujeito a `account_assignments` |
 | `seed_default_categories` | Popula categorias padrão angolanas |
 | `next_entry_number` | SECURITY DEFINER — sequência atómica |
 
