@@ -97,7 +97,7 @@ export default function RequisicoesPage() {
   const addItem = () => setF((s) => ({ ...s, items: [...s.items, blankItem()] }));
   const removeItem = (i: number) => setF((s) => ({ ...s, items: s.items.length > 1 ? s.items.filter((_, idx) => idx !== i) : s.items }));
 
-  const submit = () => {
+  const submit = async () => {
     setErr("");
     if (!f.requester.trim() || !f.approver.trim()) { setErr("Preenche o requisitante e o responsável."); return; }
 
@@ -110,8 +110,8 @@ export default function RequisicoesPage() {
         type: f.type, beneficiaryContactId: f.beneficiaryContactId, dueDate: f.dueDate || undefined,
         installments: f.installments ? Number(f.installments) : undefined, recoveryMethod: f.recoveryMethod,
       };
-      if (editing) { const e = editRequisition(editing.id, payload); if (e) { setErr(e); return; } }
-      else addRequisition(payload);
+      const e = editing ? await editRequisition(editing.id, payload) : await addRequisition(payload);
+      if (e) { setErr(e); return; }
       setShow(false);
       return;
     }
@@ -119,8 +119,8 @@ export default function RequisicoesPage() {
     const items = f.items.filter((it) => it.description.trim() && Number(it.unitPrice) > 0).map((it) => ({ description: it.description.trim(), qty: Number(it.qty) || 1, unitPrice: Number(it.unitPrice) }));
     if (items.length === 0) { setErr("Adiciona pelo menos um item com descrição e valor."); return; }
     const payload = { department: f.department.trim(), requester: f.requester.trim(), approver: f.approver.trim(), items, amount: items.reduce((s, it) => s + it.qty * it.unitPrice, 0), date: f.date, purpose: f.purpose.trim(), category: f.cat, type: f.type };
-    if (editing) { const e = editRequisition(editing.id, payload); if (e) { setErr(e); return; } }
-    else addRequisition(payload);
+    const e = editing ? await editRequisition(editing.id, payload) : await addRequisition(payload);
+    if (e) { setErr(e); return; }
     setShow(false);
   };
 

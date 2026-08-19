@@ -2,7 +2,7 @@
 
 ## Modelo de escrita
 
-`requisitions`, `financial_obligations`, `settlements` e `settlement_allocations` têm RLS com políticas de `SELECT` (`user_org_ids()`) e, no caso de `requisitions`, também `INSERT`/`UPDATE`/`DELETE` diretas para `user_writable_org_ids()` (criação/edição/remoção de requisições continua a passar pela tabela, não por RPC — decisão pré-existente, não alterada nesta fase). Todas as operações que mexem no livro financeiro (`journal_entries`/`journal_lines`) — desembolso, devolução, conversão — passam exclusivamente por RPCs `SECURITY DEFINER`.
+`financial_obligations`, `settlements` e `settlement_allocations` têm RLS com políticas de `SELECT` apenas (`user_org_ids()`). `requisitions` tinha, até 2026-08-19, `INSERT`/`UPDATE`/`DELETE` diretas para `user_writable_org_ids()` — essa decisão foi revertida (ver "Fecho de `requisitions`" abaixo). Todas as operações que mexem no livro financeiro (`journal_entries`/`journal_lines`) — desembolso, devolução, conversão — passam exclusivamente por RPCs `SECURITY DEFINER`.
 
 **Correção nesta fase:** `approve_requisition()` não era `SECURITY DEFINER` (corria com o privilégio do utilizador chamador) — inconsistente com `grant_employee_loan`, `post_settlement` e o resto das RPCs financeiras. Agora é `SECURITY DEFINER` com `search_path` fixo, como todas as outras.
 

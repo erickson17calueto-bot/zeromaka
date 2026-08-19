@@ -102,12 +102,12 @@ interface Store {
   addContact: (c: Omit<Contact, "id">) => void;
   editContact: (id: string, p: Partial<Contact>) => void;
   removeContact: (id: string) => void;
-  addRequisition: (r: Omit<Requisition, "id" | "number" | "status">) => void;
-  editRequisition: (id: string, p: Partial<Requisition>) => string | null;
-  deleteRequisition: (id: string) => string | null;
+  addRequisition: (r: Omit<Requisition, "id" | "number" | "status">) => Promise<string | null>;
+  editRequisition: (id: string, p: Partial<Requisition>) => Promise<string | null>;
+  deleteRequisition: (id: string) => Promise<string | null>;
   approveRequisition: (id: string, accountId: string, disburse?: boolean) => void;
   disburseRequisition: (id: string, accountId: string) => void;
-  rejectRequisition: (id: string, reason: string) => void;
+  rejectRequisition: (id: string, reason: string) => Promise<string | null>;
   addCapital: (d: { partnerId: string; partnerName: string; kind: "aporte" | "retirada"; amount: number; accountId: string; date: string; description: string }) => string | null;
   updateProfile: (p: Partial<UserProfile>) => void;
   gainXp: (amount: number, reason: string) => void;
@@ -390,16 +390,6 @@ const contactFieldsToDb = (p: Partial<Contact>) => {
   if (p.isArchived !== undefined) r.is_archived = p.isArchived;
   return r;
 };
-
-const reqToDb = (r: Requisition, orgId: string) => ({
-  id: r.id, organization_id: orgId, number: r.number, requester: r.requester,
-  approver: r.approver, department: r.department ?? null,
-  items: r.items ?? [], amount: r.amount, date: r.date,
-  purpose: r.purpose, category: r.category, status: r.status,
-  type: r.type, beneficiary_contact_id: r.beneficiaryContactId ?? null,
-  due_date: r.dueDate ?? null, installments: r.installments ?? null,
-  recovery_method: r.recoveryMethod ?? null,
-});
 
 const reqFieldsToDb = (p: Partial<Requisition>) => {
   const r: Record<string, any> = {};
@@ -1506,42 +1496,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   // ---- Requisitions ----
-  const addRequisition: Store["addRequisition"] = (r) => {
-    const id = crypto.randomUUID();
-    const now = new Date();
-    const n = requisitions.length + 1;
-    const number = `RQ-${String(n).padStart(3, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
-    const amount = r.items && r.items.length ? r.items.reduce((s: number, it) => s + it.qty * it.unitPrice, 0) : r.amount;
-    const req: Requisition = { ...r, amount, id, number, status: "pendente" };
-    setRequisitions(prev => [req, ...prev]);
-    toast(`Requisição ${number} criada`, "ok");
-    gainXp(30, "Requisição emitida");
-    sb().from("requisitions").insert(reqToDb(req, orgIdRef.current!))
-      .then(({ error }) => { if (error) { toast("Erro: " + error.message, "warn"); setRequisitions(prev => prev.filter(x => x.id !== id)); } });
+  // Escrita exclusivamente por RPC (create_requisition/update_requisition_draft/
+  // delete_requisition_draft/reject_requisition) — a tabela já não aceita
+  // INSERT/UPDATE/DELETE direto de authenticated (ver 20260819_0072). O
+  // servidor decide número, status inicial e dono; validações de estado
+  // ("só pendentes") acontecem lá, não aqui, para não haver duas fontes de
+  // verdade sobre a regra.
+  const refreshRequisitionsList = async () => {
+    const { data } = await sb().from("requisitions").select("*").eq("organization_id", orgIdRef.current!).order("created_at", { ascending: false });
+    if (data) setRequisitions(data.map(dbToRequisition));
   };
 
-  const editRequisition: Store["editRequisition"] = (id, p) => {
-    const req = requisitions.find(r => r.id === id);
-    if (!req) return "Requisição não encontrada";
-    if (req.status !== "pendente") return "Só requisições pendentes podem ser editadas.";
-    setRequisitions(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      const merged = { ...r, ...p };
-      if (merged.items && merged.items.length) merged.amount = merged.items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
-      return merged;
-    }));
-    toast("Requisição atualizada", "ok");
-    sb().from("requisitions").update(reqFieldsToDb(p)).eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
+  const addRequisition: Store["addRequisition"] = async (r) => {
+    const { data, error } = await sb().rpc("create_requisition", {
+      p_org_id: orgIdRef.current!, p_requester: r.requester, p_approver: r.approver,
+      p_department: r.department || null, p_items: r.items && r.items.length ? r.items : null,
+      p_amount: r.amount, p_date: r.date, p_purpose: r.purpose, p_category: r.category, p_type: r.type,
+      p_beneficiary_contact_id: r.beneficiaryContactId || null, p_due_date: r.dueDate || null,
+      p_installments: r.installments ?? null, p_recovery_method: r.recoveryMethod || null,
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast(`Requisição ${(data as { number?: string } | null)?.number || ""} criada`, "ok");
+    gainXp(30, "Requisição emitida");
+    await refreshRequisitionsList();
     return null;
   };
 
-  const deleteRequisition: Store["deleteRequisition"] = (id) => {
-    const req = requisitions.find(r => r.id === id);
-    if (!req) return "Requisição não encontrada";
-    if (req.status !== "pendente") return "Só requisições pendentes podem ser apagadas (já avançou no fluxo e serve para histórico).";
+  const editRequisition: Store["editRequisition"] = async (id, p) => {
+    const { error } = await sb().rpc("update_requisition_draft", {
+      p_req_id: id, p_org_id: orgIdRef.current!, p_patch: reqFieldsToDb(p),
+    });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
+    toast("Requisição atualizada", "ok");
+    await refreshRequisitionsList();
+    return null;
+  };
+
+  const deleteRequisition: Store["deleteRequisition"] = async (id) => {
+    const { error } = await sb().rpc("delete_requisition_draft", { p_req_id: id, p_org_id: orgIdRef.current! });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     setRequisitions(prev => prev.filter(r => r.id !== id));
     toast("Requisição apagada", "ok");
-    sb().from("requisitions").delete().eq("id", id).then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
     return null;
   };
 
@@ -1586,11 +1581,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
   };
 
-  const rejectRequisition: Store["rejectRequisition"] = (id, reason) => {
+  const rejectRequisition: Store["rejectRequisition"] = async (id, reason) => {
+    const { error } = await sb().rpc("reject_requisition", { p_req_id: id, p_org_id: orgIdRef.current!, p_reason: reason });
+    if (error) { toast("Erro: " + error.message, "warn"); return error.message; }
     setRequisitions(prev => prev.map(r => r.id === id ? { ...r, status: "reprovado" as const, reason, decidedAt: new Date().toISOString() } : r));
     toast("Requisição reprovada", "warn");
-    sb().from("requisitions").update({ status: "reprovado", reason, decided_at: new Date().toISOString() }).eq("id", id)
-      .then(({ error }) => { if (error) toast("Erro: " + error.message, "warn"); });
+    return null;
   };
 
   // ---- Capital ----
