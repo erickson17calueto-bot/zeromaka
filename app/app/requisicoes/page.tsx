@@ -29,8 +29,23 @@ const safeUrl = (u: string) => {
 const normalize = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const LOAN_KEYWORDS = /emprestimo|adiantamento/;
 
+// Espelha o seed de role_action_permissions no servidor (recurso
+// 'requisitions') — só para esconder botões que o RPC ia recusar de
+// qualquer forma; a barreira real está lá, isto é só para não mostrar um
+// caminho sem saída. Papéis ausentes daqui (owner/admin/finance e todos
+// os outros) continuam a ver tudo, como sempre viram.
+const REQ_ROLE_CAPS: Partial<Record<string, { create: boolean; decide: boolean }>> = {
+  requisitante: { create: true, decide: false },
+  aprovador: { create: false, decide: true },
+  caixa: { create: false, decide: false },
+};
+
 export default function RequisicoesPage() {
-  const { requisitions, accounts, contacts, obligations, company, profile, addRequisition, editRequisition, deleteRequisition, approveRequisition, disburseRequisition, rejectRequisition, reclassifyRequisitionAsLoan } = useStore();
+  const { requisitions, accounts, contacts, obligations, company, profile, organizations, orgId, addRequisition, editRequisition, deleteRequisition, approveRequisition, disburseRequisition, rejectRequisition, reclassifyRequisitionAsLoan } = useStore();
+  const myRole = organizations.find(o => o.id === orgId)?.role;
+  const reqCaps = myRole ? REQ_ROLE_CAPS[myRole] : undefined;
+  const canCreateReq = !reqCaps || reqCaps.create;
+  const canDecideReq = !reqCaps || reqCaps.decide;
   const [filter, setFilter] = useState<"all" | Requisition["status"]>("all");
   const [show, setShow] = useState(false);
   const [editing, setEditing] = useState<Requisition | null>(null);
@@ -212,7 +227,7 @@ export default function RequisicoesPage() {
           <h1 className="h-page">Requisições de fundos</h1>
           <p className="text-sm text-ink-400 mt-1">Para compras sem fatura — com itens, aprovação e PDF para imprimir e assinar.</p>
         </div>
-        <button onClick={openNew} className="btn-primary"><Plus size={15} /> Nova requisição</button>
+        {canCreateReq && <button onClick={openNew} className="btn-primary"><Plus size={15} /> Nova requisição</button>}
       </header>
 
       <div className="card p-4 flex items-center justify-between">
@@ -281,10 +296,10 @@ export default function RequisicoesPage() {
               <div className="mt-3 pt-3 border-t border-ink-800 flex gap-2 justify-end flex-wrap">
                 {r.status === "pendente" && (
                   <>
-                    <button onClick={() => deleteRequisition(r.id)} className="btn-ghost text-ink-400 hover:text-red-300"><Trash2 size={14} /> Apagar</button>
-                    <button onClick={() => openEdit(r)} className="btn-ghost"><Pencil size={14} /> Editar</button>
-                    <button onClick={() => { setRejecting(r); setReason(""); }} className="btn-ghost text-red-300 border-red-500/30 hover:bg-red-500/10"><XCircle size={14} /> Reprovar</button>
-                    <button onClick={() => { setApproving(r); setPayAcc(accounts[0]?.id ?? ""); }} className="btn-primary"><CheckCircle2 size={14} /> Aprovar</button>
+                    {canCreateReq && <button onClick={() => deleteRequisition(r.id)} className="btn-ghost text-ink-400 hover:text-red-300"><Trash2 size={14} /> Apagar</button>}
+                    {canCreateReq && <button onClick={() => openEdit(r)} className="btn-ghost"><Pencil size={14} /> Editar</button>}
+                    {canDecideReq && <button onClick={() => { setRejecting(r); setReason(""); }} className="btn-ghost text-red-300 border-red-500/30 hover:bg-red-500/10"><XCircle size={14} /> Reprovar</button>}
+                    {canDecideReq && <button onClick={() => { setApproving(r); setPayAcc(accounts[0]?.id ?? ""); }} className="btn-primary"><CheckCircle2 size={14} /> Aprovar</button>}
                   </>
                 )}
                 {r.status === "aguardando_desembolso" && (

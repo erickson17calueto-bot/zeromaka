@@ -85,6 +85,10 @@ const NARROW_ROLE_SECTIONS: Partial<Record<string, NavSection[]>> = {
   caixa: [{ title: "Caixa", items: [
     { href: "/app/contas", label: "Contas", icon: Wallet },
     { href: "/app/transacoes", label: "Transações", icon: ArrowLeftRight },
+    // Sem isto, o desembolso de requisições/empréstimos (Fase 3/4 da
+    // evolução de permissões) fica sem forma de chegar lá pela navegação —
+    // a capacidade existe no servidor mas ninguém consegue clicar nela.
+    { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "disburse" },
   ]}],
   contabilista: [{ title: "Finanças", items: [
     { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
@@ -128,8 +132,12 @@ export default function Sidebar() {
   const overdue = obligations.filter((o) => o.direction === "receivable" && isOverdue(o.financialStatus)).length;
   const payableOverdue = obligations.filter((o) => o.direction === "payable" && isOverdue(o.financialStatus)).length;
   const pendingReq = requisitions.filter((r) => r.status === "pendente").length;
+  // Fila de caixa é "a aguardar desembolso", não "pendente" — caixa não
+  // aprova, só executa; contar pendentes no badge dela mostraria trabalho
+  // que não é dela e escondia o que é (ver Fase 3/4 da evolução de permissões).
+  const awaitingDisbursement = requisitions.filter((r) => r.status === "aguardando_desembolso").length;
   const initials = profile.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-  const badgeVal = (k?: string) => k === "overdue" ? overdue : k === "payable" ? payableOverdue : k === "req" ? pendingReq : 0;
+  const badgeVal = (k?: string) => k === "overdue" ? overdue : k === "payable" ? payableOverdue : k === "req" ? pendingReq : k === "disburse" ? awaitingDisbursement : 0;
 
   // Barra encolhida (só ícones) e secções fechadas — ambas persistidas.
   const [collapsed, setCollapsed] = useState(false);
