@@ -305,6 +305,9 @@ export default function RequisicoesPage() {
                 {r.status === "aguardando_desembolso" && (
                   <button onClick={() => { setDisbursing(r); setPayAcc(accounts[0]?.id ?? ""); }} className="btn-primary"><Wallet size={14} /> Desembolsar</button>
                 )}
+                {(r.status === "pendente" || r.status === "aguardando_desembolso") && (
+                  <button onClick={() => printReq(r)} className="btn-ghost"><Printer size={14} /> Imprimir / PDF</button>
+                )}
                 {(r.status === "aprovado" || r.status === "desembolsada") && (
                   <button onClick={() => printReq(r)} className="btn-primary"><Printer size={14} /> Imprimir / PDF</button>
                 )}

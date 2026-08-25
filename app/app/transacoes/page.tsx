@@ -92,6 +92,7 @@ export default function TransacoesPage() {
   const totalPages = Math.ceil(displayEntries.length / PAGE_SIZE);
   const pageEntries = displayEntries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const accName = (id: string) => accounts.find(a => a.id === id)?.name ?? "—";
+  const contactName = (id?: string) => id ? contacts.find(c => c.id === id)?.name ?? "—" : "—";
 
   const openNew = () => {
     setTxType("expense"); setAmount(""); setDesc("");
@@ -123,20 +124,35 @@ export default function TransacoesPage() {
     setShowReverse(null); setReverseReason("");
   };
 
-  // Comprovativo para arquivar no físico — mesmo padrão da requisição de
-  // fundos (empresa + título + dados-chave + assinaturas), pedido do dono
-  // para poder guardar prova em papel de uma transferência entre contas.
-  const printTransfer = (e: JournalEntry) => {
+  // Comprovativo interno para arquivar no físico — cada entrada, saída,
+  // empréstimo/adiantamento e transferência tem o seu próprio documento.
+  const printEntry = (e: JournalEntry) => {
     const from = e.lines.find(l => l.direction === "credit");
     const to = e.lines.find(l => l.direction === "debit");
     const amount = e.lines[0]?.amount ?? 0;
+    const isTransfer = e.entryType === "transfer";
+    const isOutflow = OUTFLOW_TYPES.has(e.entryType) || e.entryType === "expense";
+    const isLoan = LOAN_ENTRY_TYPES.has(e.entryType);
+    const title = isTransfer
+      ? "COMPROVATIVO DE TRANSFERÊNCIA INTERNA"
+      : isLoan
+        ? (OUTFLOW_TYPES.has(e.entryType) ? "TERMO E RECIBO DE DESEMBOLSO" : "RECIBO DE DEVOLUÇÃO DE EMPRÉSTIMO / ADIANTAMENTO")
+        : isOutflow ? "COMPROVATIVO INTERNO DE SAÍDA" : "COMPROVATIVO INTERNO DE ENTRADA";
+    const movementLabel = isTransfer ? "Transferência interna" : isLoan ? LOAN_ENTRY_LABEL[e.entryType] : isOutflow ? "Saída de caixa" : "Entrada de caixa";
+    const statusLabel = e.status === "reversed" ? "REVERTIDO" : "CONFIRMADO";
+    const accountValue = isTransfer
+      ? `${accName(from?.accountId || "")} → ${accName(to?.accountId || "")}`
+      : accName(e.lines[0]?.accountId || "");
+    const documentValue = e.documentKind && e.documentKind !== "none"
+      ? `${ENTRY_DOCUMENT_KIND_LABEL[e.documentKind]}${e.documentNumber ? ` · ${e.documentNumber}` : ""}`
+      : "Documento interno gerado pelo ZeroMaka";
     const logoSrc = safeUrl(company.logo || "");
     const logo = logoSrc
       ? `<img src="${esc(logoSrc)}" alt="logo" style="width:64px;height:64px;object-fit:contain;border-radius:6px" />`
       : `<div style="width:64px;height:64px;border-radius:6px;background:${NAVY};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;text-align:center;line-height:1.1">${esc((company.name || "").split(" ")[0] || "LOGO")}</div>`;
 
     const html = `<!doctype html><html lang="pt-AO"><head><meta charset="utf-8">
-    <title>${esc(e.entryNumber)}</title>
+    <title>${esc(e.entryNumber)} · ${esc(title)}</title>
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:Helvetica,Arial,sans-serif;color:#1f2430;padding:38px 42px;font-size:12.5px;line-height:1.5}
@@ -145,7 +161,7 @@ export default function TransacoesPage() {
       .head .nif{color:#5b6472;font-size:12px;margin-top:3px}
       .rule{height:2px;background:${NAVY};margin:0 0 26px}
       .title{text-align:center;margin-bottom:24px}
-      .title h2{color:${NAVY};font-size:24px;letter-spacing:.5px}
+      .title h2{color:${NAVY};font-size:22px;letter-spacing:.5px}
       .title .ref{color:#6b7280;font-size:12.5px;margin-top:4px}
       .band{display:grid;grid-template-columns:1fr 1fr;gap:8px;background:#f3f4f6;border-radius:8px;padding:16px 20px;margin-bottom:22px}
       .band .k{font-size:10px;letter-spacing:.8px;color:#8a93a3;text-transform:uppercase;font-weight:700;margin-bottom:5px}
@@ -155,7 +171,7 @@ export default function TransacoesPage() {
       .amount .v{color:${NAVY};font-weight:800;font-size:28px}
       .obs-t{font-size:11px;letter-spacing:.8px;color:#8a93a3;text-transform:uppercase;font-weight:700;margin-bottom:8px}
       .obs{border:1px solid ${NAVY}33;border-radius:8px;padding:16px;min-height:50px;color:#333;font-size:12.5px}
-      .sign{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:120px}
+      .sign{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:92px}
       .sign .c{text-align:center}
       .sign .line{border-top:1px solid #9aa2b1;margin-bottom:8px}
       .sign .lbl{font-size:11px;color:#5b6472}
@@ -164,21 +180,26 @@ export default function TransacoesPage() {
     </style></head><body>
       <div class="head">${logo}<div><h1>${esc(company.name || "")}</h1><div class="nif">NIF: ${esc(company.nif || "—")}</div></div></div>
       <div class="rule"></div>
-      <div class="title"><h2>COMPROVATIVO DE TRANSFERÊNCIA INTERNA</h2><div class="ref">Referência: ${esc(e.entryNumber)}</div></div>
+      <div class="title"><h2>${esc(title)}</h2><div class="ref">Referência interna: ${esc(e.entryNumber)}</div></div>
       <div class="band">
         <div><div class="k">Data</div><div class="v">${esc(e.transactionDate)}</div></div>
-        <div><div class="k">Estado</div><div class="v">${e.status === "reversed" ? "Revertida" : "Confirmada"}</div></div>
-        <div><div class="k">Conta de origem</div><div class="v">${esc(accName(from?.accountId || ""))}</div></div>
-        <div><div class="k">Conta de destino</div><div class="v">${esc(accName(to?.accountId || ""))}</div></div>
+        <div><div class="k">Estado</div><div class="v">${statusLabel}</div></div>
+        <div><div class="k">Tipo de movimento</div><div class="v">${esc(movementLabel)}</div></div>
+        <div><div class="k">Conta${isTransfer ? "s" : ""}</div><div class="v">${esc(accountValue)}</div></div>
+        ${!isTransfer ? `<div><div class="k">Beneficiário / contraparte</div><div class="v">${esc(contactName(e.contactId))}</div></div>` : ""}
+        <div><div class="k">Documento associado</div><div class="v">${esc(documentValue)}</div></div>
+        ${e.reference ? `<div><div class="k">Referência bancária</div><div class="v">${esc(e.reference)}</div></div>` : ""}
       </div>
-      <div class="amount"><div class="k">Valor transferido</div><div class="v">${fmtAOA(amount)}</div></div>
+      <div class="amount"><div class="k">${isTransfer ? "Valor transferido" : "Valor do movimento"}</div><div class="v">${fmtAOA(amount)}</div></div>
       <div class="obs-t">Descrição</div>
       <div class="obs">${esc(e.description || "")}</div>
+      ${e.documentDate ? `<div class="obs-t" style="margin-top:14px">Data do documento</div><div class="obs">${esc(e.documentDate)}</div>` : ""}
+      ${e.documentNotes ? `<div class="obs-t" style="margin-top:14px">Observação</div><div class="obs">${esc(e.documentNotes)}</div>` : ""}
       <div class="sign">
-        <div class="c"><div class="line"></div><div class="lbl">Autorizado por</div></div>
-        <div class="c"><div class="line"></div><div class="lbl">Confirmado por</div></div>
+        <div class="c"><div class="line"></div><div class="lbl">Preparado / entregue por</div></div>
+        <div class="c"><div class="line"></div><div class="lbl">Conferido / recebido por</div></div>
       </div>
-      <div class="foot">${esc(e.entryNumber)} · Gerado por ZeroMaka</div>
+      <div class="foot">${esc(e.entryNumber)} · Documento interno para arquivo · Gerado por ZeroMaka</div>
     </body></html>`;
 
     const frame = document.createElement("iframe");
@@ -265,18 +286,18 @@ export default function TransacoesPage() {
               <div className={`text-sm font-semibold ${entryColor(e)}`}>
                 {INFLOW_TYPES.has(e.entryType) ? "+" : OUTFLOW_TYPES.has(e.entryType) ? "−" : ""}{fmtKz(entryAmount(e))}
               </div>
-              {!isReversed && (
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 flex items-center gap-1">
-                  {isConvertible(e) && (
-                    <button onClick={() => openConvert(e)} className="text-ink-500 hover:text-maka-400" title="Converter em empréstimo/adiantamento"><Landmark size={14} /></button>
-                  )}
-                  {e.entryType === "transfer" && (
-                    <button onClick={() => printTransfer(e)} className="text-ink-500 hover:text-maka-400" title="Imprimir comprovativo"><Printer size={14} /></button>
-                  )}
-                  <button onClick={() => { setShowReverse(e); setReverseReason(""); }}
-                    className="text-ink-500 hover:text-red-400" title="Reverter"><RotateCcw size={14} /></button>
-                </div>
-              )}
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => printEntry(e)} className="text-ink-500 hover:text-maka-400" title="Imprimir comprovativo interno"><Printer size={14} /></button>
+                {!isReversed && (
+                  <>
+                    {isConvertible(e) && (
+                      <button onClick={() => openConvert(e)} className="text-ink-500 hover:text-maka-400" title="Converter em empréstimo/adiantamento"><Landmark size={14} /></button>
+                    )}
+                    <button onClick={() => { setShowReverse(e); setReverseReason(""); }}
+                      className="text-ink-500 hover:text-red-400" title="Reverter"><RotateCcw size={14} /></button>
+                  </>
+                )}
+              </div>
             </div>
           );
         })}
@@ -340,7 +361,7 @@ export default function TransacoesPage() {
               <div className="pt-2 border-t border-ink-800">
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <div>
-                    <label className="label">Tipo de documento</label>
+                    <label className="label">Documento externo (se existir)</label>
                     <select className="input" value={docKind} onChange={e => setDocKind(e.target.value as EntryDocumentKind)}>
                       {Object.entries(ENTRY_DOCUMENT_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                     </select>

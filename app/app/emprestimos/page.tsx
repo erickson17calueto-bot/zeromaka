@@ -8,7 +8,7 @@ import { Plus, X, Wallet, HandCoins, ChevronDown, ChevronUp, Printer } from "luc
 type LoanKind = "employee_loan" | "salary_advance";
 const KIND_LABEL: Record<LoanKind, string> = { employee_loan: "Empréstimo", salary_advance: "Adiantamento salarial" };
 const CATEGORY_NAME: Record<LoanKind, string> = { employee_loan: "Empréstimos a funcionários", salary_advance: "Adiantamentos salariais" };
-const DOC_TITLE: Record<LoanKind, string> = { employee_loan: "TERMO DE EMPRÉSTIMO A FUNCIONÁRIO", salary_advance: "TERMO DE ADIANTAMENTO SALARIAL" };
+const DOC_TITLE: Record<LoanKind, string> = { employee_loan: "TERMO E RECIBO DE EMPRÉSTIMO A FUNCIONÁRIO", salary_advance: "TERMO E RECIBO DE ADIANTAMENTO SALARIAL" };
 
 const NAVY = "#26305c";
 const fmtAOA = (n: number) => new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " AOA";
@@ -263,7 +263,7 @@ export default function EmprestimosPage() {
                   {o.paidAmount > 0 && <div className="text-[10px] text-ink-500">devolvido {fmtKz(o.paidAmount)} de {fmtKz(o.originalAmount)}</div>}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={e => { e.stopPropagation(); printLoan(o); }} className="text-ink-500 hover:text-maka-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Imprimir termo">
+                  <button onClick={e => { e.stopPropagation(); printLoan(o); }} className="text-ink-500 hover:text-maka-400" title="Imprimir termo e recibo">
                     <Printer size={16} />
                   </button>
                   {canPay && (
