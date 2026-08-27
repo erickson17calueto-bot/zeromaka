@@ -77,6 +77,20 @@ type NormalizedRow = {
 
 /** Regra aprendida: organização_id já implícito (carregadas só para a org atual). */
 type MappingRule = { targetType: TargetType; field: "contact_id" | "category_id"; matchValue: string; valueId: string };
+const PARSE_TIMEOUT_MS = 60_000;
+
+async function postParse(form: FormData): Promise<{ response: Response; parsed: any }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PARSE_TIMEOUT_MS);
+  try {
+    const response = await fetch("/api/imports/parse", { method: "POST", body: form, signal: controller.signal });
+    const parsed = await response.json();
+    return { response, parsed };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 
 function ruleLookup(rules: MappingRule[], field: MappingRule["field"], target: TargetType, text: string): string | undefined {
   const wanted = keyOf(text);
@@ -438,10 +452,9 @@ export default function ImportacoesPage() {
       const form = new FormData();
       form.append("file", escolhido);
       form.append("mode", "inspect");
-      const response = await fetch("/api/imports/parse", { method: "POST", body: form });
+      const { response, parsed } = await postParse(form);
       if (!response.ok) return;
-      const data = await response.json();
-      const lista = (data.sheets || []) as string[];
+      const lista = (parsed.sheets || []) as string[];
       setSheets(lista);
       setSheetName(lista[0] || "");
     } catch {
@@ -458,9 +471,19 @@ export default function ImportacoesPage() {
     form.append("file", file);
     form.append("targetType", target);
     if (sheetName) form.append("sheetName", sheetName);
-    const response = await fetch("/api/imports/parse", { method: "POST", body: form });
-    const parsed = await response.json();
-    if (!response.ok) { setMessage(parsed.error || "Não foi possível ler o ficheiro"); setBusy(false); return; }
+    let response: Response;
+    let parsed: any;
+    try {
+      ({ response, parsed } = await postParse(form));
+    } catch (error) {
+      const timedOut = error instanceof DOMException && error.name === "AbortError";
+      setMessage(timedOut
+        ? "A leitura demorou mais de 60 segundos. Exporta apenas a folha necess\u00e1ria ou usa CSV."
+        : "N\u00e3o foi poss\u00edvel comunicar com o leitor do ficheiro.");
+      setBusy(false);
+      return;
+    }
+    if (!response.ok) { setMessage(parsed.error || "N\u00e3o foi poss\u00edvel ler o ficheiro"); setBusy(false); return; }
     const rawRows = parsed.rows as Record<string, string>[];
     // O nome da folha só é conhecido depois de ler o ficheiro; se o utilizador
     // não escolheu conta, ainda dá para a adivinhar a partir dele.

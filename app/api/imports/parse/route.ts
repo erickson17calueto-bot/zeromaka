@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { Workbook } from "exceljs";
-import { inflateSync } from "node:zlib";
+import { inflateRawSync, inflateSync } from "node:zlib";
 import { createClient } from "@/lib/supabase/server";
 import { encontrarLinhaCabecalho } from "@/lib/imports/header-row";
 
@@ -12,6 +12,12 @@ type Cell = string | number | boolean | Date | null | undefined;
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_ROWS = 5000;
+// O tamanho comprimido do .xlsx não chega para proteger a função: um ZIP
+// malformado pode expandir centenas de MB e prender o worker antes de a
+// interface receber a revisão. Fazemos um preflight leve antes do ExcelJS.
+const MAX_XLSX_UNCOMPRESSED_BYTES = 60 * 1024 * 1024;
+const MAX_XLSX_ENTRIES = 4000;
+const MAX_PDF_UNCOMPRESSED_BYTES = 60 * 1024 * 1024;
 
 function bad(status: number, message: string) {
   return Response.json({ error: message }, { status });
@@ -81,6 +87,85 @@ function parseCsv(input: string, delimiter: string): string[][] {
   return rows;
 }
 
+
+
+type ZipEntry = { name: string; method: number; compressedSize: number; uncompressedSize: number; localOffset: number };
+
+function zipEntries(buffer: Buffer): ZipEntry[] {
+  // EOCD fica nos últimos 65.535 bytes de um ZIP normal. Se não existir,
+  // deixamos o ExcelJS produzir a mensagem de ficheiro inválido no caminho
+  // normal, mas não tentamos percorrer bytes arbitrariamente.
+  const signature = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+  const start = Math.max(0, buffer.length - 65_557);
+  const eocd = buffer.lastIndexOf(signature, buffer.length - 22);
+  if (eocd < start) return [];
+  const count = buffer.readUInt16LE(eocd + 10);
+  const directorySize = buffer.readUInt32LE(eocd + 12);
+  const directoryOffset = buffer.readUInt32LE(eocd + 16);
+  if (count > MAX_XLSX_ENTRIES || directoryOffset + directorySize > buffer.length) {
+    throw new Error("Livro Excel demasiado complexo ou inválido");
+  }
+  const entries: ZipEntry[] = [];
+  let cursor = directoryOffset;
+  for (let i = 0; i < count; i++) {
+    if (cursor + 46 > buffer.length || buffer.readUInt32LE(cursor) !== 0x02014b50) break;
+    const method = buffer.readUInt16LE(cursor + 10);
+    const compressedSize = buffer.readUInt32LE(cursor + 20);
+    const uncompressedSize = buffer.readUInt32LE(cursor + 24);
+    const nameLength = buffer.readUInt16LE(cursor + 28);
+    const extraLength = buffer.readUInt16LE(cursor + 30);
+    const commentLength = buffer.readUInt16LE(cursor + 32);
+    const localOffset = buffer.readUInt32LE(cursor + 42);
+    const nameStart = cursor + 46;
+    const name = buffer.subarray(nameStart, nameStart + nameLength).toString("utf8");
+    entries.push({ name, method, compressedSize, uncompressedSize, localOffset });
+    cursor = nameStart + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function xlsxZipPreflight(buffer: Buffer): ZipEntry[] {
+  const entries = zipEntries(buffer);
+  const expanded = entries.reduce((total, entry) => total + entry.uncompressedSize, 0);
+  if (expanded > MAX_XLSX_UNCOMPRESSED_BYTES) {
+    throw new Error("Livro Excel demasiado grande depois de descomprimido; exporta apenas a folha necessária");
+  }
+  return entries;
+}
+
+function readZipEntry(buffer: Buffer, entry: ZipEntry): string {
+  if (entry.uncompressedSize > MAX_XLSX_UNCOMPRESSED_BYTES || entry.localOffset + 30 > buffer.length) {
+    throw new Error("Entrada Excel demasiado grande ou inválida");
+  }
+  const local = entry.localOffset;
+  if (buffer.readUInt32LE(local) !== 0x04034b50) throw new Error("Livro Excel inválido");
+  const nameLength = buffer.readUInt16LE(local + 26);
+  const extraLength = buffer.readUInt16LE(local + 28);
+  const start = local + 30 + nameLength + extraLength;
+  const end = start + entry.compressedSize;
+  if (end > buffer.length) throw new Error("Livro Excel truncado");
+  const compressed = buffer.subarray(start, end);
+  if (entry.method === 0) return compressed.toString("utf8");
+  if (entry.method === 8) return inflateRawSync(compressed, { maxOutputLength: MAX_XLSX_UNCOMPRESSED_BYTES }).toString("utf8");
+  throw new Error("Compressão Excel não suportada");
+}
+
+function xmlUnescape(value: string): string {
+  return value.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+function listXlsxSheets(buffer: Buffer): string[] {
+  const entries = xlsxZipPreflight(buffer);
+  const workbookEntry = entries.find(entry => entry.name === "xl/workbook.xml");
+  if (!workbookEntry) return [];
+  const xml = readZipEntry(buffer, workbookEntry);
+  const names: string[] = [];
+  const sheetRe = /<sheet\b[^>]*\bname=(['"])([\s\S]*?)\1/g;
+  let match: RegExpExecArray | null;
+  while ((match = sheetRe.exec(xml))) names.push(xmlUnescape(match[2]));
+  return names;
+}
+
 function rowsFromMatrix(matrix: string[][]): { headers: string[]; rows: Record<string, string>[] } {
   if (!matrix.length) return { headers: [], rows: [] };
   // Nem sempre a tabela começa na primeira linha: há folhas que abrem com um
@@ -127,6 +212,7 @@ function pdfStrings(content: string): string[] {
 function extractPdfStrings(buffer: Buffer): string[] {
   const source = buffer.toString("latin1");
   const contents: string[] = [source];
+  let expanded = 0;
   let cursor = 0;
   while (true) {
     const streamAt = source.indexOf("stream", cursor);
@@ -136,7 +222,15 @@ function extractPdfStrings(buffer: Buffer): string[] {
     if (source[start] === "\n") start++;
     const end = source.indexOf("endstream", start);
     if (end < 0) break;
-    try { contents.push(inflateSync(new Uint8Array(buffer.subarray(start, end))).toString("latin1")); } catch { /* stream não comprimido ou imagem */ }
+    try {
+      const inflated = inflateSync(new Uint8Array(buffer.subarray(start, end)), { maxOutputLength: MAX_PDF_UNCOMPRESSED_BYTES });
+      expanded += inflated.length;
+      if (expanded > MAX_PDF_UNCOMPRESSED_BYTES) throw new Error("PDF demasiado grande depois de descomprimido");
+      contents.push(inflated.toString("latin1"));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("PDF demasiado")) throw error;
+      /* stream não comprimido ou imagem */
+    }
     cursor = end + 9;
   }
   return contents.flatMap(pdfStrings);
@@ -189,6 +283,8 @@ async function parseWorkbook(buffer: Buffer, ext: string, sheetName?: string): P
     const matrix = parseCsv(text, delimiter);
     return { ...rowsFromMatrix(matrix), sheetName: null, sheets: [] };
   }
+  const entries = xlsxZipPreflight(buffer);
+  if (!entries.length) throw new Error("Livro Excel inválido ou sem estrutura ZIP");
   const workbook = new Workbook();
   await workbook.xlsx.load(buffer as any);
   // Um livro de contabilidade real traz várias folhas ("DIARIO CAIXA",
@@ -210,9 +306,7 @@ async function parseWorkbook(buffer: Buffer, ext: string, sheetName?: string): P
 
 /** Só os nomes das folhas com dados, para o seletor antes de ler o ficheiro. */
 async function listSheets(buffer: Buffer): Promise<string[]> {
-  const workbook = new Workbook();
-  await workbook.xlsx.load(buffer as any);
-  return workbook.worksheets.filter(ws => ws.rowCount > 0).map(ws => ws.name);
+  return listXlsxSheets(buffer);
 }
 
 export async function POST(req: NextRequest) {
@@ -236,15 +330,20 @@ export async function POST(req: NextRequest) {
   if (!ext) return bad(415, "Formato não suportado. Use .xlsx, .csv ou .pdf");
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  const startedAt = Date.now();
+  console.info("[imports/parse] start", { bytes: file.size, ext, targetType, inspectOnly });
 
   if (inspectOnly) {
     // Só faz sentido em Excel: CSV e PDF não têm folhas.
     if (ext !== "xlsx") return Response.json({ sheets: [] });
     try {
-      return Response.json({ sheets: await listSheets(buffer) });
-    } catch {
+      const sheets = await listSheets(buffer);
+      console.info("[imports/parse] inspect complete", { ext, sheets: sheets.length, ms: Date.now() - startedAt });
+      return Response.json({ sheets });
+    } catch (error) {
       // Falhar aqui não é fatal: o utilizador segue sem seletor e a leitura
       // normal a seguir dá a mensagem de erro adequada.
+      console.warn("[imports/parse] inspect failed", { ext, ms: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) });
       return Response.json({ sheets: [] });
     }
   }
@@ -261,6 +360,7 @@ export async function POST(req: NextRequest) {
         ? `A folha "${parsed.sheetName}" não tem linhas de dados. Escolhe outra folha ou confirma que existe uma linha de cabeçalhos.`
         : "Não foram encontradas linhas de dados. Confirme se a primeira linha contém os cabeçalhos.");
     }
+    console.info("[imports/parse] complete", { ext, targetType, rows: parsed.rows.length, ms: Date.now() - startedAt });
     return Response.json({
       sourceFileName: file.name,
       sourceFormat: ext,
@@ -273,6 +373,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível ler o ficheiro";
+    console.warn("[imports/parse] failed", { ext, targetType, ms: Date.now() - startedAt, error: message });
     return bad(422, "Não foi possível ler o ficheiro: " + message);
   }
 }
