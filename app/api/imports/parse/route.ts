@@ -196,16 +196,80 @@ function pdfLiteral(input: string): string {
   return out;
 }
 
+type PdfLiteral = { value: string; end: number };
+
+function readPdfLiteral(content: string, open: number): PdfLiteral | null {
+  let depth = 1;
+  let escaped = false;
+  for (let i = open + 1; i < content.length; i++) {
+    const ch = content[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === "(") { depth++; continue; }
+    if (ch === ")") {
+      depth--;
+      if (depth === 0) return { value: content.slice(open + 1, i), end: i };
+    }
+  }
+  return null;
+}
+
+function skipPdfWhitespace(content: string, start: number, end = content.length): number {
+  let i = start;
+  while (i < end && /\s/.test(content[i])) i++;
+  return i;
+}
+
 function pdfStrings(content: string): string[] {
   const found: string[] = [];
-  const direct = /\(((?:\\.|[^\\)])*)\)\s*Tj/g;
-  Array.from(content.matchAll(direct)).forEach(match => found.push(pdfLiteral(match[1])));
-  const arrays = /\[((?:\\.|[^\]])*)\]\s*TJ/g;
-  Array.from(content.matchAll(arrays)).forEach(match => {
-    const partRe = /\(((?:\\.|[^\\)])*)\)/g;
-    let part: RegExpExecArray | null;
-    while ((part = partRe.exec(match[1])) !== null) found.push(pdfLiteral(part[1]));
-  });
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] === "(") {
+      const literal = readPdfLiteral(content, i);
+      if (!literal) { i++; continue; }
+      const operator = skipPdfWhitespace(content, literal.end + 1);
+      if (content.slice(operator, operator + 2) === "Tj") found.push(pdfLiteral(literal.value));
+      i = literal.end + 1;
+      continue;
+    }
+    if (content[i] === "[") {
+      const arrayStart = i + 1;
+      let cursor = arrayStart;
+      let nesting = 0;
+      let arrayEnd = -1;
+      while (cursor < content.length) {
+        if (content[cursor] === "(") {
+          const literal = readPdfLiteral(content, cursor);
+          if (!literal) { cursor++; continue; }
+          cursor = literal.end + 1;
+          continue;
+        }
+        if (content[cursor] === "[") { nesting++; cursor++; continue; }
+        if (content[cursor] === "]") {
+          if (nesting === 0) { arrayEnd = cursor; break; }
+          nesting--;
+        }
+        cursor++;
+      }
+      if (arrayEnd >= 0) {
+        const operator = skipPdfWhitespace(content, arrayEnd + 1);
+        if (content.slice(operator, operator + 2) === "TJ") {
+          let part = arrayStart;
+          while (part < arrayEnd) {
+            if (content[part] === "(") {
+              const literal = readPdfLiteral(content, part);
+              if (!literal) { part++; continue; }
+              found.push(pdfLiteral(literal.value));
+              part = literal.end + 1;
+            } else part++;
+          }
+        }
+        i = arrayEnd + 1;
+        continue;
+      }
+    }
+    i++;
+  }
   return found.map(v => v.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 
@@ -352,7 +416,9 @@ export async function POST(req: NextRequest) {
     const parsed = ext === "pdf"
       ? { ...parsePdfRows(buffer), sheetName: null, sheets: [] as string[] }
       : await parseWorkbook(buffer, ext, sheetName);
+    console.info("[imports/parse] parsed", { ext, rows: parsed.rows.length, ms: Date.now() - startedAt });
     if (!parsed.rows.length && ext === "pdf") {
+      console.warn("[imports/parse] pdf has no text", { bytes: file.size, ms: Date.now() - startedAt });
       return bad(422, "Não foi encontrado texto no PDF. Este PDF pode ser digitalizado como imagem e precisa de OCR.");
     }
     if (!parsed.rows.length) {
