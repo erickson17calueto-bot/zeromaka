@@ -196,9 +196,10 @@ function pdfLiteral(input: string): string {
   return out;
 }
 
-type PdfLiteral = { value: string; end: number };
+type PdfLiteralSpan = { value: string; end: number };
+type PdfHexSpan = { value: string; end: number };
 
-function readPdfLiteral(content: string, open: number): PdfLiteral | null {
+function readPdfLiteral(content: string, open: number): PdfLiteralSpan | null {
   let depth = 1;
   let escaped = false;
   for (let i = open + 1; i < content.length; i++) {
@@ -214,13 +215,43 @@ function readPdfLiteral(content: string, open: number): PdfLiteral | null {
   return null;
 }
 
+function readPdfHex(content: string, open: number): PdfHexSpan | null {
+  const end = content.indexOf(">", open + 1);
+  if (end < 0) return null;
+  return { value: content.slice(open + 1, end), end };
+}
+
+function decodePdfHex(input: string, unicodeMap: Map<string, string>): string {
+  const clean = input.replace(/\s+/g, "");
+  let out = "";
+  for (let i = 0; i < clean.length; i += 4) {
+    const code = clean.slice(i, i + 4).padEnd(4, "0").toUpperCase();
+    const numeric = Number.parseInt(code, 16);
+    if (!Number.isFinite(numeric)) continue;
+    out += unicodeMap.get(code) || String.fromCharCode(numeric);
+  }
+  return out;
+}
+
+function pdfUnicodeMap(contents: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  const pairRe = /<([0-9A-Fa-f]{4})>\s+<([0-9A-Fa-f]{4})>/g;
+  for (const content of contents) {
+    let pair: RegExpExecArray | null;
+    while ((pair = pairRe.exec(content))) {
+      map.set(pair[1].toUpperCase(), String.fromCharCode(Number.parseInt(pair[2], 16)));
+    }
+  }
+  return map;
+}
+
 function skipPdfWhitespace(content: string, start: number, end = content.length): number {
   let i = start;
   while (i < end && /\s/.test(content[i])) i++;
   return i;
 }
 
-function pdfStrings(content: string): string[] {
+function pdfStrings(content: string, unicodeMap: Map<string, string>): string[] {
   const found: string[] = [];
   let i = 0;
   while (i < content.length) {
@@ -230,6 +261,14 @@ function pdfStrings(content: string): string[] {
       const operator = skipPdfWhitespace(content, literal.end + 1);
       if (content.slice(operator, operator + 2) === "Tj") found.push(pdfLiteral(literal.value));
       i = literal.end + 1;
+      continue;
+    }
+    if (content[i] === "<" && content[i + 1] !== "<") {
+      const hex = readPdfHex(content, i);
+      if (!hex) { i++; continue; }
+      const operator = skipPdfWhitespace(content, hex.end + 1);
+      if (content.slice(operator, operator + 2) === "Tj") found.push(decodePdfHex(hex.value, unicodeMap));
+      i = hex.end + 1;
       continue;
     }
     if (content[i] === "[") {
@@ -244,6 +283,12 @@ function pdfStrings(content: string): string[] {
           cursor = literal.end + 1;
           continue;
         }
+        if (content[cursor] === "<" && content[cursor + 1] !== "<") {
+          const hex = readPdfHex(content, cursor);
+          if (!hex) { cursor++; continue; }
+          cursor = hex.end + 1;
+          continue;
+        }
         if (content[cursor] === "[") { nesting++; cursor++; continue; }
         if (content[cursor] === "]") {
           if (nesting === 0) { arrayEnd = cursor; break; }
@@ -255,14 +300,21 @@ function pdfStrings(content: string): string[] {
         const operator = skipPdfWhitespace(content, arrayEnd + 1);
         if (content.slice(operator, operator + 2) === "TJ") {
           let part = arrayStart;
+          let text = "";
           while (part < arrayEnd) {
             if (content[part] === "(") {
               const literal = readPdfLiteral(content, part);
               if (!literal) { part++; continue; }
-              found.push(pdfLiteral(literal.value));
+              text += pdfLiteral(literal.value);
               part = literal.end + 1;
+            } else if (content[part] === "<" && content[part + 1] !== "<") {
+              const hex = readPdfHex(content, part);
+              if (!hex) { part++; continue; }
+              text += decodePdfHex(hex.value, unicodeMap);
+              part = hex.end + 1;
             } else part++;
           }
+          if (text) found.push(text);
         }
         i = arrayEnd + 1;
         continue;
@@ -293,11 +345,13 @@ function extractPdfStrings(buffer: Buffer): string[] {
       contents.push(inflated.toString("latin1"));
     } catch (error) {
       if (error instanceof Error && error.message.includes("PDF demasiado")) throw error;
-      /* stream não comprimido ou imagem */
+      const raw = buffer.subarray(start, end).toString("latin1");
+      if (/begincmap|\bBT\b|\bTJ\b/.test(raw)) contents.push(raw);
     }
     cursor = end + 9;
   }
-  return contents.flatMap(pdfStrings);
+  const unicodeMap = pdfUnicodeMap(contents);
+  return contents.flatMap(content => pdfStrings(content, unicodeMap));
 }
 
 function parsePdfRows(buffer: Buffer): { headers: string[]; rows: Record<string, string>[] } {
