@@ -439,7 +439,7 @@ export default function ImportacoesPage() {
   useEffect(() => { void loadBatches(); void loadMappingRules(); }, [orgId]);
 
   const loadRows = async (selected: ImportBatch) => {
-    setBusy(true); setMessage(""); setConfirmLaunch(false);
+    setBusy(true); setMessage(""); setConfirmLaunch(false); setAiMessage(""); setAiUsage(null);
     const { data, error } = await supabase.from("import_rows").select("*").eq("batch_id", selected.id).order("row_number");
     if (error) setMessage(error.message);
     else { setBatch(selected); setTarget(selected.target_type); setRows((data || []) as ImportRow[]); }
@@ -592,7 +592,7 @@ export default function ImportacoesPage() {
       }
       if (data) inserted.push(...data);
     }
-    setBatch(newBatch as ImportBatch); setRows(inserted as ImportRow[]); setFile(null);
+    setBatch(newBatch as ImportBatch); setRows(inserted as ImportRow[]); setFile(null); setAiMessage(""); setAiUsage(null);
     setSheets([]); setSheetName("");
     await loadBatches(); setBusy(false);
   };
@@ -824,7 +824,7 @@ export default function ImportacoesPage() {
     setSelected(new Set());
   };
 
-  const reset = () => { setBatch(null); setRows([]); setFile(null); setMessage(""); setSheets([]); setSheetName(""); setConfirmLaunch(false); setReimportWarning(null); setSearch(""); setSelected(new Set()); };
+  const reset = () => { setBatch(null); setRows([]); setFile(null); setMessage(""); setAiMessage(""); setAiUsage(null); setSheets([]); setSheetName(""); setConfirmLaunch(false); setReimportWarning(null); setSearch(""); setSelected(new Set()); };
   const analyzeWithClaude = async () => {
     if (!batch || !orgId || aiBusy) return;
     if (rows.some(row => row.decision === "keep")) {
