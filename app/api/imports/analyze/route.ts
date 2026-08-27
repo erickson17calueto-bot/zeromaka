@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
   });
   const apiKey = text(process.env.ANTHROPIC_API_KEY, 300);
   if (!apiKey) return bad(503, "A análise inteligente ainda não está configurada. Define ANTHROPIC_API_KEY no Vercel.");
-  const model = text(process.env.ANTHROPIC_MODEL, 100) || "claude-sonnet-4-20250514";
+  const model = text(process.env.ANTHROPIC_MODEL, 100) || "claude-sonnet-4-6";
   const startedAt = Date.now();
   try {
     const result = await callClaude(apiKey, model, promptFor(mode, targetType, text(body.fileName, 240), rows));
