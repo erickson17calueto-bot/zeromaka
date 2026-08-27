@@ -147,6 +147,7 @@ async function callClaude(apiKey: string, model: string, prompt: string): Promis
       console.warn("[imports/analyze] provider failed", { status: response.status, type: payload?.error?.type || "unknown" });
       if (response.status === 401) throw new Error("A chave do Claude foi rejeitada. Rode-a no Anthropic Console.");
       if (response.status === 429) throw new Error("O limite de utilização do Claude foi atingido. Tenta novamente mais tarde.");
+      if (response.status === 404) throw new Error("O modelo Claude configurado não foi encontrado. Remove ANTHROPIC_MODEL no Vercel ou define-o como claude-sonnet-4-6.");
       throw new Error("O Claude não conseguiu analisar este documento agora.");
     }
     const block = Array.isArray(payload?.content)

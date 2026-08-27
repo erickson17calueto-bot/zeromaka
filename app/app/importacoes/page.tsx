@@ -833,23 +833,48 @@ export default function ImportacoesPage() {
     }
     setAiBusy(true); setAiMessage(""); setAiUsage(null);
     try {
-      const response = await fetch("/api/imports/analyze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          orgId,
-          mode: "import",
-          targetType: batch.target_type,
-          fileName: batch.source_file_name,
-          rows: rows.slice(0, 500).map(row => ({
-            row_number: row.row_number,
-            raw_data: row.raw_data,
-            normalized_data: row.normalized_data,
-          })),
-        }),
-      });
-      const parsed = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(parsed.error || "Não foi possível analisar com Claude");
+      const requestRows = rows.slice(0, 500).map(row => ({
+        row_number: row.row_number,
+        raw_data: row.raw_data,
+        normalized_data: row.normalized_data,
+      }));
+      const chunks: Array<typeof requestRows> = [];
+      let chunk: typeof requestRows = [];
+      let chunkSize = 2;
+      for (const item of requestRows) {
+        const itemSize = JSON.stringify(item).length + 1;
+        if (chunk.length && chunkSize + itemSize > 120_000) {
+          chunks.push(chunk);
+          chunk = [];
+          chunkSize = 2;
+        }
+        chunk.push(item);
+        chunkSize += itemSize;
+      }
+      if (chunk.length) chunks.push(chunk);
+
+      const suggestions: AiSuggestion[] = [];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      for (const currentChunk of chunks) {
+        const response = await fetch("/api/imports/analyze", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            orgId,
+            mode: "import",
+            targetType: batch.target_type,
+            fileName: batch.source_file_name,
+            rows: currentChunk,
+          }),
+        });
+        const parsed = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(parsed.error || "Não foi possível analisar com Claude");
+        suggestions.push(...((parsed.suggestions || []) as AiSuggestion[]));
+        inputTokens += Number(parsed.usage?.input_tokens) || 0;
+        outputTokens += Number(parsed.usage?.output_tokens) || 0;
+      }
+      const parsed = { suggestions, usage: { input_tokens: inputTokens, output_tokens: outputTokens } };
       const byRow = new Map<number, AiSuggestion>((parsed.suggestions || []).map((item: AiSuggestion) => [Number(item.row_number), item]));
       const updated = rows.map(row => {
         const suggestion = byRow.get(row.row_number);
