@@ -88,6 +88,7 @@ export interface BankStatementLine {
   amount: number; direction: BankStatementDirection; description: string;
   reference?: string; externalId?: string; status: BankStatementStatus;
   matchedJournalEntryId?: string; matchedEntryDescription?: string;
+  metadata?: Record<string, unknown>;
   matchedAt?: string; importedAt: string;
 }
 export interface Transaction {

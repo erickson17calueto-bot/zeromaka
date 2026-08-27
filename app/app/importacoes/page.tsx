@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, FileText, Loader2, RotateCcw, ShieldCheck, Trash2, Upload, X } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useStore } from "@/lib/store";
 import { fmtDate, fmtKz, Account, Contact, FinancialCategory, JournalEntry, Obligation, OBLIGATION_KIND_LABEL } from "@/lib/data";
 import { suggestAccount, normalizar } from "@/lib/imports/suggest-account";
+import type { AiSuggestion, AiUsage } from "@/lib/imports/ai-types";
 import { suggestCategory } from "@/lib/imports/suggest-category";
 import { detectRowKind } from "@/lib/imports/row-kind";
 import { suggestContact, ContactMatchTier } from "@/lib/imports/suggest-contact";
@@ -73,6 +75,7 @@ type NormalizedRow = {
   // um sinal visual na revisão, nunca decide o destino nem publica sozinho.
   // Ver LOAN_KEYWORDS/isLoanHint mais abaixo.
   loan_hint?: boolean;
+  ai_suggestion?: AiSuggestion;
 };
 
 /** Regra aprendida: organização_id já implícito (carregadas só para a org atual). */
@@ -416,6 +419,9 @@ export default function ImportacoesPage() {
   const [confirmLaunch, setConfirmLaunch] = useState(false);
   // Regras aprendidas (contacto/categoria "lembrados" pelo utilizador nesta
   // organização) — carregadas uma vez, consultadas antes de qualquer sugestão.
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
   const [mappingRules, setMappingRules] = useState<MappingRule[]>([]);
 
   const loadBatches = async () => {
@@ -819,6 +825,78 @@ export default function ImportacoesPage() {
   };
 
   const reset = () => { setBatch(null); setRows([]); setFile(null); setMessage(""); setSheets([]); setSheetName(""); setConfirmLaunch(false); setReimportWarning(null); setSearch(""); setSelected(new Set()); };
+  const analyzeWithClaude = async () => {
+    if (!batch || !orgId || aiBusy) return;
+    if (rows.some(row => row.decision === "keep")) {
+      setAiMessage("Analisa antes de aprovar linhas; as aprovações existentes não são alteradas.");
+      return;
+    }
+    setAiBusy(true); setAiMessage(""); setAiUsage(null);
+    try {
+      const response = await fetch("/api/imports/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          orgId,
+          mode: "import",
+          targetType: batch.target_type,
+          fileName: batch.source_file_name,
+          rows: rows.slice(0, 500).map(row => ({
+            row_number: row.row_number,
+            raw_data: row.raw_data,
+            normalized_data: row.normalized_data,
+          })),
+        }),
+      });
+      const parsed = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parsed.error || "Não foi possível analisar com Claude");
+      const byRow = new Map<number, AiSuggestion>((parsed.suggestions || []).map((item: AiSuggestion) => [Number(item.row_number), item]));
+      const updated = rows.map(row => {
+        const suggestion = byRow.get(row.row_number);
+        if (!suggestion) return row;
+        const normalized: NormalizedRow = { ...row.normalized_data, ai_suggestion: suggestion };
+        const explicitDirection = Object.entries(row.raw_data).some(([key, value]) =>
+          /tipo|direc|entrada|saida|saída|credito|crédito|debito|débito/i.test(key) && clean(value),
+        );
+        if (batch.target_type === "transaction" && suggestion.direction && !explicitDirection) normalized.direction = suggestion.direction;
+        if (!normalized.document_kind && suggestion.document_kind) normalized.document_kind = suggestion.document_kind;
+        if ((!normalized.description || normalized.description === "Importação de ficheiro") && suggestion.suggested_description) normalized.description = suggestion.suggested_description;
+        if (!normalized.account_id && suggestion.account) {
+          const account = findAccount(accounts, suggestion.account);
+          if (account) { normalized.account_id = account.id; normalized.account_name = account.name; }
+        }
+        if (!normalized.category_id && suggestion.category) {
+          const category = findCategory(categories, suggestion.category, batch.target_type);
+          if (category) { normalized.category_id = category.id; normalized.category_name = category.name; }
+        }
+        if (!normalized.contact_id && suggestion.contact) {
+          const match = findContact(contacts, suggestion.contact);
+          if (match.contact && (match.tier === "nif" || match.tier === "phone" || match.tier === "exact_name")) {
+            normalized.contact_id = match.contact.id; normalized.contact_name = match.contact.name; normalized.contact_match_tier = match.tier;
+          }
+        }
+        return { ...row, normalized_data: normalized };
+      });
+      setRows(updated);
+      const changed = updated.filter(row => byRow.has(row.row_number));
+      for (let i = 0; i < changed.length; i += 50) {
+        const result = await Promise.all(changed.slice(i, i + 50).map(row =>
+          supabase.from("import_rows").update({ normalized_data: row.normalized_data }).eq("id", row.id),
+        ));
+        const failed = result.find(item => item.error);
+        if (failed?.error) throw new Error(failed.error.message);
+      }
+      setAiUsage(parsed.usage || null);
+      const applied = updated.filter(row => byRow.has(row.row_number)).length;
+      setAiMessage("Claude analisou " + applied + " linha(s). As sugestões ficaram visíveis para revisão; nada foi lançado.");
+    } catch (error) {
+      setAiMessage(error instanceof Error ? error.message : "Não foi possível analisar com Claude");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+
 
   const label = batch ? TARGET_LABEL[batch.target_type] : TARGET_LABEL[target];
   const pendingApproved = rows.filter(r => r.decision === "keep" && r.validation_status === "ready").length;
@@ -943,6 +1021,19 @@ export default function ImportacoesPage() {
             <div className="flex gap-2 text-xs"><span className="rounded-full bg-emerald-500/10 text-emerald-400 px-2 py-1">{counts.ready} válidas</span><span className="rounded-full bg-amber-500/10 text-amber-400 px-2 py-1">{counts.duplicate} duplicadas</span><span className="rounded-full bg-red-500/10 text-red-400 px-2 py-1">{counts.error} erros</span></div>
             <button className="btn-ghost" onClick={reset}><X size={14} /> Nova</button>
           </section>
+          <section className="card p-4 flex flex-wrap items-center gap-3 border-maka-500/20">
+            <Sparkles size={18} className="text-maka-400 shrink-0" />
+            <div className="flex-1 min-w-[220px]">
+              <div className="text-sm font-semibold">Leitura inteligente (Claude)</div>
+              <div className="text-[11px] text-ink-500">Sugere classificação, conta, categoria e contacto. Não lança nada sem a tua aprovação.</div>
+            </div>
+            <button className="btn-ghost" disabled={busy || aiBusy || rows.some(row => row.decision === "keep")} onClick={() => void analyzeWithClaude()}>
+              {aiBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {aiBusy ? "A analisar…" : "Analisar com Claude"}
+            </button>
+            {aiUsage && <span className="text-[10px] text-ink-500">{aiUsage.input_tokens || 0} tokens de entrada · {aiUsage.output_tokens || 0} de saída</span>}
+            {aiMessage && <p className="basis-full text-xs text-ink-400">{aiMessage}</p>}
+          </section>
 
           <section className="rounded-xl border border-maka-500/30 bg-maka-500/5 p-4 flex gap-3">
             <ShieldCheck size={19} className="text-maka-400 shrink-0 mt-0.5" />
@@ -1060,6 +1151,7 @@ export default function ImportacoesPage() {
                 <div key={row.id} className="p-3">
                   <div className="flex items-center gap-3">
                     <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelected(row.id)} aria-label={`Selecionar linha ${row.row_number}`} />
+                    {n.ai_suggestion && <span className="text-[10px] text-violet-300" title={n.ai_suggestion.reason}>IA {Math.round(n.ai_suggestion.confidence * 100)}%</span>}
                     <button className="text-ink-500" onClick={() => setExpanded(isOpen ? null : row.id)}><ChevronDown size={15} className={isOpen ? "rotate-180" : ""} /></button>
                     <span className="text-[11px] text-ink-500 w-8">#{row.row_number}</span>
                     <div className="min-w-0 flex-1"><div className="text-sm truncate">{n.description || "Sem descrição"}</div><div className="text-[11px] text-ink-500">{target === "transaction" ? n.date : (n.issue_date || "sem emissão")} {n.contact_name ? " · " + n.contact_name : ""} {n.account_name ? " · " + n.account_name : ""}</div></div>
@@ -1084,6 +1176,11 @@ export default function ImportacoesPage() {
                   {n.balance_status && n.balance_status !== "reconciled" && n.balance_status !== "no_movement" && n.balance_status !== "unverifiable" && (
                     <div className="ml-11 mt-1 text-xs text-ink-500">
                       Saldo esperado {fmtKz(n.balance_expected || 0)}, diferença de {fmtKz(Math.abs(n.balance_difference || 0))} face ao declarado no ficheiro.
+                    </div>
+                  )}
+                  {n.ai_suggestion && (
+                    <div className="ml-11 mt-2 rounded-lg border border-violet-500/20 bg-violet-500/5 p-2 text-xs text-ink-400">
+                      <span className="text-violet-300 font-semibold">Sugestão Claude:</span> {n.ai_suggestion.classification} · {Math.round(n.ai_suggestion.confidence * 100)}% de confiança — {n.ai_suggestion.reason}
                     </div>
                   )}
                   {isOpen && (

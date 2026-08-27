@@ -117,7 +117,7 @@ interface Store {
   createRecurringTransaction: (d: { accountId: string; kind: "income" | "expense"; amount: number; description: string; categoryId?: string; contactId?: string; frequency: "weekly" | "monthly" | "quarterly" | "yearly"; startDate: string; nextRunDate: string; active?: boolean }) => Promise<string | null>;
   setRecurringActive: (id: string, active: boolean) => Promise<string | null>;
   generateDueRecurringTransactions: (asOfDate?: string) => Promise<number | null>;
-  importBankStatementLines: (lines: { accountId: string; transactionDate: string; amount: number; direction: BankStatementDirection; description: string; reference?: string; externalId?: string }[]) => Promise<string | null>;
+  importBankStatementLines: (lines: { accountId: string; transactionDate: string; amount: number; direction: BankStatementDirection; description: string; reference?: string; externalId?: string; metadata?: Record<string, unknown> }[]) => Promise<string | null>;
   matchBankStatementLine: (lineId: string, journalEntryId: string) => Promise<string | null>;
   unmatchBankStatementLine: (lineId: string) => Promise<string | null>;
   ignoreBankStatementLine: (lineId: string) => Promise<string | null>;
@@ -187,6 +187,7 @@ const dbToBankStatementLine = (r: any): BankStatementLine => ({
   externalId: r.external_id || undefined, status: r.status,
   matchedJournalEntryId: r.matched_journal_entry_id || undefined,
   matchedAt: r.matched_at || undefined, importedAt: r.imported_at,
+  metadata: (r.metadata || {}) as Record<string, unknown>,
 });
 const dbToCategory = (r: any): FinancialCategory => ({
   id: r.id, organizationId: r.organization_id, name: r.name,
@@ -1092,6 +1093,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       organization_id: orgIdRef.current!, created_by: userIdRef.current, account_id: line.accountId,
       transaction_date: line.transactionDate, amount: line.amount, direction: line.direction,
       description: line.description, reference: line.reference || null, external_id: line.externalId || null,
+      metadata: line.metadata || {},
     }))).select("*");
     if (error) { toast("Erro ao importar extrato: " + error.message, "warn"); return error.message; }
     if (data) setBankStatementLines(prev => [...data.map(dbToBankStatementLine), ...prev]);
