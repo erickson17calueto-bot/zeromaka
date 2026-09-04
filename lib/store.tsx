@@ -1235,9 +1235,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!entry) { toast("Movimento não encontrado", "warn"); return; }
     if (entry.status === "reversed") { toast("Este movimento já foi revertido", "warn"); return; }
 
-    // Optimistic: mark as reversed
+    // Mantém a UI responsiva, mas só confirma ao utilizador depois de o RPC
+    // aceitar a operação (por exemplo, uma devolução já liquidada pode
+    // bloquear a reversão de um empréstimo).
     setJournalEntries(prev => prev.map(e => e.id === entryId ? { ...e, status: "reversed" as const, reversedAt: new Date().toISOString() } : e));
-    toast("Movimento revertido", "ok");
 
     sb().rpc("reverse_journal_entry", { p_entry_id: entryId, p_reason: reason })
       .then(({ error }) => {
@@ -1245,7 +1246,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           toast("Erro na reversão: " + error.message, "warn");
           setJournalEntries(prev => prev.map(e => e.id === entryId ? { ...e, status: "posted" as const, reversedAt: undefined } : e));
         } else {
-          refreshEntries();
+          toast("Movimento revertido", "ok");
+          // A reversão de um desembolso também cancela a obrigação ligada;
+          // recarregar a cadeia completa evita deixar /emprestimos com o
+          // estado antigo até ao próximo refresh.
+          refreshObligations();
         }
       });
   };
