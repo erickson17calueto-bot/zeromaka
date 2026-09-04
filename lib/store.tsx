@@ -331,7 +331,9 @@ function entryToTransactions(entry: JournalEntry): Transaction[] {
   let txType: TxType;
   if (meta.type === "capital_in") txType = "capital_in";
   else if (meta.type === "capital_out") txType = "capital_out";
-  else if (entry.entryType === "income") txType = "income";
+  // No modelo compatível antigo, estes tipos próprios mantêm a direção de
+  // caixa sem os tratarem como receita/despesa operacional na DRE.
+  else if (entry.entryType === "income" || entry.entryType === "loan_repayment" || entry.entryType === "salary_advance_repayment") txType = "income";
   else txType = "expense";
 
   return [{

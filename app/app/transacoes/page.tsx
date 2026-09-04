@@ -48,7 +48,7 @@ export default function TransacoesPage() {
     if (err) { setCvErr(err); return; }
     setConverting(null);
   };
-  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer">("all");
+  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "loan">("all");
   const [accFilter, setAccFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -82,7 +82,10 @@ export default function TransacoesPage() {
     let list = journalEntries.filter(e =>
       e.entryType !== "opening_balance" && e.entryType !== "adjustment" && e.entryType !== "reversal"
     );
-    if (filter !== "all") list = list.filter(e => e.entryType === filter);
+    if (filter === "income") list = list.filter(e => INFLOW_TYPES.has(e.entryType));
+    if (filter === "expense") list = list.filter(e => OUTFLOW_TYPES.has(e.entryType));
+    if (filter === "transfer") list = list.filter(e => e.entryType === "transfer");
+    if (filter === "loan") list = list.filter(e => LOAN_ENTRY_TYPES.has(e.entryType));
     if (accFilter) list = list.filter(e => e.lines.some(l => l.accountId === accFilter));
     if (dateFrom) list = list.filter(e => e.transactionDate >= dateFrom);
     if (dateTo) list = list.filter(e => e.transactionDate <= dateTo);
@@ -244,10 +247,10 @@ export default function TransacoesPage() {
       </header>
 
       <div className="flex flex-wrap gap-2 items-center">
-        {(["all", "income", "expense", "transfer"] as const).map(v => (
+        {(["all", "income", "expense", "transfer", "loan"] as const).map(v => (
           <button key={v} onClick={() => { setFilter(v); setPage(0); }}
             className={`rounded-full px-4 py-1.5 text-sm border transition-colors ${filter === v ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400 hover:border-ink-500"}`}>
-            {{ all: "Todos", income: "Receitas", expense: "Despesas", transfer: "Transferências" }[v]}
+            {{ all: "Todos", income: "Receitas", expense: "Despesas", transfer: "Transferências", loan: "Empréstimos / adiantamentos" }[v]}
           </button>
         ))}
         <div className="flex-1" />

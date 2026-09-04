@@ -27,7 +27,10 @@ export interface Account {
   isArchived?: boolean; currency?: string;
 }
 
-export type JournalEntryType = "income" | "expense" | "transfer" | "opening_balance" | "adjustment" | "reversal";
+export type JournalEntryType =
+  | "income" | "expense" | "transfer" | "opening_balance" | "adjustment" | "reversal"
+  | "loan_disbursement" | "salary_advance_disbursement"
+  | "loan_repayment" | "salary_advance_repayment";
 export type JournalStatus = "posted" | "reversed";
 export type LineDirection = "debit" | "credit";
 export type FinCategoryType = "income" | "expense";

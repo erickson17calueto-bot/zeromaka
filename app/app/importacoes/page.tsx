@@ -273,7 +273,11 @@ function existingDuplicateItems(target: TargetType, entries: JournalEntry[], obl
       id: "existing:" + e.id,
       date: e.transactionDate,
       amount: e.lines[0]?.amount,
-      direction: e.entryType === "income" ? "income" as const : e.entryType === "expense" ? "expense" as const : null,
+      direction: (e.entryType === "income" || e.entryType === "loan_repayment" || e.entryType === "salary_advance_repayment")
+        ? "income" as const
+        : (e.entryType === "expense" || e.entryType === "loan_disbursement" || e.entryType === "salary_advance_disbursement")
+          ? "expense" as const
+          : null,
       description: e.description,
       accountId: e.lines[0]?.accountId,
       contactId: e.contactId,
