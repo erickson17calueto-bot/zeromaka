@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { createClient } from "./supabase/client";
 import {
   Account, Transaction, TxType, Badge, UserProfile, Company, Contact, Requisition,
-  JournalEntry, JournalLine, FinancialCategory, FinCategoryType, EntryDocumentKind,
+  JournalEntry, JournalLine, JournalEntryEdit, FinancialCategory, FinCategoryType, EntryDocumentKind,
   Obligation, Settlement, SettlementAllocation, CollectionInteraction,
   ObligationDirection, ObligationDocumentKind, SettlementDirection,
   CollectionChannel, CollectionInteractionType, CollectionOutcome,
@@ -95,6 +95,7 @@ interface Store {
   deleteAccount: (id: string) => void;
   updateAccountOpeningBalance: (accountId: string, newAmount: number, reason: string, newDate?: string) => Promise<string | null>;
   addTransaction: (t: Omit<Transaction, "id">) => void;
+  editJournalEntry: (id: string, p: JournalEntryEdit, reason: string) => Promise<string | null>;
   editTransaction: (id: string, p: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
   transfer: (from: string, to: string, amount: number, date?: string) => string | null;
@@ -1180,8 +1181,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const editJournalEntry: Store["editJournalEntry"] = async (id, p, reason) => {
+    const patch: Record<string, unknown> = {};
+    const has = (key: keyof JournalEntryEdit) => Object.prototype.hasOwnProperty.call(p, key);
+    if (has("amount")) patch.amount = p.amount;
+    if (has("description")) patch.description = p.description;
+    if (has("date")) patch.date = p.date;
+    if (has("accountId")) patch.account_id = p.accountId;
+    if (has("fromAccountId")) patch.from_account_id = p.fromAccountId;
+    if (has("toAccountId")) patch.to_account_id = p.toAccountId;
+    if (has("categoryId")) patch.category_id = p.categoryId;
+    if (has("contactId")) patch.contact_id = p.contactId;
+    if (has("reference")) patch.reference = p.reference;
+    if (has("documentKind")) patch.document_kind = p.documentKind;
+    if (has("documentNumber")) patch.document_number = p.documentNumber;
+    if (has("documentDate")) patch.document_date = p.documentDate;
+    if (has("documentNotes")) patch.document_notes = p.documentNotes;
+
+    const { error } = await sb().rpc("edit_journal_entry", {
+      p_entry_id: id,
+      p_patch: patch,
+      p_reason: reason,
+    });
+    if (error) { toast("Erro ao editar lançamento: " + error.message, "warn"); return error.message; }
+    await Promise.all([refreshEntries(), refreshAvailable()]);
+    toast("Lançamento atualizado e registado na auditoria", "ok");
+    return null;
+  };
+
   const editTransaction: Store["editTransaction"] = (_id, _p) => {
-    toast("Lançamentos confirmados não podem ser editados. Reverta e crie um novo.", "warn");
+    toast("Use o botão Editar no lançamento para guardar o motivo e o rasto de auditoria.", "warn");
   };
 
   const deleteTransaction: Store["deleteTransaction"] = (id) => {
@@ -1672,7 +1701,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       reserves, reserveCategories, reserveMovements, finSettings, trueAvailable,
       refreshAvailable, createReserve, increaseReserve, releaseReserve, cancelReserve, updateFinSettings,
       updateCompany, addAccount, editAccount, deleteAccount, updateAccountOpeningBalance,
-      addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
+      addTransaction, editJournalEntry, editTransaction, deleteTransaction, transfer, reverseEntry,
       addContact, editContact, removeContact,
       addRequisition, editRequisition, deleteRequisition, approveRequisition, disburseRequisition, rejectRequisition,
       addCapital, updateProfile, gainXp,

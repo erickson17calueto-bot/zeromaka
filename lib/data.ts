@@ -73,6 +73,24 @@ export interface JournalEntry {
   metadata: Record<string, unknown>;
   lines: JournalLine[];
 }
+
+// Campos permitidos para editar um lançamento já confirmado. A API converte
+// estes nomes para snake_case e grava o antes/depois na auditoria.
+export interface JournalEntryEdit {
+  amount?: number;
+  description?: string;
+  date?: string;
+  accountId?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
+  categoryId?: string | null;
+  contactId?: string | null;
+  reference?: string | null;
+  documentKind?: EntryDocumentKind | null;
+  documentNumber?: string | null;
+  documentDate?: string | null;
+  documentNotes?: string | null;
+}
 export type RecurringFrequency = "weekly" | "monthly" | "quarterly" | "yearly";
 export type RecurringTransactionKind = "income" | "expense";
 
