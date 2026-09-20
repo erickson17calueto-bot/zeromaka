@@ -198,11 +198,11 @@ export default function Sidebar() {
           className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
       )}
 
-      <aside className={`flex shrink-0 flex-col border-r border-ink-800 bg-ink-950 p-4 fixed md:sticky inset-y-0 left-0 top-0 h-screen overflow-y-auto z-50
+      <aside className={`flex shrink-0 flex-col border-r border-ink-800 bg-[#0b0c11] p-3 fixed md:sticky inset-y-0 left-0 top-0 h-screen overflow-y-auto z-50
         transition-transform md:transition-[width] duration-300 ease-out w-64
         ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         ${collapsed ? "md:w-[76px]" : "md:w-64"}`}>
-      <div className={`flex items-center gap-2 pb-4 ${collapsed ? "md:justify-center md:px-0" : "px-2"}`}>
+      <div className={`flex items-center gap-2 pb-4 border-b border-white/[0.07] ${collapsed ? "md:justify-center md:px-0" : "px-2"}`}>
         <div className="h-9 w-9 rounded-lg bg-maka-500 flex items-center justify-center font-display text-onbrand text-lg shrink-0 transition-transform duration-200 hover:scale-105">Z</div>
         <div className={`min-w-0 ${collapsed ? "md:hidden" : ""}`}>
           <div className="font-display text-lg leading-none tracking-tight">ZERO<span className="text-maka-500">MAKA</span></div>
@@ -224,7 +224,7 @@ export default function Sidebar() {
       </button>
 
       {!collapsed && (
-        <div className="card p-3 mb-4">
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 mb-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-full bg-maka-500/15 border border-maka-500/40 flex items-center justify-center text-maka-400 font-bold text-sm shrink-0">{initials}</div>
             <div className="min-w-0">

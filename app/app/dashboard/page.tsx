@@ -2,7 +2,7 @@
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
-import { fmtKz, fmtDate, daysUntil, Obligation } from "@/lib/data";
+import { fmtKz, fmtDate, daysUntil, Obligation, Transaction } from "@/lib/data";
 import {
   Landmark, Smartphone, Banknote, TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight,
   BellRing, Receipt, Scale, ArrowDownLeft, ArrowUpRight, HandCoins, Wallet, PiggyBank, CalendarClock,
@@ -10,6 +10,7 @@ import {
 import TrueAvailableBlock from "@/components/TrueAvailableBlock";
 import StatCard, { SectionHead } from "@/components/StatCard";
 import GettingStarted from "@/components/GettingStarted";
+import CashFlowChart, { CashFlowPoint } from "@/components/CashFlowChart";
 
 const ACC_STYLE = {
   bank: { icon: Landmark, tint: "text-maka-400", chip: "bg-maka-500/10", label: "Conta bancária" },
@@ -30,6 +31,35 @@ function DirTag({ direction }: { direction: "receivable" | "payable" }) {
   );
 }
 
+function sixMonthCashFlow(transactions: Transaction[], now: Date): CashFlowPoint[] {
+  const monthly = new Map<string, { income: number; expense: number }>();
+  const keys: string[] = [];
+  const formatter = new Intl.DateTimeFormat("pt-AO", { month: "short" });
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const month = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
+    keys.push(key);
+    monthly.set(key, { income: 0, expense: 0 });
+  }
+
+  for (const transaction of transactions) {
+    const values = monthly.get(transaction.date.slice(0, 7));
+    if (!values) continue;
+    if (transaction.type === "income") values.income += transaction.amount;
+    if (transaction.type === "expense") values.expense += transaction.amount;
+  }
+
+  return keys.map((key) => {
+    const [year, month] = key.split("-").map(Number);
+    const values = monthly.get(key)!;
+    return {
+      label: formatter.format(new Date(year, month - 1, 1)).replace(".", ""),
+      ...values,
+    };
+  });
+}
+
 export default function Dashboard() {
   const { accounts, transactions, obligations, settlements, contacts, profile } = useStore();
   const [showAlert, setShowAlert] = useState(false);
@@ -43,6 +73,8 @@ export default function Dashboard() {
 
   const totalBalance = accounts.reduce((s, a) => s + a.currentBalance, 0);
   const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
   const month = transactions.filter((t) => { const d = new Date(t.date); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
   const income = month.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const expense = month.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
@@ -72,6 +104,10 @@ export default function Dashboard() {
   const liquidityRisk = payable7 > totalBalance;
   const liquidoReal = totalBalance - taxOwed;
   const resultadoMes = income - expense;
+  const cashFlowPoints = useMemo(
+    () => sixMonthCashFlow(transactions, new Date(currentYear, currentMonth, 1)),
+    [transactions, currentYear, currentMonth],
+  );
 
   const upcoming = useMemo(() => [...open].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 5), [open]);
   const topOverdueClients = useMemo(() => {
@@ -83,16 +119,43 @@ export default function Dashboard() {
   const docs = (n: number) => `${n} documento${n !== 1 ? "s" : ""}`;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      <header className="flex items-end justify-between flex-wrap gap-3">
+    <div className="max-w-7xl mx-auto space-y-8">
+      <header className="dashboard-hero rise">
         <div>
-          <h1 className="h-page">Bom dia, {profile.name.split(" ")[0]}</h1>
-          <p className="text-sm text-ink-400 mt-1">Aqui está o pulso do teu negócio hoje.</p>
+          <div className="dashboard-eyebrow">Resumo financeiro</div>
+          <h1 className="h-page mt-2">Bom dia, {profile.name.split(" ")[0]}</h1>
+          <p className="text-sm text-ink-400 mt-1">Consulta o caixa, os compromissos e o que exige atenção hoje.</p>
         </div>
-        <Link href="/app/transacoes" className="btn-primary">Novo lançamento <ArrowRight size={15} /></Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/app/importacoes" className="btn-ghost">Importar extrato</Link>
+          <Link href="/app/transacoes" className="btn-primary">Novo lançamento <ArrowRight size={15} /></Link>
+        </div>
+        <nav className="dashboard-tabs" aria-label="Atalhos financeiros">
+          <Link href="/app/dashboard" className="dashboard-tab dashboard-tab-active">Visão geral</Link>
+          <Link href="/app/contas" className="dashboard-tab">Contas</Link>
+          <Link href="/app/faturas" className="dashboard-tab">A receber</Link>
+          <Link href="/app/contas-a-pagar" className="dashboard-tab">A pagar</Link>
+        </nav>
       </header>
 
       <GettingStarted />
+
+      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4 rise">
+        <article className="balance-focus-card lg:col-span-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="h-9 w-9 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center text-maka-300"><Wallet size={18} /></div>
+            <span className="balance-focus-status">Em contas</span>
+          </div>
+          <div className="mt-7 text-[12px] text-ink-400">Saldo consolidado</div>
+          <div className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight tabular-nums text-white">{fmtKz(totalBalance)}</div>
+          <p className="mt-3 text-[12px] leading-relaxed text-ink-300 max-w-sm">Soma das contas bancárias, carteiras móveis e caixa físico. Não inclui valores ainda por receber.</p>
+          <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-ink-300">{accounts.length} conta{accounts.length !== 1 ? "s" : ""} ativa{accounts.length !== 1 ? "s" : ""}</span>
+            <Link href="/app/contas" className="text-[11px] font-semibold text-white hover:text-maka-200 inline-flex items-center gap-1">Ver contas <ArrowRight size={13} /></Link>
+          </div>
+        </article>
+        <div className="lg:col-span-3"><CashFlowChart points={cashFlowPoints} /></div>
+      </section>
 
       <TrueAvailableBlock />
 

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
+import AppTopbar from "@/components/AppTopbar";
 import { useStore } from "@/lib/store";
 import { LayoutDashboard, Wallet, ArrowLeftRight, FileText, Trophy, FileSpreadsheet } from "lucide-react";
 import { ROUTES } from "@/lib/routes";
@@ -33,9 +34,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!authed || !orgId) return null;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="app-workspace flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 min-w-0 p-4 pt-20 md:p-8 pb-24 md:pb-8">{children}</main>
+      <div className="min-w-0 flex-1 flex flex-col">
+        <AppTopbar />
+        <main className="min-w-0 flex-1 px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-10">{children}</main>
+      </div>
 
       <nav className="md:hidden fixed bottom-0 inset-x-0 border-t border-ink-800 bg-ink-950/95 backdrop-blur flex">
         {MOBILE_NAV.map(({ href, label, icon: Icon }) => (

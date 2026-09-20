@@ -7,10 +7,10 @@
    ink-950 = fundo da página, ink-100 = texto mais forte. */
 :root {
   color-scheme: dark;
-  --ink-950: #0c0a09; --ink-900: #1c1917; --ink-800: #292524; --ink-700: #44403c;
-  --ink-600: #57534e; --ink-500: #78716c; --ink-400: #a8a29e; --ink-300: #d6d3d1;
-  --ink-200: #e7e5e4; --ink-100: #f5f5f4;
-  --scroll: #44403c;
+  --ink-950: #090a0f; --ink-900: #12141d; --ink-800: #20232e; --ink-700: #363a49;
+  --ink-600: #5a6072; --ink-500: #858b9d; --ink-400: #aeb3c2; --ink-300: #d5d8e1;
+  --ink-200: #e6e8ef; --ink-100: #f6f7fb;
+  --scroll: #3d4253;
   /* Borda em alfa em vez de cinzento sólido: acompanha o que estiver por
      baixo e lê-se como fio de cabelo, não como caixa desenhada. É o que
      apify.com e firecrawl.dev usam (rgba sobre a superfície, nunca um
@@ -37,6 +37,47 @@ body {
      amadora ao lado de uma bem acabada. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.app-workspace {
+  background:
+    radial-gradient(900px 520px at 88% -18%, rgb(126 87 194 / .12), transparent 62%),
+    radial-gradient(760px 480px at 36% 102%, rgb(249 115 22 / .055), transparent 70%),
+    var(--ink-950);
+}
+
+:root.light .app-workspace { background: var(--ink-950); }
+
+.workspace-topbar {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--ink-950) 82%, transparent);
+  backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.topbar-action {
+  height: 32px;
+  width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-500);
+  border-radius: 8px;
+  transition: color .2s ease, background-color .2s ease;
+}
+
+.topbar-action:hover { color: var(--ink-100); background: rgb(255 255 255 / .06); }
+
+@media (max-width: 767px) {
+  .workspace-topbar { min-height: 56px; padding: 0 16px 0 64px; }
 }
 
 /* Algarismos de largura fixa. Numa app financeira isto não é detalhe
@@ -103,7 +144,7 @@ select:focus-visible, [tabindex]:focus-visible {
    bolhudo nos cartões pequenos de indicador. */
 .card { @apply bg-ink-900 border rounded-[14px];
   border-color: var(--hairline);
-  box-shadow: 0 1px 2px rgba(0,0,0,.28), 0 4px 10px rgba(0,0,0,.22), 0 14px 28px -6px rgba(0,0,0,.28);
+  box-shadow: 0 1px 2px rgba(0,0,0,.22), 0 10px 28px -14px rgba(0,0,0,.45);
   transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
 /* Só cartões acionáveis levantam ao passar o cursor */
 a.card:hover, button.card:hover, .card-hover:hover {
@@ -226,3 +267,88 @@ a.card:hover, button.card:hover, .card-hover:hover {
    dá a firmeza, não a gordura da letra. A 700 o título grita; a 600 com
    -0.025em lê-se com a mesma presença e bastante mais classe. */
 .h-page { @apply font-semibold text-2xl md:text-3xl tracking-tight; }
+
+/* Dashboard financeiro: inspiração na hierarquia das referências, mas com
+   métricas e rotas reais do ZeroMaka. */
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 4px 0 0;
+}
+
+.dashboard-eyebrow {
+  color: var(--ink-500);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.dashboard-tabs {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: rgb(255 255 255 / .035);
+  padding: 3px;
+}
+
+.dashboard-tab {
+  border-radius: 999px;
+  color: var(--ink-400);
+  font-size: 12px;
+  line-height: 1;
+  padding: 8px 12px;
+  white-space: nowrap;
+  transition: background-color .2s ease, color .2s ease;
+}
+
+.dashboard-tab:hover { color: var(--ink-100); }
+.dashboard-tab-active { color: #17111d; background: #ead7ff; font-weight: 600; }
+
+.balance-focus-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgb(205 172 255 / .24);
+  border-radius: 14px;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 103% 98%, rgb(193 139 255 / .30), transparent 38%),
+    radial-gradient(circle at 90% 12%, rgb(105 72 159 / .40), transparent 34%),
+    linear-gradient(135deg, #1c1327 0%, #171421 58%, #12141d 100%);
+  box-shadow: 0 12px 30px -16px rgb(0 0 0 / .60);
+}
+
+.balance-focus-card::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: auto -38px -80px auto;
+  width: 210px;
+  height: 210px;
+  border: 1px solid rgb(255 255 255 / .12);
+  border-radius: 999px;
+  box-shadow: 0 0 0 28px rgb(255 255 255 / .025), 0 0 0 56px rgb(255 255 255 / .018);
+}
+
+.balance-focus-card > * { position: relative; z-index: 1; }
+.balance-focus-status { border: 1px solid rgb(255 255 255 / .15); border-radius: 999px; color: var(--ink-300); font-size: 10px; font-weight: 600; padding: 4px 8px; }
+
+.cashflow-card { background: linear-gradient(145deg, rgb(20 22 31 / .96), rgb(16 18 25 / .96)); }
+.cashflow-bar { width: min(20px, 42%); min-height: 4px; border-radius: 4px 4px 2px 2px; transition: filter .2s ease, transform .2s ease; }
+.cashflow-bar:hover { filter: brightness(1.18); transform: translateY(-2px); }
+.cashflow-income { background: linear-gradient(180deg, #d8b4fe, #a855f7); box-shadow: 0 0 14px rgb(168 85 247 / .18); }
+.cashflow-expense { background: linear-gradient(180deg, #fda4af, #ef4444); opacity: .82; }
+
+@media (max-width: 639px) {
+  .dashboard-hero { grid-template-columns: 1fr; }
+  .dashboard-hero > div:last-of-type { justify-content: flex-start; }
+  .dashboard-tabs { width: 100%; }
+  .dashboard-tab { flex: 1; text-align: center; padding-inline: 10px; }
+}
