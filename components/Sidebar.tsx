@@ -245,7 +245,7 @@ export default function Sidebar() {
             </button>
 
             {moreOpen ? (
-              <div role="menu" className="fixed bottom-20 left-3 right-3 z-[70] max-h-[68vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#13151d] p-3 shadow-2xl md:absolute md:bottom-0 md:left-full md:right-auto md:ml-3 md:w-[520px]">
+              <div role="menu" className="sidebar-more-panel fixed bottom-20 left-3 right-3 z-[70] max-h-[68vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#13151d] p-3 shadow-2xl md:absolute md:bottom-0 md:left-full md:right-auto md:ml-3 md:w-[520px]">
                 <div className="mb-2 flex items-center justify-between px-2 py-1">
                   <div>
                     <div className="text-sm font-semibold">Todas as áreas</div>
