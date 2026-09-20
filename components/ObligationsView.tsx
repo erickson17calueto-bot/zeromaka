@@ -208,27 +208,28 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <header className="flex items-end justify-between flex-wrap gap-3">
+    <div className="max-w-6xl mx-auto space-y-6">
+      <header className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl tracking-tight">{isRec ? "Contas a receber" : "Contas a pagar"}</h1>
-          <p className="text-sm text-ink-400 mt-1">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[.16em] text-ink-600">Obrigações</p>
+          <h1 className="h-page">{isRec ? "Contas a receber" : "Contas a pagar"}</h1>
+          <p className="text-[12px] text-ink-500 mt-1.5">
             {totals.count} documento{totals.count !== 1 ? "s" : ""} em aberto · controlo interno, não é documento fiscal certificado
           </p>
         </div>
         <button onClick={openNew} className="btn-primary"><Plus size={15} /> {isRec ? "Nova conta a receber" : "Nova conta a pagar"}</button>
       </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div className="card p-4"><div className="text-xs text-ink-500">{isRec ? "Total a receber" : "Total a pagar"}</div><div className="text-xl font-semibold mt-1">{fmtKz(totals.outstanding)}</div></div>
-        <div className="card p-4"><div className="text-xs text-ink-500">Vencido</div><div className="text-xl font-semibold mt-1 text-red-400">{fmtKz(totals.overdue)}</div></div>
-        <div className="card p-4"><div className="text-xs text-ink-500">Vence em 7 dias</div><div className="text-xl font-semibold mt-1 text-amber-400">{fmtKz(totals.due7)}</div></div>
+      <div className="app-metric-strip">
+        <div className="app-metric"><div className="app-metric-label">{isRec ? "Total a receber" : "Total a pagar"}</div><div className="app-metric-value">{fmtKz(totals.outstanding)}</div></div>
+        <div className="app-metric"><div className="app-metric-label">Vencido</div><div className="app-metric-value text-red-400">{fmtKz(totals.overdue)}</div></div>
+        <div className="app-metric"><div className="app-metric-label">Vence em 7 dias</div><div className="app-metric-value text-amber-400">{fmtKz(totals.due7)}</div></div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="segmented-tabs" aria-label="Filtrar documentos">
         {(["all", "open", "overdue", "paid", "cancelled"] as const).map(v => (
           <button key={v} onClick={() => setFilter(v)}
-            className={`rounded-full px-4 py-1.5 text-sm border transition-colors ${filter === v ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400 hover:border-ink-500"}`}>
+            className={`segmented-tab ${filter === v ? "segmented-tab-active" : ""}`}>
             {{ all: "Todos", open: "Em aberto", overdue: "Vencidos", paid: "Pagos", cancelled: "Cancelados" }[v]}
           </button>
         ))}
@@ -241,7 +242,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
           const canCancel = o.lifecycleStatus === "open" && o.paidAmount === 0;
           const canEdit = o.lifecycleStatus === "open";
           return (
-            <div key={o.id} className={`p-4 flex items-center gap-3 group ${o.lifecycleStatus === "cancelled" ? "opacity-50" : ""}`}>
+            <div key={o.id} className={`p-4 flex flex-col sm:flex-row sm:items-center gap-3 group ${o.lifecycleStatus === "cancelled" ? "opacity-50" : ""}`}>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium truncate">
                   {contactName(o.contactId)}
@@ -259,7 +260,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                 <div className="text-sm font-semibold">{fmtKz(o.outstandingAmount)}</div>
                 {o.paidAmount > 0 && <div className="text-[10px] text-ink-500">de {fmtKz(o.originalAmount)}</div>}
               </div>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[o.financialStatus]}`}>{FIN_STATUS_LABEL[o.financialStatus]}</span>
+              <span className={`pill shrink-0 text-[10px] ${STATUS_STYLE[o.financialStatus]}`}>{FIN_STATUS_LABEL[o.financialStatus]}</span>
               <div className="flex items-center gap-1 shrink-0">
                 {obSettlements(o).length > 0 && <button onClick={() => printSettlement(o, obSettlements(o)[0])} className="text-ink-500 hover:text-maka-400" title="Imprimir comprovativo do último pagamento"><Printer size={15} /></button>}
                 {canPay && <button onClick={() => openPay(o)} className="text-ink-500 hover:text-emerald-400" title="Registar pagamento"><Wallet size={15} /></button>}
@@ -277,7 +278,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-display text-lg">{isRec ? "Nova conta a receber" : "Nova conta a pagar"}</h3>
+              <h3 className="text-lg font-semibold">{isRec ? "Nova conta a receber" : "Nova conta a pagar"}</h3>
               <button onClick={() => setShowNew(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-4">
@@ -349,7 +350,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-display text-lg">Editar documento</h3>
+              <h3 className="text-lg font-semibold">Editar documento</h3>
               <button onClick={() => setEditFor(null)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-4">
@@ -406,7 +407,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="card max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-display text-lg">Registar {isRec ? "recebimento" : "pagamento"}</h3>
+              <h3 className="text-lg font-semibold">Registar {isRec ? "recebimento" : "pagamento"}</h3>
               <button onClick={() => setPayFor(null)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <p className="text-sm text-ink-300 mb-1">{contactName(payFor.contactId)} · <span className="text-ink-500">{payFor.internalNumber}</span></p>
@@ -453,7 +454,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
         return (
           <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
             <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-              <h3 className="font-display text-lg text-amber-400 mb-1">Reverter pagamento</h3>
+              <h3 className="text-lg font-semibold text-amber-400 mb-1">Reverter pagamento</h3>
               <p className="text-sm text-ink-300 mb-4">{reverseFor.internalNumber} — escolhe qual dos pagamentos abaixo reverter. Repõe o saldo pendente e anula o movimento no livro; o histórico é preservado.</p>
               {posted.length === 0 && <p className="text-sm text-ink-500 mb-4">Sem pagamentos registados para este documento.</p>}
               <div className="space-y-2 mb-4">
@@ -492,7 +493,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
       {cancelFor && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="card max-w-md w-full p-6">
-            <h3 className="font-display text-lg text-red-400 mb-3">Cancelar documento</h3>
+            <h3 className="mb-3 text-lg font-semibold text-red-400">Cancelar documento</h3>
             <p className="text-sm text-ink-300 mb-4">{cancelFor.internalNumber} — o documento fica no histórico como cancelado. Só é possível sem pagamentos.</p>
             <div className="mb-4"><label className="label">Motivo</label><input className="input" value={actionReason} onChange={e => setActionReason(e.target.value)} placeholder="Ex.: emitido por engano" /></div>
             <div className="flex gap-2 justify-end">

@@ -1,28 +1,27 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStore } from "@/lib/store";
-import { levelFor } from "@/lib/data";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, FileText, ClipboardList, Landmark,
-  Users, BarChart3, Trophy, Medal, Flame, HandCoins,
-  Receipt, PiggyBank, RefreshCw, GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet, ChevronDown, PanelLeftClose, PanelLeftOpen, Menu, X, Tags, Layers,
+  Users, BarChart3, Trophy, Medal, HandCoins, Receipt, PiggyBank, RefreshCw,
+  GitCompareArrows, TrendingUp, Paperclip, ShieldCheck, Wrench, FileSpreadsheet,
+  PanelLeftClose, PanelLeftOpen, Menu, X, Tags, Layers, MoreHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import AccountMenu from "@/components/AccountMenu";
 import { ROUTES } from "@/lib/routes";
 
-// Tipado explicitamente: sem isto, juntar SECTIONS com ADMIN_SECTION (que não
-// tem badges) faz o TypeScript inferir um tipo sem `badge` e perder o campo.
 type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string };
 type NavSection = { title: string; items: NavItem[] };
 
 const SECTIONS: NavSection[] = [
   { title: "Finanças", items: [
-    { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
+    { href: ROUTES.dashboard, label: "Visão geral", icon: LayoutDashboard },
     { href: "/app/contas", label: "Contas", icon: Wallet },
-    { href: "/app/transacoes", label: "Transações", icon: ArrowLeftRight },
+    { href: "/app/transacoes", label: "Movimentos", icon: ArrowLeftRight },
     { href: "/app/faturas", label: "A receber", icon: FileText, badge: "overdue" },
     { href: "/app/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
     { href: "/app/contas-a-pagar", label: "A pagar", icon: Receipt, badge: "payable" },
@@ -33,42 +32,28 @@ const SECTIONS: NavSection[] = [
     { href: "/app/documentos", label: "Documentos e alertas", icon: Paperclip },
     { href: "/app/importacoes", label: "Importar ficheiros", icon: FileSpreadsheet },
     { href: "/app/governanca", label: "Governança", icon: ShieldCheck },
-    { href: "/app/patrimonio", label: "Ativos e centros", icon: Wrench }
+    { href: "/app/patrimonio", label: "Ativos e centros", icon: Wrench },
   ]},
   { title: "Operações", items: [
     { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
     { href: "/app/capital", label: "Capital dos sócios", icon: Landmark },
     { href: "/app/emprestimos", label: "Empréstimos e adiantamentos", icon: HandCoins },
-    { href: "/app/contactos", label: "Contactos", icon: Users }
+    { href: "/app/contactos", label: "Contactos", icon: Users },
   ]},
   { title: "Análise", items: [
     { href: "/app/relatorios", label: "Relatórios", icon: BarChart3 },
     { href: "/app/conquistas", label: "Conquistas", icon: Trophy },
-    { href: "/app/ranking", label: "Ranking", icon: Medal }
-  ]}
+    { href: "/app/ranking", label: "Ranking", icon: Medal },
+  ]},
 ];
 
-// Secção separada porque só aparece a quem é owner/admin DESTA organização.
-// A página revalida a permissão por si (e o servidor também, em cada RPC) —
-// esconder aqui é só para não mostrar um caminho sem saída a quem não pode.
 const ADMIN_SECTION: NavSection = { title: "Administração", items: [
-  { href: "/app/administracao", label: "Empresas e equipa", icon: ShieldCheck }
+  { href: "/app/administracao", label: "Empresas e equipa", icon: ShieldCheck },
 ]};
 
-// Navegação reduzida para os 9 papéis de âmbito estreito — mostra só as
-// páginas que a pessoa realmente consegue ver, para não a mandar para telas
-// em branco por falta de permissão (o RLS bloqueia os dados; isto é só para
-// não mostrar o caminho). Espelha a matriz de role_resource_permissions no
-// servidor — se aquela mudar, isto tem de mudar também. Ausência de entrada
-// (ex.: 'convidado_temp') significa sem nenhuma secção própria, só os itens
-// fixos no fundo (Categorias, Empresa, Perfil).
 const NARROW_ROLE_SECTIONS: Partial<Record<string, NavSection[]>> = {
-  requisitante: [{ title: "Requisições", items: [
-    { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList },
-  ]}],
-  aprovador: [{ title: "Requisições", items: [
-    { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" },
-  ]}],
+  requisitante: [{ title: "Requisições", items: [{ href: "/app/requisicoes", label: "Requisições", icon: ClipboardList }] }],
+  aprovador: [{ title: "Requisições", items: [{ href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "req" }] }],
   cobrador: [{ title: "Cobranças", items: [
     { href: "/app/faturas", label: "A receber", icon: FileText, badge: "overdue" },
     { href: "/app/cobrancas", label: "Cobranças", icon: HandCoins, badge: "overdue" },
@@ -84,221 +69,212 @@ const NARROW_ROLE_SECTIONS: Partial<Record<string, NavSection[]>> = {
   ]}],
   caixa: [{ title: "Caixa", items: [
     { href: "/app/contas", label: "Contas", icon: Wallet },
-    { href: "/app/transacoes", label: "Transações", icon: ArrowLeftRight },
-    // Sem isto, o desembolso de requisições/empréstimos (Fase 3/4 da
-    // evolução de permissões) fica sem forma de chegar lá pela navegação —
-    // a capacidade existe no servidor mas ninguém consegue clicar nela.
+    { href: "/app/transacoes", label: "Movimentos", icon: ArrowLeftRight },
     { href: "/app/requisicoes", label: "Requisições", icon: ClipboardList, badge: "disburse" },
   ]}],
   contabilista: [{ title: "Finanças", items: [
-    { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
-    { href: "/app/transacoes", label: "Transações", icon: ArrowLeftRight },
+    { href: ROUTES.dashboard, label: "Visão geral", icon: LayoutDashboard },
+    { href: "/app/transacoes", label: "Movimentos", icon: ArrowLeftRight },
     { href: "/app/relatorios", label: "Relatórios", icon: BarChart3 },
   ]}],
   auditor: [{ title: "Auditoria", items: [
-    { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
+    { href: ROUTES.dashboard, label: "Visão geral", icon: LayoutDashboard },
     { href: "/app/relatorios", label: "Relatórios", icon: BarChart3 },
   ]}],
 };
 
+const PRIMARY_ORDER = [
+  ROUTES.dashboard,
+  "/app/transacoes",
+  "/app/faturas",
+  "/app/contas-a-pagar",
+  "/app/requisicoes",
+  "/app/relatorios",
+];
+
 const COLLAPSED_KEY = "zeromaka_sidebar_collapsed";
-const CLOSED_SECTIONS_KEY = "zeromaka_sidebar_closed_sections";
 
 export default function Sidebar() {
   const path = usePathname();
   const { profile, obligations, requisitions, logout, orgId, organizations, switchOrganization } = useStore();
-  const currentOrg = organizations.find(o => o.id === orgId);
-  // A secção de administração só aparece a quem é owner/admin desta
-  // organização. Não é a proteção real — essa está na página e em cada RPC do
-  // servidor; aqui é só para não mostrar um caminho sem saída.
+  const currentOrg = organizations.find((organization) => organization.id === orgId);
   const isAdmin = currentOrg?.role === "owner" || currentOrg?.role === "admin";
-  // Papéis de âmbito estreito usam uma navegação própria, bem mais curta —
-  // ver NARROW_ROLE_SECTIONS. Os 5 papéis "clássicos" (owner/admin/finance/
-  // viewer/member) continuam a ver a navegação completa, como sempre viram.
   const narrowSections = currentOrg?.role ? NARROW_ROLE_SECTIONS[currentOrg.role] : undefined;
-  // "Painel de grupo" só faz sentido a quem tem mais do que uma empresa E vê
-  // a navegação completa — não faz sentido oferecê-lo a um papel de âmbito
-  // estreito, que já não vê dados financeiros de UMA empresa, quanto mais
-  // comparar várias.
   const baseSections = narrowSections ?? (organizations.length > 1
-    ? SECTIONS.map(sec => sec.title === "Análise"
-        ? { ...sec, items: [{ href: "/app/grupo", label: "Painel de grupo", icon: Layers }, ...sec.items] }
-        : sec)
+    ? SECTIONS.map((section) => section.title === "Análise"
+      ? { ...section, items: [{ href: "/app/grupo", label: "Painel de grupo", icon: Layers }, ...section.items] }
+      : section)
     : SECTIONS);
   const visibleSections = isAdmin ? [...baseSections, ADMIN_SECTION] : baseSections;
-  const [switching, setSwitching] = useState(false);
-  const lv = levelFor(profile.xp);
-  const isOverdue = (s: string) => s === "overdue" || s === "partial_overdue";
-  const overdue = obligations.filter((o) => o.direction === "receivable" && isOverdue(o.financialStatus)).length;
-  const payableOverdue = obligations.filter((o) => o.direction === "payable" && isOverdue(o.financialStatus)).length;
-  const pendingReq = requisitions.filter((r) => r.status === "pendente").length;
-  // Fila de caixa é "a aguardar desembolso", não "pendente" — caixa não
-  // aprova, só executa; contar pendentes no badge dela mostraria trabalho
-  // que não é dela e escondia o que é (ver Fase 3/4 da evolução de permissões).
-  const awaitingDisbursement = requisitions.filter((r) => r.status === "aguardando_desembolso").length;
-  const initials = profile.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-  const badgeVal = (k?: string) => k === "overdue" ? overdue : k === "payable" ? payableOverdue : k === "req" ? pendingReq : k === "disburse" ? awaitingDisbursement : 0;
 
-  // Barra encolhida (só ícones) e secções fechadas — ambas persistidas.
+  const [switching, setSwitching] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [closed, setClosed] = useState<string[]>([]);
-  // Menu em drawer no telemóvel — a barra lateral fica escondida por defeito (hidden md:flex),
-  // por isso no ecrã pequeno é preciso um botão a abrir/fechar como overlay.
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  const isOverdue = (status: string) => status === "overdue" || status === "partial_overdue";
+  const overdue = obligations.filter((item) => item.direction === "receivable" && isOverdue(item.financialStatus)).length;
+  const payableOverdue = obligations.filter((item) => item.direction === "payable" && isOverdue(item.financialStatus)).length;
+  const pendingReq = requisitions.filter((item) => item.status === "pendente").length;
+  const awaitingDisbursement = requisitions.filter((item) => item.status === "aguardando_desembolso").length;
+  const initials = profile.name.split(" ").map((word) => word[0]).slice(0, 2).join("").toUpperCase();
+  const badgeValue = (kind?: string) => kind === "overdue" ? overdue
+    : kind === "payable" ? payableOverdue
+      : kind === "req" ? pendingReq
+        : kind === "disburse" ? awaitingDisbursement
+          : 0;
+
+  const flatItems = visibleSections.flatMap((section) => section.items);
+  const orderedPrimaryItems = PRIMARY_ORDER
+    .map((href) => flatItems.find((item) => item.href === href))
+    .filter((item): item is NavItem => Boolean(item));
+  const remainingPrimaryItems = flatItems.filter((item) => !orderedPrimaryItems.some((candidate) => candidate.href === item.href));
+  const primaryItems = [...orderedPrimaryItems, ...remainingPrimaryItems].slice(0, 6);
+  const primaryHrefs = new Set(primaryItems.map((item) => item.href));
+  const additionalGroups = visibleSections
+    .map((section) => ({ ...section, items: section.items.filter((item) => !primaryHrefs.has(item.href)) }))
+    .filter((section) => section.items.length > 0);
+  const moreGroups = [...additionalGroups, { title: "Configuração", items: [{ href: "/app/categorias", label: "Categorias", icon: Tags }] }];
+  const moreIsActive = moreGroups.some((section) => section.items.some((item) => item.href === path));
 
   useEffect(() => {
-    try {
-      setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
-      const raw = localStorage.getItem(CLOSED_SECTIONS_KEY);
-      if (raw) setClosed(JSON.parse(raw));
-    } catch { /* ignore */ }
+    try { setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1"); } catch { /* sem armazenamento */ }
   }, []);
 
-  useEffect(() => { setMobileOpen(false); }, [path]);
+  useEffect(() => {
+    setMobileOpen(false);
+    setMoreOpen(false);
+  }, [path]);
+
+  useEffect(() => {
+    const openMenu = () => setMobileOpen(true);
+    window.addEventListener("zeromaka:open-menu", openMenu);
+    return () => window.removeEventListener("zeromaka:open-menu", openMenu);
+  }, []);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) setMoreOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setMoreOpen(false); };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [moreOpen]);
 
   const toggleCollapsed = () => {
-    const v = !collapsed;
-    setCollapsed(v);
-    try { localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0"); } catch { /* ignore */ }
-  };
-  const toggleSection = (title: string) => {
-    const v = closed.includes(title) ? closed.filter(t => t !== title) : [...closed, title];
-    setClosed(v);
-    try { localStorage.setItem(CLOSED_SECTIONS_KEY, JSON.stringify(v)); } catch { /* ignore */ }
+    const next = !collapsed;
+    setCollapsed(next);
+    setMoreOpen(false);
+    try { localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0"); } catch { /* sem armazenamento */ }
   };
 
-  const navLink = (href: string, label: string, Icon: typeof Wallet, bv: number, active: boolean) => (
-    <Link key={href} href={href} title={collapsed ? label : undefined}
-      className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200
-        ${collapsed ? "justify-center px-0" : ""}
-        ${active ? "bg-maka-500/15 text-maka-400 font-semibold" : "text-ink-300 hover:bg-ink-900 hover:text-ink-100 hover:translate-x-0.5"}`}>
-      {/* marcador do item ativo */}
-      {active && !collapsed && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-maka-500" />}
-      <Icon size={17} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />
-      {!collapsed && <span className="flex-1 truncate">{label}</span>}
-      {bv > 0 && (
-        <span className={`rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5
-          ${collapsed ? "absolute top-0.5 right-1 px-1 py-0" : ""}`}>{bv}</span>
-      )}
-    </Link>
-  );
+  const navLink = (item: NavItem, active: boolean, compact = false) => {
+    const Icon = item.icon;
+    const count = badgeValue(item.badge);
+    return (
+      <Link key={item.href} href={item.href} title={collapsed && !compact ? item.label : undefined}
+        className={`sidebar-link ${active ? "sidebar-link-active" : ""} ${collapsed && !compact ? "md:justify-center md:px-0" : ""}`}>
+        <Icon size={16} className="shrink-0" />
+        <span className={`min-w-0 flex-1 truncate ${collapsed && !compact ? "md:hidden" : ""}`}>{item.label}</span>
+        {count > 0 && (
+          <span className={`${collapsed && !compact ? "md:absolute md:right-1 md:top-1" : ""} rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-400`}>
+            {count}
+          </span>
+        )}
+      </Link>
+    );
+  };
 
   return (
     <>
-      {/* Botão para abrir o menu no telemóvel — a barra lateral fica fora do ecrã por defeito */}
-      <button onClick={() => setMobileOpen(true)}
-        aria-label="Abrir menu"
-        className="md:hidden fixed top-3 left-3 z-40 flex items-center justify-center h-10 w-10 rounded-lg bg-ink-950 border border-ink-800 text-ink-200 shadow-lg">
-        <Menu size={19} />
+      <button onClick={() => setMobileOpen(true)} aria-label="Abrir menu"
+        className="md:hidden fixed top-3 left-3 z-40 flex h-9 w-9 items-center justify-center rounded-lg border border-ink-800 bg-ink-950 text-ink-300 shadow-lg">
+        <Menu size={18} />
       </button>
 
-      {/* Fundo escurecido atrás do menu, só visível no telemóvel quando aberto */}
-      {mobileOpen && (
-        <div onClick={() => setMobileOpen(false)}
-          className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
-      )}
+      {mobileOpen ? (
+        <div onClick={() => setMobileOpen(false)} className="md:hidden fixed inset-0 z-40 bg-black/65 backdrop-blur-sm" />
+      ) : null}
 
-      <aside className={`flex shrink-0 flex-col border-r border-ink-800 bg-[#0b0c11] p-3 fixed md:sticky inset-y-0 left-0 top-0 h-screen overflow-y-auto z-50
-        transition-transform md:transition-[width] duration-300 ease-out w-64
-        ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
-        ${collapsed ? "md:w-[76px]" : "md:w-64"}`}>
-      <div className={`flex items-center gap-2 pb-4 border-b border-white/[0.07] ${collapsed ? "md:justify-center md:px-0" : "px-2"}`}>
-        <div className="h-9 w-9 rounded-lg bg-maka-500 flex items-center justify-center font-display text-onbrand text-lg shrink-0 transition-transform duration-200 hover:scale-105">Z</div>
-        <div className={`min-w-0 ${collapsed ? "md:hidden" : ""}`}>
-          <div className="font-display text-lg leading-none tracking-tight">ZERO<span className="text-maka-500">MAKA</span></div>
-          <div className="text-[10px] text-ink-500 tracking-widest uppercase truncate">Sem maka, só lucro</div>
-        </div>
-        <button onClick={() => setMobileOpen(false)} aria-label="Fechar menu"
-          className="md:hidden ml-auto flex items-center justify-center h-8 w-8 rounded-lg text-ink-400 hover:bg-ink-900 hover:text-ink-100">
-          <X size={17} />
-        </button>
-      </div>
-
-      {/* Encolher / expandir a barra para dar espaço ao conteúdo */}
-      <button onClick={toggleCollapsed}
-        title={collapsed ? "Expandir menu" : "Encolher menu"}
-        aria-label={collapsed ? "Expandir menu" : "Encolher menu"}
-        className={`hidden md:flex items-center gap-2 rounded-lg border border-ink-800 text-ink-400 hover:text-ink-100 hover:bg-ink-900
-          transition-colors py-1.5 mb-3 ${collapsed ? "justify-center px-0" : "px-3"}`}>
-        {collapsed ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /><span className="text-[11px] font-medium">Encolher</span></>}
-      </button>
-
-      {!collapsed && (
-        <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 mb-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-maka-500/15 border border-maka-500/40 flex items-center justify-center text-maka-400 font-bold text-sm shrink-0">{initials}</div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold truncate">{profile.name}</div>
-              <div className="text-[11px] text-ink-400">Nível {lv.level} · {lv.name}</div>
-            </div>
+      <aside className={`app-sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-[224px] shrink-0 flex-col border-r border-white/[0.07] bg-[#0b0c11] px-3 py-3
+        transition-transform duration-300 md:sticky md:top-0 md:transition-[width] ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+        ${collapsed ? "md:w-[72px]" : "md:w-[224px]"}`}>
+        <div className={`flex h-11 items-center gap-2.5 ${collapsed ? "md:justify-center" : "px-1"}`}>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-maka-500 font-display text-sm text-onbrand">Z</div>
+          <div className={`min-w-0 ${collapsed ? "md:hidden" : ""}`}>
+            <div className="font-semibold leading-none tracking-tight">Zero<span className="text-maka-400">Maka</span></div>
+            <div className="mt-1 text-[9px] uppercase tracking-[.16em] text-ink-600">Gestão financeira</div>
           </div>
-          <div className="mt-3 h-1.5 rounded-full bg-ink-800 overflow-hidden">
-            <div className="h-full bg-maka-500 transition-all duration-500" style={{ width: `${Math.round(lv.progress * 100)}%` }} />
-          </div>
-          <div className="mt-1.5 flex items-center justify-between text-[11px] text-ink-400">
-            <span>{profile.xp.toLocaleString("pt-AO")} XP</span>
-            <span className="flex items-center gap-1 text-maka-400"><Flame size={12} /> {profile.streak} dias</span>
-          </div>
+          <button onClick={() => setMobileOpen(false)} aria-label="Fechar menu"
+            className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-ink-500 hover:bg-white/[0.05] hover:text-ink-100 md:hidden">
+            <X size={16} />
+          </button>
         </div>
-      )}
 
-      {/* Só aparece a quem pertence a mais do que uma organização — evita que
-          movimentos lançados numa organização "desapareçam" por terem ido
-          parar a outra sem o utilizador reparar. */}
-      {organizations.length > 1 && (
-        <div className={`mb-3 ${collapsed ? "px-0" : ""}`}>
-          {!collapsed && <div className="px-1 mb-1 text-[10px] font-bold uppercase tracking-widest text-ink-600">Organização</div>}
-          <select
-            aria-label="Organização ativa"
-            title={collapsed ? (currentOrg?.name || "Organização") : undefined}
-            className="input text-xs py-1.5"
-            value={orgId || ""}
-            disabled={switching}
-            onChange={async (e) => {
-              const next = e.target.value;
-              if (!next || next === orgId) return;
-              setSwitching(true);
-              await switchOrganization(next);
-              setSwitching(false);
-            }}>
-            {organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
-        </div>
-      )}
+        {organizations.length > 1 ? (
+          <div className={`mt-3 px-1 ${collapsed ? "md:hidden" : ""}`}>
+            <label className="mb-1 block text-[9px] font-semibold uppercase tracking-[.14em] text-ink-600">Organização</label>
+            <select aria-label="Organização ativa" className="input h-9 py-1.5 text-xs" value={orgId || ""} disabled={switching}
+              onChange={async (event) => {
+                const next = event.target.value;
+                if (!next || next === orgId) return;
+                setSwitching(true);
+                await switchOrganization(next);
+                setSwitching(false);
+              }}>
+              {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+            </select>
+          </div>
+        ) : null}
 
-      <nav className="flex-1 space-y-3">
-        {visibleSections.map((sec) => {
-          const isClosed = closed.includes(sec.title);
-          return (
-            <div key={sec.title}>
-              {!collapsed && (
-                <button onClick={() => toggleSection(sec.title)}
-                  aria-expanded={!isClosed}
-                  className="w-full flex items-center justify-between px-3 mb-1 text-[10px] font-bold uppercase tracking-widest text-ink-600 hover:text-ink-400 transition-colors">
-                  <span>{sec.title}</span>
-                  <ChevronDown size={13} className={`transition-transform duration-300 ${isClosed ? "-rotate-90" : ""}`} />
-                </button>
-              )}
-              {/* grid-rows truque: anima a altura sem saber o valor exato */}
-              <div className={`grid transition-all duration-300 ease-out ${(isClosed && !collapsed) ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}>
-                <div className="overflow-hidden">
-                  <div className="space-y-0.5">
-                    {sec.items.map(({ href, label, icon: Icon, badge }) =>
-                      navLink(href, label, Icon, badgeVal(badge), path === href))}
+        <nav className="mt-5 flex-1 space-y-1" aria-label="Navegação principal">
+          <div className={`px-2 pb-1 text-[9px] font-semibold uppercase tracking-[.16em] text-ink-600 ${collapsed ? "md:hidden" : ""}`}>Área de trabalho</div>
+          {primaryItems.map((item) => navLink(item, path === item.href))}
+
+          <div ref={moreRef} className="relative pt-1">
+            <button type="button" onClick={() => setMoreOpen((value) => !value)} aria-expanded={moreOpen} aria-haspopup="menu"
+              className={`sidebar-link w-full ${moreIsActive || moreOpen ? "sidebar-link-active" : ""} ${collapsed ? "md:justify-center md:px-0" : ""}`}>
+              <MoreHorizontal size={17} className="shrink-0" />
+              <span className={`flex-1 text-left ${collapsed ? "md:hidden" : ""}`}>Mais</span>
+            </button>
+
+            {moreOpen ? (
+              <div role="menu" className="fixed bottom-20 left-3 right-3 z-[70] max-h-[68vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#13151d] p-3 shadow-2xl md:absolute md:bottom-0 md:left-full md:right-auto md:ml-3 md:w-[520px]">
+                <div className="mb-2 flex items-center justify-between px-2 py-1">
+                  <div>
+                    <div className="text-sm font-semibold">Todas as áreas</div>
+                    <div className="text-[11px] text-ink-500">Acessos usados com menos frequência</div>
                   </div>
+                  <button type="button" onClick={() => setMoreOpen(false)} aria-label="Fechar" className="topbar-action"><X size={15} /></button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {moreGroups.map((section) => (
+                    <section key={section.title} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-2">
+                      <h2 className="px-2 pb-1.5 text-[9px] font-semibold uppercase tracking-[.14em] text-ink-600">{section.title}</h2>
+                      <div className="space-y-0.5">
+                        {section.items.map((item) => navLink(item, path === item.href, true))}
+                      </div>
+                    </section>
+                  ))}
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </nav>
+            ) : null}
+          </div>
+        </nav>
 
-      <div className="mt-4 pt-3 border-t border-ink-800 space-y-0.5">
-        {navLink("/app/categorias", "Categorias", Tags, 0, path === "/app/categorias")}
-      </div>
-      <div className="mt-2 pt-2 border-t border-ink-800">
-        <AccountMenu name={profile.name} email={profile.email} initials={initials} collapsed={collapsed} onLogout={logout} />
-      </div>
+        <div className="mt-3 border-t border-white/[0.07] pt-3">
+          <AccountMenu name={profile.name} email={profile.email} initials={initials} collapsed={collapsed} onLogout={logout} />
+          <button onClick={toggleCollapsed} title={collapsed ? "Expandir menu" : "Encolher menu"} aria-label={collapsed ? "Expandir menu" : "Encolher menu"}
+            className={`mt-1 hidden h-8 w-full items-center gap-2 rounded-lg px-2 text-[11px] text-ink-600 transition-colors hover:bg-white/[0.04] hover:text-ink-300 md:flex ${collapsed ? "justify-center" : ""}`}>
+            {collapsed ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /><span>Encolher</span></>}
+          </button>
+        </div>
       </aside>
     </>
   );

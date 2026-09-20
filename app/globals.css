@@ -41,20 +41,34 @@ body {
 
 .app-workspace {
   background:
-    radial-gradient(900px 520px at 88% -18%, rgb(126 87 194 / .12), transparent 62%),
-    radial-gradient(760px 480px at 36% 102%, rgb(249 115 22 / .055), transparent 70%),
+    radial-gradient(800px 420px at 82% -22%, rgb(126 87 194 / .08), transparent 64%),
     var(--ink-950);
 }
 
 :root.light .app-workspace { background: var(--ink-950); }
 
+.app-content {
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+}
+
+.app-workspace main { font-size: 13px; }
+.app-workspace main h1 {
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: clamp(24px, 2.2vw, 30px) !important;
+  font-weight: 600 !important;
+  letter-spacing: -.03em !important;
+  line-height: 1.1;
+}
+
 .workspace-topbar {
-  min-height: 58px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 32px;
+  padding: 0 28px;
   border-bottom: 1px solid var(--hairline);
   background: color-mix(in srgb, var(--ink-950) 82%, transparent);
   backdrop-filter: blur(16px);
@@ -78,6 +92,33 @@ body {
 
 @media (max-width: 767px) {
   .workspace-topbar { min-height: 56px; padding: 0 16px 0 64px; }
+}
+
+.sidebar-link {
+  position: relative;
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 9px;
+  padding: 7px 10px;
+  color: var(--ink-400);
+  font-size: 12.5px;
+  font-weight: 450;
+  transition: color .18s ease, background-color .18s ease;
+}
+
+.sidebar-link:hover { color: var(--ink-100); background: rgb(255 255 255 / .045); }
+.sidebar-link-active { color: var(--ink-100); background: rgb(196 159 255 / .14); }
+.sidebar-link-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 999px;
+  background: #d8b4fe;
 }
 
 /* Algarismos de largura fixa. Numa app financeira isto não é detalhe
@@ -144,13 +185,14 @@ select:focus-visible, [tabindex]:focus-visible {
    bolhudo nos cartões pequenos de indicador. */
 .card { @apply bg-ink-900 border rounded-[14px];
   border-color: var(--hairline);
-  box-shadow: 0 1px 2px rgba(0,0,0,.22), 0 10px 28px -14px rgba(0,0,0,.45);
+  background: color-mix(in srgb, var(--ink-900) 92%, transparent);
+  box-shadow: 0 1px 2px rgba(0,0,0,.14);
   transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
 /* Só cartões acionáveis levantam ao passar o cursor */
 a.card:hover, button.card:hover, .card-hover:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   border-color: var(--hairline-strong);
-  box-shadow: 0 2px 4px rgba(0,0,0,.32), 0 8px 16px rgba(0,0,0,.26), 0 20px 36px -8px rgba(0,0,0,.32); }
+  box-shadow: 0 5px 16px -10px rgba(0,0,0,.58); }
 :root.light a.card:hover, :root.light button.card:hover, :root.light .card-hover:hover {
   box-shadow: 0 6px 16px rgb(28 25 23 / 0.10), 0 2px 6px rgb(28 25 23 / 0.06); }
 
@@ -204,7 +246,7 @@ a.card:hover, button.card:hover, .card-hover:hover {
 /* `transition-all` (e não só cores) para a escala e a sombra animarem.
    `active:scale` dá a resposta táctil ao clique que ambas as referências
    têm e que faz o botão parecer um objeto em vez de um retângulo. */
-.btn { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200 active:scale-[.98]; }
+.btn { @apply inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-all duration-200 active:scale-[.98]; }
 /* texto sobre laranja fixo escuro em ambos os temas (bom contraste no laranja) */
 .btn-primary { @apply btn bg-maka-500 hover:bg-maka-400; color: #1c1917;
   box-shadow: 0 1px 2px rgb(0 0 0 / .20); }
@@ -218,7 +260,7 @@ a.card:hover, button.card:hover, .card-hover:hover {
 /* Borda + anel no foco: o anel cresce para fora e não empurra o conteúdo,
    por isso o campo não "salta" ao receber foco (problema clássico de mudar
    a espessura da borda). */
-.input { @apply w-full rounded-lg bg-ink-950 border px-3 py-2 text-sm outline-none focus:border-maka-500 transition-all placeholder:text-ink-500;
+.input { @apply w-full rounded-lg bg-ink-950 border px-3 py-2 text-[13px] outline-none focus:border-maka-500 transition-all placeholder:text-ink-500;
   border-color: var(--hairline-strong); }
 .input:hover { border-color: rgb(249 115 22 / .35); }
 .input:focus { box-shadow: 0 0 0 3px rgb(249 115 22 / .15); }
@@ -266,7 +308,56 @@ a.card:hover, button.card:hover, .card-hover:hover {
    MÉDIOS com tracking apertado (Firecrawl: 60px a 500) — é o tracking que
    dá a firmeza, não a gordura da letra. A 700 o título grita; a 600 com
    -0.025em lê-se com a mesma presença e bastante mais classe. */
-.h-page { @apply font-semibold text-2xl md:text-3xl tracking-tight; }
+.h-page { @apply font-semibold text-2xl tracking-tight; }
+
+.app-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ink-900) 92%, transparent);
+}
+
+.app-metric {
+  min-width: 0;
+  padding: 16px 18px;
+  border-left: 1px solid var(--hairline);
+}
+
+.app-metric:first-child { border-left: 0; }
+.app-metric-label { color: var(--ink-500); font-size: 11px; font-weight: 500; }
+.app-metric-value { margin-top: 5px; font-size: clamp(18px, 2vw, 24px); font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+
+.segmented-tabs {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 2px;
+  overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 3px;
+  background: rgb(255 255 255 / .025);
+}
+
+.segmented-tab {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: var(--ink-500);
+  font-size: 12px;
+  line-height: 1;
+  transition: color .18s ease, background-color .18s ease;
+}
+
+.segmented-tab:hover { color: var(--ink-200); }
+.segmented-tab-active { background: var(--ink-200); color: var(--ink-950); font-weight: 600; }
+
+@media (max-width: 639px) {
+  .app-metric-strip { grid-template-columns: 1fr; }
+  .app-metric { border-left: 0; border-top: 1px solid var(--hairline); }
+  .app-metric:first-child { border-top: 0; }
+}
 
 /* Dashboard financeiro: inspiração na hierarquia das referências, mas com
    métricas e rotas reais do ZeroMaka. */

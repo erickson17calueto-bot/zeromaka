@@ -5,16 +5,14 @@ import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
 import AppTopbar from "@/components/AppTopbar";
 import { useStore } from "@/lib/store";
-import { LayoutDashboard, Wallet, ArrowLeftRight, FileText, Trophy, FileSpreadsheet } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, FileText, Receipt, MoreHorizontal } from "lucide-react";
 import { ROUTES } from "@/lib/routes";
 
 const MOBILE_NAV = [
   { href: ROUTES.dashboard, label: "Início", icon: LayoutDashboard },
-  { href: "/app/contas", label: "Contas", icon: Wallet },
-  { href: "/app/transacoes", label: "Fluxo", icon: ArrowLeftRight },
-  { href: "/app/faturas", label: "Faturas", icon: FileText },
-  { href: "/app/conquistas", label: "XP", icon: Trophy },
-  { href: "/app/importacoes", label: "Importar", icon: FileSpreadsheet }
+  { href: "/app/transacoes", label: "Movimentos", icon: ArrowLeftRight },
+  { href: "/app/faturas", label: "A receber", icon: FileText },
+  { href: "/app/contas-a-pagar", label: "A pagar", icon: Receipt },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -38,7 +36,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <div className="min-w-0 flex-1 flex flex-col">
         <AppTopbar />
-        <main className="min-w-0 flex-1 px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-10">{children}</main>
+        <main className="min-w-0 flex-1 px-4 py-5 pb-24 md:px-7 md:py-7 md:pb-10">
+          <div className="app-content">{children}</div>
+        </main>
       </div>
 
       <nav className="md:hidden fixed bottom-0 inset-x-0 border-t border-ink-800 bg-ink-950/95 backdrop-blur flex">
@@ -48,6 +48,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Icon size={19} /> {label}
           </Link>
         ))}
+        <button type="button" onClick={() => window.dispatchEvent(new Event("zeromaka:open-menu"))}
+          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] text-ink-400"
+          aria-label="Abrir mais áreas">
+          <MoreHorizontal size={19} /> Mais
+        </button>
       </nav>
 
       <div className="fixed top-4 right-4 z-50 space-y-2 max-w-xs">

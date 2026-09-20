@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CircleHelp, FileText } from "lucide-react";
+import { Bell, CircleHelp } from "lucide-react";
 import { useStore } from "@/lib/store";
 
 const PAGE_CONTEXT: Record<string, string> = {
@@ -12,10 +12,25 @@ const PAGE_CONTEXT: Record<string, string> = {
   "/app/faturas": "A receber",
   "/app/cobrancas": "Cobranças",
   "/app/contas-a-pagar": "A pagar",
+  "/app/reservas": "Reservas",
+  "/app/recorrencias": "Recorrências",
+  "/app/reconciliacao": "Reconciliação",
+  "/app/planeamento": "Planeamento",
+  "/app/documentos": "Documentos e alertas",
   "/app/importacoes": "Importar ficheiros",
+  "/app/governanca": "Governança",
+  "/app/patrimonio": "Ativos e centros",
   "/app/requisicoes": "Requisições",
+  "/app/capital": "Capital dos sócios",
   "/app/emprestimos": "Empréstimos e adiantamentos",
+  "/app/contactos": "Contactos",
   "/app/relatorios": "Relatórios",
+  "/app/conquistas": "Conquistas",
+  "/app/ranking": "Ranking",
+  "/app/categorias": "Categorias",
+  "/app/administracao": "Empresas e equipa",
+  "/app/grupo": "Painel de grupo",
+  "/app/perfil": "Perfil",
 };
 
 function pageContext(pathname: string) {
@@ -41,9 +56,6 @@ export default function AppTopbar() {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <Link href="/app/documentos" className="topbar-action" title="Documentos e alertas" aria-label="Documentos e alertas">
-          <FileText size={16} />
-        </Link>
         <Link href="/app/documentos" className="topbar-action" title="Ver alertas" aria-label="Ver alertas">
           <Bell size={16} />
         </Link>
