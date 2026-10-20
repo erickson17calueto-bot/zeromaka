@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, JournalEntry, JournalEntryEdit, EntryDocumentKind, ENTRY_DOCUMENT_KIND_LABEL } from "@/lib/data";
 import { Plus, TrendingUp, TrendingDown, ArrowLeftRight, RotateCcw, ChevronLeft, ChevronRight, X, Landmark, Printer, Pencil } from "lucide-react";
@@ -19,8 +20,8 @@ const safeUrl = (u: string) => {
 // (repayment) ou despesa (disbursement), mas o entry_type é um dos 4 tipos
 // dedicados — não 'income'/'expense' — para não entrar na DRE. A UI trata
 // os dois pares como equivalentes visualmente (entra/sai), só o rótulo muda.
-const INFLOW_TYPES = new Set(["income", "loan_repayment", "salary_advance_repayment"]);
-const OUTFLOW_TYPES = new Set(["expense", "loan_disbursement", "salary_advance_disbursement"]);
+const INFLOW_TYPES = new Set(["income", "loan_repayment", "salary_advance_repayment", "custody_in"]);
+const OUTFLOW_TYPES = new Set(["expense", "loan_disbursement", "salary_advance_disbursement", "custody_out"]);
 const LOAN_ENTRY_TYPES = new Set(["loan_disbursement", "salary_advance_disbursement", "loan_repayment", "salary_advance_repayment"]);
 const LOAN_ENTRY_LABEL: Record<string, string> = {
   loan_disbursement: "Empréstimo concedido", salary_advance_disbursement: "Adiantamento concedido",
@@ -28,7 +29,7 @@ const LOAN_ENTRY_LABEL: Record<string, string> = {
 };
 
 export default function TransacoesPage() {
-  const { journalEntries, accounts, categories, contacts, obligations, company, addTransaction, editJournalEntry, reverseEntry, convertEntryToLoan } = useStore();
+  const { journalEntries, accounts, categories, contacts, obligations, company, orgId, refreshEntries, addTransaction, editJournalEntry, reverseEntry, convertEntryToLoan } = useStore();
   const [converting, setConverting] = useState<JournalEntry | null>(null);
   const [cvKind, setCvKind] = useState<"employee_loan" | "salary_advance">("employee_loan");
   const [cvContactId, setCvContactId] = useState("");
@@ -48,12 +49,22 @@ export default function TransacoesPage() {
     if (err) { setCvErr(err); return; }
     setConverting(null);
   };
-  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "loan">("all");
+  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "loan" | "custody">("all");
   const [accFilter, setAccFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(0);
   const [show, setShow] = useState(false);
+  const [showCustody, setShowCustody] = useState(false);
+  const [custodyDirection, setCustodyDirection] = useState<"in" | "out">("in");
+  const [custodyAccount, setCustodyAccount] = useState("");
+  const [custodyAmount, setCustodyAmount] = useState("");
+  const [custodyDate, setCustodyDate] = useState("");
+  const [custodyDescription, setCustodyDescription] = useState("");
+  const [custodyReference, setCustodyReference] = useState("");
+  const [custodyError, setCustodyError] = useState("");
+  const [custodyBusy, setCustodyBusy] = useState(false);
+  const [custodyIdem, setCustodyIdem] = useState("");
   const [showReverse, setShowReverse] = useState<JournalEntry | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
@@ -100,10 +111,11 @@ export default function TransacoesPage() {
     let list = journalEntries.filter(e =>
       e.entryType !== "opening_balance" && e.entryType !== "adjustment" && e.entryType !== "reversal"
     );
-    if (filter === "income") list = list.filter(e => INFLOW_TYPES.has(e.entryType));
-    if (filter === "expense") list = list.filter(e => OUTFLOW_TYPES.has(e.entryType));
+    if (filter === "income") list = list.filter(e => INFLOW_TYPES.has(e.entryType) && e.entryType !== "custody_in");
+    if (filter === "expense") list = list.filter(e => OUTFLOW_TYPES.has(e.entryType) && e.entryType !== "custody_out");
     if (filter === "transfer") list = list.filter(e => e.entryType === "transfer");
     if (filter === "loan") list = list.filter(e => LOAN_ENTRY_TYPES.has(e.entryType));
+    if (filter === "custody") list = list.filter(e => e.entryType === "custody_in" || e.entryType === "custody_out");
     if (accFilter) list = list.filter(e => e.lines.some(l => l.accountId === accFilter));
     if (dateFrom) list = list.filter(e => e.transactionDate >= dateFrom);
     if (dateTo) list = list.filter(e => e.transactionDate <= dateTo);
@@ -201,6 +213,25 @@ export default function TransacoesPage() {
       documentNotes: docKind === "none" ? (docNotes.trim() || undefined) : undefined,
     });
     setShow(false);
+  };
+
+  const submitCustody = async () => {
+    const value = Number(custodyAmount.replace(",", "."));
+    if (!orgId || !custodyAccount || !custodyDate || !custodyDescription.trim() || !custodyReference.trim()
+      || !Number.isFinite(value) || value <= 0 || Math.round(value * 100) !== value * 100) {
+      setCustodyError("Indica conta, data, valor, descrição e referência do extrato.");
+      return;
+    }
+    setCustodyBusy(true); setCustodyError("");
+    const { error } = await createClient().rpc("post_custody_movement", {
+      p_org_id: orgId, p_account_id: custodyAccount, p_amount: value,
+      p_direction: custodyDirection, p_description: custodyDescription.trim(),
+      p_date: custodyDate, p_reference: custodyReference.trim(),
+      p_idempotency_key: custodyIdem,
+    });
+    if (error) { setCustodyError(error.message); setCustodyBusy(false); return; }
+    await refreshEntries(orgId);
+    setShowCustody(false); setCustodyBusy(false); setFilter("custody"); setPage(0);
   };
 
   const submitReverse = () => {
@@ -325,14 +356,22 @@ export default function TransacoesPage() {
           <h1 className="h-page">Movimentos</h1>
           <p className="text-sm text-ink-400 mt-1">{displayEntries.length} lançamento{displayEntries.length !== 1 ? "s" : ""} · vendas registam-se em Faturas</p>
         </div>
-        <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo lançamento</button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => {
+            setCustodyDirection("in"); setCustodyAccount(accounts.find(a => a.type === "bank")?.id ?? accounts[0]?.id ?? "");
+            setCustodyAmount(""); setCustodyDate(new Date().toISOString().slice(0, 10));
+            setCustodyDescription(""); setCustodyReference(""); setCustodyError("");
+            setCustodyIdem(crypto.randomUUID()); setShowCustody(true);
+          }} className="btn-ghost">Valores de terceiros</button>
+          <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo lançamento</button>
+        </div>
       </header>
 
       <div className="flex flex-wrap gap-2 items-center">
-        {(["all", "income", "expense", "transfer", "loan"] as const).map(v => (
+        {(["all", "income", "expense", "transfer", "loan", "custody"] as const).map(v => (
           <button key={v} onClick={() => { setFilter(v); setPage(0); }}
             className={`rounded-full px-4 py-1.5 text-sm border transition-colors ${filter === v ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400 hover:border-ink-500"}`}>
-            {{ all: "Todos", income: "Receitas", expense: "Despesas", transfer: "Transferências", loan: "Empréstimos / adiantamentos" }[v]}
+            {{ all: "Todos", income: "Receitas", expense: "Despesas", transfer: "Transferências", loan: "Empréstimos / adiantamentos", custody: "Valores de terceiros" }[v]}
           </button>
         ))}
         <div className="flex-1" />
@@ -362,6 +401,7 @@ export default function TransacoesPage() {
                   {e.description}
                   {isReversed && <span className="ml-2 text-[10px] text-red-400 font-bold uppercase">Revertido</span>}
                   {LOAN_ENTRY_TYPES.has(e.entryType) && <span className="ml-2 text-[10px] text-maka-400 font-bold uppercase">{LOAN_ENTRY_LABEL[e.entryType]}</span>}
+                  {(e.entryType === "custody_in" || e.entryType === "custody_out") && <span className="ml-2 text-[10px] text-sky-400 font-bold uppercase">Valores de terceiros</span>}
                 </div>
                 <div className="text-[11px] text-ink-500">
                   {e.entryNumber}{e.categoryName ? ` · ${e.categoryName}` : ""} · {entryAccounts(e)} · {fmtDate(e.transactionDate)}
@@ -401,6 +441,35 @@ export default function TransacoesPage() {
           <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="btn-ghost disabled:opacity-30"><ChevronLeft size={16} /></button>
           <span className="text-sm text-ink-400">{page + 1} / {totalPages}</span>
           <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="btn-ghost disabled:opacity-30"><ChevronRight size={16} /></button>
+        </div>
+      )}
+
+      {showCustody && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-lg">Valores de terceiros</h3>
+              <button onClick={() => setShowCustody(false)} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-ink-400">Dinheiro que passa pela conta, mas não pertence à empresa. Não entra nas receitas nem nas despesas.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button className={custodyDirection === "in" ? "btn-primary" : "btn-ghost"} onClick={() => setCustodyDirection("in")}>Entrada</button>
+              <button className={custodyDirection === "out" ? "btn-primary" : "btn-ghost"} onClick={() => setCustodyDirection("out")}>Saída</button>
+            </div>
+            <label className="label">Conta
+              <select className="input" value={custodyAccount} onChange={e => setCustodyAccount(e.target.value)}>
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </label>
+            <label className="label">Valor (Kz)<input className="input" type="number" min="0.01" step="0.01" value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} /></label>
+            <label className="label">Data<input className="input" type="date" value={custodyDate} onChange={e => setCustodyDate(e.target.value)} /></label>
+            <label className="label">Descrição<input className="input" value={custodyDescription} onChange={e => setCustodyDescription(e.target.value)} /></label>
+            <label className="label">Referência do extrato<input className="input" value={custodyReference} onChange={e => setCustodyReference(e.target.value)} /></label>
+            {custodyError && <p className="text-sm text-red-400">{custodyError}</p>}
+            <button className="btn-primary w-full justify-center disabled:opacity-50" disabled={custodyBusy} onClick={submitCustody}>
+              {custodyBusy ? "A registar…" : "Registar valor de terceiros"}
+            </button>
+          </div>
         </div>
       )}
 

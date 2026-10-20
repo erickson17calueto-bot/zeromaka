@@ -312,7 +312,7 @@ const dbToCompany = (r: any): Company => ({
 // ---- Journal → backward-compatible Transaction mapper ----
 function entryToTransactions(entry: JournalEntry): Transaction[] {
   if (entry.status === "reversed") return [];
-  if (entry.entryType === "opening_balance" || entry.entryType === "reversal" || entry.entryType === "adjustment") return [];
+  if (entry.entryType === "opening_balance" || entry.entryType === "reversal" || entry.entryType === "adjustment" || entry.entryType === "custody_in" || entry.entryType === "custody_out") return [];
 
   const meta = entry.metadata || {};
 
