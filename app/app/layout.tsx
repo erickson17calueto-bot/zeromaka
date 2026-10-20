@@ -16,19 +16,24 @@ const MOBILE_NAV = [
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { ready, authed, orgId, toasts } = useStore();
+  const { ready, contextError, authed, orgId, toasts, logout } = useStore();
   const router = useRouter();
   const path = usePathname();
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || contextError) return;
     // O middleware já bloqueia o acesso sem sessão; isto cobre a sessão que
     // expira com a página aberta e o caso de ainda não existir organização.
     if (!authed) { router.replace(ROUTES.entrar); return; }
     if (!orgId) router.replace(ROUTES.onboarding);
-  }, [ready, authed, orgId, router]);
+  }, [ready, contextError, authed, orgId, router]);
 
   if (!ready) return <div className="min-h-screen flex items-center justify-center text-ink-500">A carregar…</div>;
+  if (contextError) return <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="card max-w-md p-6"><p role="alert">{contextError}</p>
+      <button type="button" className="btn-primary mt-4" onClick={() => window.location.reload()}>Tentar novamente</button>
+      <button type="button" className="btn-secondary mt-3 ml-3" onClick={async () => { await logout(); window.location.assign(ROUTES.entrar); }}>Entrar novamente</button>
+    </div></div>;
   if (!authed || !orgId) return null;
 
   return (

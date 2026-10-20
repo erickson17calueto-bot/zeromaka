@@ -12,6 +12,7 @@ import {
   seedBadges, taxRateFor
 } from "./data";
 import { computeAccountBalance } from "./accounts/balance";
+import { activeOrganization, EXPIRED_LOGIN, isExpiredSession } from "./auth/context";
 
 interface Toast { id: number; msg: string; kind: "ok" | "xp" | "warn" }
 
@@ -41,6 +42,7 @@ export interface OrgSnapshot {
 }
 
 interface Store {
+  contextError: string | null;
   ready: boolean; authed: boolean; orgId: string | null;
   organizations: OrgMembership[]; switchOrganization: (orgId: string) => Promise<void>;
   // ---- Painel de administração (owner/admin) ----
@@ -433,6 +435,7 @@ const defaultFinSettings: FinancialSettings = {
 // ---- Provider ----
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
   const [authed, setAuthed] = useState(false);
   const [orgId, setOrgId] = useState<string | null>(null);
   const orgIdRef = useRef<string | null>(null);
@@ -644,24 +647,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // já temos. Em sequência somavam mais uma ida e volta completa ao
     // servidor (em eu-west-3, cada uma custa a mais para quem acede de
     // Angola) sem nenhuma razão para não serem paralelas.
-    const [{ data: dbProfile }, { data: memberships }] = await Promise.all([
+    const [{ data: dbProfile, error: profileError }, { data: memberships, error: membershipsError }] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", userId).single(),
       supabase.from("organization_members").select("role, organizations(id, name, is_archived)").eq("user_id", userId),
     ]);
+    const failure = profileError || membershipsError;
+    if (failure) {
+      if (isExpiredSession(failure)) {
+        await supabase.auth.signOut({ scope: "local" });
+        window.location.replace(EXPIRED_LOGIN);
+      }
+      throw new Error("Não foi possível carregar o acesso à empresa. Tenta novamente.");
+    }
+    const available = (memberships || [])
+      .filter((m: any) => m.organizations && !m.organizations.is_archived) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .map((m: any) => ({ id: m.organizations.id as string, name: m.organizations.name as string, role: m.role as string })); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const activeId = activeOrganization(dbProfile?.current_org_id, available);
+    setOrganizations(available);
     if (dbProfile) {
       setProfile(p => ({ ...p, name: dbProfile.full_name || "", phone: dbProfile.phone || "", bi: dbProfile.bi || "", email: email || "" }));
-      if (dbProfile.current_org_id) {
-        setOrgId(dbProfile.current_org_id);
-        await loadOrgData(dbProfile.current_org_id);
-      }
     }
-    if (memberships) {
-      // Organizações arquivadas ficam fora do seletor/lista — archive_organization()
-      // já limpa current_org_id de quem apontava para lá, isto cobre o resto da UI.
-      setOrganizations(memberships
-        .filter((m: any) => m.organizations && !m.organizations.is_archived) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role }))); // eslint-disable-line @typescript-eslint/no-explicit-any
-    }
+    setOrgId(activeId);
+    if (activeId) await loadOrgData(activeId);
   }, [loadOrgData]);
 
   useEffect(() => {
@@ -680,7 +687,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const ensureUserLoaded = (userId: string, email?: string) => {
       if (userIdRef.current !== userId || !loadPromiseRef.current) {
         userIdRef.current = userId;
-        loadPromiseRef.current = loadUserContext(userId, email);
+        setContextError(null);
+        loadPromiseRef.current = loadUserContext(userId, email).catch(() => {
+          setContextError("Não foi possível carregar o acesso à empresa. Atualiza a página para tentar novamente.");
+          loadPromiseRef.current = null;
+        });
       }
       return loadPromiseRef.current;
     };
@@ -706,6 +717,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const user = session?.user;
       setAuthed(!!user);
       if (!user) {
+        setContextError(null);
         userIdRef.current = null;
         loadPromiseRef.current = null;
         setOrgId(null);
@@ -726,7 +738,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       //
       // A comparação com o ref também evita recarregar em TOKEN_REFRESHED,
       // que dispara periodicamente para o mesmo utilizador.
-      void ensureUserLoaded(user.id, user.email);
+      if (userIdRef.current === user.id && loadPromiseRef.current) return;
+      setReady(false);
+      // Never await Supabase calls inside its auth callback.
+      setTimeout(() => { void ensureUserLoaded(user.id, user.email).finally(() => setReady(true)); }, 0);
     });
     return () => subscription.unsubscribe();
   }, [loadUserContext]);
@@ -1699,7 +1714,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      ready, authed, orgId, organizations, switchOrganization, refreshEntries, refreshContacts, logout, createOrganization,
+      ready, contextError, authed, orgId, organizations, switchOrganization, refreshEntries, refreshContacts, logout, createOrganization,
       addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, archiveOrganization, getOrgSnapshot,
       listInvites, createInvite, revokeInvite,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
