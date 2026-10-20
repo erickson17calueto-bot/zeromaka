@@ -60,6 +60,7 @@ interface Store {
   transferOwnership: (newOwnerUserId: string) => Promise<string | null>;
   archiveOrganization: (confirmation: string) => Promise<string | null>;
   refreshEntries: (oid?: string) => Promise<void>;
+  refreshContacts: (oid?: string) => Promise<void>;
   logout: () => Promise<void>;
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
   company: Company; accounts: Account[]; transactions: Transaction[];
@@ -499,6 +500,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .eq("organization_id", id)
       .order("transaction_date", { ascending: false });
     if (data) setJournalEntries(data.map(dbToJournalEntry));
+  }, []);
+
+  const refreshContacts: Store["refreshContacts"] = useCallback(async (oid?: string) => {
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    const { data, error } = await createClient().from("contacts").select("*").eq("organization_id", id).order("name");
+    if (error) throw new Error(error.message);
+    setContacts((data || []).map(dbToContact));
   }, []);
 
   const refreshRecurringTransactions = useCallback(async (oid?: string) => {
@@ -1690,7 +1699,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
+      ready, authed, orgId, organizations, switchOrganization, refreshEntries, refreshContacts, logout, createOrganization,
       addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, archiveOrganization, getOrgSnapshot,
       listInvites, createInvite, revokeInvite,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,

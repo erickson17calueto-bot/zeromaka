@@ -12,6 +12,7 @@ export type AiSuggestion = {
   row_number: number;
   classification: AiClassification;
   direction?: "income" | "expense";
+  category_id?: string;
   category?: string;
   contact?: string;
   account?: string;

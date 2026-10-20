@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, FileText, Loader2, RotateCcw, ShieldCheck, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, FileText, Loader2, RefreshCw, RotateCcw, ShieldCheck, Trash2, Upload, Users, X } from "lucide-react";
 import { Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useStore } from "@/lib/store";
 import { fmtDate, fmtKz, Account, Contact, FinancialCategory, JournalEntry, Obligation, OBLIGATION_KIND_LABEL } from "@/lib/data";
-import { suggestAccount, normalizar } from "@/lib/imports/suggest-account";
+import { suggestAccount, matchAccount, normalizar } from "@/lib/imports/suggest-account";
+import { suggestDirection } from "@/lib/imports/suggest-direction";
+import { parseImportAmount as parseAmount, parseImportDate as parseDate, isValidImportDate as dateOk } from "@/lib/imports/parse-values";
+import { detectImportDateOrder, readImportedInvoice, validateImportedInvoiceBalance, type ImportDateOrder } from "@/lib/imports/invoice-import";
 import type { AiSuggestion, AiUsage } from "@/lib/imports/ai-types";
 import { suggestCategory } from "@/lib/imports/suggest-category";
 import { detectRowKind } from "@/lib/imports/row-kind";
@@ -43,6 +46,11 @@ type NormalizedRow = {
   issue_date?: string;
   due_date?: string;
   amount?: number;
+  paid_amount?: number;
+  open_amount?: number;
+  payment_date?: string;
+  source_status?: string;
+  source_date_order?: ImportDateOrder;
   description?: string;
   direction?: "income" | "expense";
   account_id?: string;
@@ -76,6 +84,8 @@ type NormalizedRow = {
   // Ver LOAN_KEYWORDS/isLoanHint mais abaixo.
   loan_hint?: boolean;
   ai_suggestion?: AiSuggestion;
+  ai_analyzed?: boolean;
+  manual_fields?: string[];
 };
 
 /** Regra aprendida: organização_id já implícito (carregadas só para a org atual). */
@@ -119,14 +129,14 @@ const aliases = {
   date: ["data", "date", "data do lançamento", "data movimento", "transaction_date"],
   issue: ["emissão", "emissao", "data emissão", "data emissao", "issue_date", "data fatura"],
   due: ["vencimento", "data vencimento", "due_date", "data de vencimento"],
-  amount: ["valor", "amount", "montante", "total", "valor total", "debito", "débito", "credito", "crédito"],
+  amount: ["valor", "amount", "montante", "total", "valor total"],
   credit: ["entrada", "credito", "crédito", "receita", "haver"],
   debit: ["saida", "saída", "debito", "débito", "despesa", "deve"],
   description: ["descrição", "descricao", "description", "histórico", "historico", "detalhe", "movimento"],
   account: ["conta", "account", "conta bancária", "conta bancaria", "carteira"],
   category: ["categoria", "category", "classe"],
   contact: ["cliente", "fornecedor", "contacto", "contato", "contact", "entidade", "nome"],
-  contactNif: ["nif", "nuit", "bi", "número de contribuinte", "numero de contribuinte", "contribuinte"],
+  contactNif: ["nif", "nif / bi", "nuit", "bi", "número de contribuinte", "numero de contribuinte", "contribuinte"],
   contactPhone: ["telefone", "telemóvel", "telemovel", "contacto telefónico", "contacto telefonico", "whatsapp", "número", "numero"],
   type: ["tipo", "type", "natureza", "entrada/saída", "entrada/saida", "direção", "direcao"],
   document: ["nº documento", "nº doc", "numero documento", "número documento", "documento", "invoice", "fatura", "referência", "referencia"],
@@ -179,52 +189,8 @@ function getField(raw: Record<string, string>, names: string[]): string {
   return found ? clean(found[1]) : "";
 }
 
-function parseAmount(value: string): number {
-  let text = clean(value).replace(/[^\d,.-]/g, "");
-  if (!text) return 0;
-  const negative = text.startsWith("-") || (clean(value).startsWith("(") && clean(value).endsWith(")"));
-  text = text.replace(/-/g, "");
-  const comma = text.lastIndexOf(",");
-  const dot = text.lastIndexOf(".");
-  if (comma >= 0 && dot >= 0) {
-    text = comma > dot ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
-  } else if (comma >= 0) {
-    const decimals = text.length - comma - 1;
-    text = decimals <= 2 ? text.replace(",", ".") : text.replace(/,/g, "");
-  } else if ((text.match(/\./g) || []).length > 1) {
-    text = text.replace(/\./g, "");
-  }
-  const amount = Number(text);
-  return Number.isFinite(amount) ? Math.abs(negative ? -amount : amount) : 0;
-}
-
-function parseDate(value: string): string {
-  const text = clean(value);
-  if (!text) return "";
-  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(text)) {
-    const [y, m, d] = text.split(/[-/]/);
-    return y + "-" + m.padStart(2, "0") + "-" + d.padStart(2, "0");
-  }
-  if (/^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$/.test(text)) {
-    const [d, m, y0] = text.split(/[-/]/);
-    const y = y0.length === 2 ? "20" + y0 : y0;
-    return y + "-" + m.padStart(2, "0") + "-" + d.padStart(2, "0");
-  }
-  const serial = Number(text);
-  if (Number.isFinite(serial) && serial > 20000 && serial < 70000) {
-    const date = new Date(Date.UTC(1899, 11, 30 + serial));
-    return date.toISOString().slice(0, 10);
-  }
-  return "";
-}
-
-function dateOk(value?: string): boolean {
-  return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
-}
-
 function findAccount(accounts: Account[], name: string): Account | undefined {
-  const wanted = keyOf(name);
-  return accounts.find(a => keyOf(a.name) === wanted);
+  return matchAccount(accounts, name);
 }
 
 /**
@@ -254,10 +220,11 @@ function findContact(contacts: Contact[], name: string, nif?: string, phone?: st
   return { contact: match?.contact, tier: match?.tier };
 }
 
-function findCategory(categories: FinancialCategory[], name: string, target: TargetType): FinancialCategory | undefined {
+function findCategory(categories: FinancialCategory[], name: string, target: TargetType, direction?: "income" | "expense"): FinancialCategory | undefined {
   const wanted = keyOf(name);
-  const type = target === "transaction" ? undefined : target === "receivable" ? "income" : "expense";
-  return categories.find(c => keyOf(c.name) === wanted && (!type || c.categoryType === type));
+  if (!wanted) return undefined;
+  const type = target === "transaction" ? direction : target === "receivable" ? "income" : "expense";
+  return categories.find(c => c.isActive && keyOf(c.name) === wanted && (!type || c.categoryType === type));
 }
 
 /** Representa uma linha (nova ou já existente na organização) para a deteção de duplicados em níveis. */
@@ -308,7 +275,7 @@ function existingLabel(target: TargetType, id: string, entries: JournalEntry[], 
   return `${fmtDate(o.issueDate)} · ${fmtKz(o.originalAmount)} · ${o.description || o.externalDocumentNumber || ""}`;
 }
 
-function normalizeRow(raw: Record<string, string>, target: TargetType, accounts: Account[], contacts: Contact[], categories: FinancialCategory[], contaPadrao?: Account, mappingRules: MappingRule[] = []): { data: NormalizedRow; error?: string } {
+function normalizeRow(raw: Record<string, string>, target: TargetType, accounts: Account[], contacts: Contact[], categories: FinancialCategory[], contaPadrao?: Account, mappingRules: MappingRule[] = [], sourceDateOrder: ImportDateOrder = "dmy"): { data: NormalizedRow; error?: string } {
   // Alguns extratos (ex: diário de caixa) não têm uma coluna "valor" única,
   // usam colunas separadas de entrada (crédito) e saída (débito).
   const singleAmountField = getField(raw, aliases.amount);
@@ -320,10 +287,11 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   // Se entrada e saída vierem ambas preenchidas na mesma linha, a direção é
   // ambígua (normalmente erro de preenchimento na folha de origem) — não adivinhar.
   const splitAmbiguous = hasSplitColumns && creditAmount > 0 && debitAmount > 0;
-  const amount = hasSplitColumns
+  const invoice = target === "transaction" ? undefined : readImportedInvoice(raw, sourceDateOrder);
+  const amount = invoice?.amount ?? (hasSplitColumns
     ? (splitAmbiguous ? 0 : (creditAmount || debitAmount))
-    : parseAmount(singleAmountField);
-  const description = getField(raw, aliases.description) || "Importação de ficheiro";
+    : parseAmount(singleAmountField));
+  const description = invoice?.description || getField(raw, aliases.description) || "Importação de ficheiro";
   const accountName = getField(raw, aliases.account);
   const categoryColumn = getField(raw, aliases.category);
   const contactName = getField(raw, aliases.contact);
@@ -335,59 +303,93 @@ function normalizeRow(raw: Record<string, string>, target: TargetType, accounts:
   // em "lembrar") ganha a qualquer sugestão automática — é uma correspondência
   // confirmada por uma pessoa, não uma adivinha.
   const contactRuleId = ruleLookup(mappingRules, "contact_id", target, contactName);
-  const { contact: contactSugerido, tier: contactMatchTierSugerido } = findContact(contacts, contactName, contactNif, contactPhone);
-  const contact = contactRuleId ? contacts.find(c => c.id === contactRuleId) : contactSugerido;
+  const eligibleContacts = target === "transaction" ? contacts : contacts.filter(c => c.kind === "ambos" || c.kind === (target === "receivable" ? "cliente" : "fornecedor"));
+  const { contact: contactSugerido, tier: contactMatchTierSugerido } = findContact(eligibleContacts, contactName, contactNif, contactPhone);
+  const contact = contactRuleId ? eligibleContacts.find(c => c.id === contactRuleId) : contactSugerido;
   const contactMatchTier: ContactMatchTier | "learned" | undefined = contactRuleId && contact ? "learned" : contactMatchTierSugerido;
+
   const directionText = keyOf(getField(raw, aliases.type));
-  const direction = hasSplitColumns
-    ? (creditAmount > 0 ? "income" : "expense")
-    : directionText.includes("entrada") || directionText.includes("receita") || directionText.includes("income") || directionText.includes("credito") || directionText.includes("receb") || (!directionText && !clean(singleAmountField).startsWith("-")) ? "income" : "expense";
+  const directionFromDesc = suggestDirection(description);
+  let inferredDirection: "income" | "expense" | undefined = undefined;
+
+  if (hasSplitColumns) {
+    inferredDirection = creditAmount > 0 ? "income" : "expense";
+  } else if (directionText.includes("entrada") || directionText.includes("receita") || directionText.includes("income") || directionText.includes("credito") || directionText.includes("receb")) {
+    inferredDirection = "income";
+  } else if (directionText.includes("saida") || directionText.includes("despesa") || directionText.includes("expense") || directionText.includes("debito") || directionText.includes("pag")) {
+    inferredDirection = "expense";
+  } else if (clean(singleAmountField).startsWith("-") || /^\(.*\)$/.test(clean(singleAmountField))) {
+    inferredDirection = "expense";
+  } else if (directionFromDesc) {
+    inferredDirection = directionFromDesc;
+  }
+
+  // Uma categoria explícita ou uma descrição só define o sentido quando existe
+  // uma correspondência única entre as categorias ativas desta organização.
+  if (!inferredDirection && target === "transaction") {
+    const source = categoryColumn || description;
+    const despesa = findCategory(categories, categoryColumn, target, "expense") || suggestCategory(categories, source, "expense");
+    const receita = findCategory(categories, categoryColumn, target, "income") || suggestCategory(categories, source, "income");
+    if (!!despesa !== !!receita) inferredDirection = despesa ? "expense" : "income";
+  }
+  const direction = inferredDirection;
+
   // Uma coluna de categoria no ficheiro manda sempre. Só quando ela não existe
-  // (ou traz um nome que esta organização não tem) é que a descrição decide —
-  // caso contrário, um diário de caixa com centenas de linhas chegaria à revisão
-  // todo por categorizar.
-  const categoryDirection: "income" | "expense" =
-    target === "transaction" ? direction : target === "receivable" ? "income" : "expense";
+  // (ou traz um nome que esta organização não tem) é que a descrição decide
+  const categoryDirection = target === "transaction" ? direction : target === "receivable" ? "income" : "expense";
   const categoryRuleId = ruleLookup(mappingRules, "category_id", target, categoryColumn || description);
-  const categoryPorRegra = categoryRuleId ? categories.find(c => c.id === categoryRuleId) : undefined;
+  const categoryPorRegra = categoryRuleId ? categories.find(c => c.id === categoryRuleId && c.isActive && c.categoryType === categoryDirection) : undefined;
   const category = categoryPorRegra
-    || findCategory(categories, categoryColumn, target)
-    || suggestCategory(categories, description, categoryDirection);
+    || (categoryDirection ? findCategory(categories, categoryColumn, target, categoryDirection) : undefined)
+    || (categoryDirection ? suggestCategory(categories, categoryColumn || description, categoryDirection) : undefined);
+  const oppositeCategory = !!categoryColumn && !!categoryDirection && categories.some(c =>
+    c.isActive && keyOf(c.name) === keyOf(categoryColumn) && c.categoryType !== categoryDirection
+  );
   const date = parseDate(getField(raw, aliases.date));
-  const issueDate = parseDate(getField(raw, aliases.issue)) || date;
-  const dueDate = parseDate(getField(raw, aliases.due)) || issueDate;
-  const externalNumber = getField(raw, aliases.document);
+  const validInvoiceYear = (value: string) => dateOk(value) && Number(value.slice(0, 4)) >= 2000 && Number(value.slice(0, 4)) <= 2100;
+  const issueCandidate = invoice?.issueDate || parseDate(getField(raw, aliases.issue), sourceDateOrder) || date;
+  const dueCandidate = invoice?.dueDate || parseDate(getField(raw, aliases.due), sourceDateOrder);
+  const issueDate = target === "transaction" || validInvoiceYear(issueCandidate) ? issueCandidate : "";
+  const dueDate = target === "transaction" || validInvoiceYear(dueCandidate) ? dueCandidate : "";
+  const rawExternalNumber = invoice?.documentNumber || getField(raw, aliases.document);
+  const externalNumber = /^[\s—-]*$/.test(rawExternalNumber) ? "" : rawExternalNumber;
   const balanceDeclared = parseAmount(getField(raw, aliases.balance)) || undefined;
-  const rowKind = detectRowKind(description);
+  const rowKind = target !== "transaction" && /^NC(?:\s|$|\d)/i.test(externalNumber) ? "control" : detectRowKind(description);
   // Distintos de `reference`/`external_document_number` (acima): só entram
   // quando o ficheiro tem uma coluna explicitamente nomeada para isto.
   const documentTypeColumn = getField(raw, aliases.documentType);
   const documentNumberColumn = getField(raw, aliases.documentNumber);
   const documentNotesColumn = getField(raw, aliases.documentNotes);
   const loanHint = target === "transaction" && direction === "expense"
-    && LOAN_KEYWORDS.test(normalizar(description)) && (contact?.kind === "funcionario" || contact?.kind === "ambos");
+    && LOAN_KEYWORDS.test(normalizar(description)) && contact?.kind === "funcionario";
   const data: NormalizedRow = target === "transaction"
     ? { date, amount, description, direction, account_id: account?.id, account_name: account?.name || accountName, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, reference: externalNumber || undefined, row_kind: rowKind, balance_declared: balanceDeclared, document_kind: parseDocumentKind(documentTypeColumn), document_number: documentNumberColumn || undefined, document_notes: documentNotesColumn || undefined, loan_hint: loanHint }
-    : { issue_date: issueDate, due_date: dueDate, amount, description, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable", row_kind: rowKind, document_notes: documentNotesColumn || undefined };
+    : { issue_date: issueDate, due_date: dueDate, amount, paid_amount: invoice?.paidAmount ?? 0, open_amount: invoice?.openAmount ?? amount, payment_date: invoice?.paymentDate, source_status: invoice?.sourceStatus, source_date_order: sourceDateOrder, description, contact_id: contact?.id, contact_name: contact?.name || contactName, contact_match_tier: contactMatchTier, category_id: category?.id, category_name: category?.name || categoryColumn, category_matched_by_rule: !!categoryPorRegra, external_document_number: externalNumber, document_kind: target === "receivable" ? "invoice_reference" : "supplier_invoice", is_sale: target === "receivable", row_kind: rowKind, document_notes: documentNotesColumn || undefined };
 
   // Linhas de controlo (fecho de semana, saldo inicial/final, reconciliação…)
   // não são movimentos — nunca podem ser lançadas como receita/despesa. O
   // estado 'error' já impede a aprovação automática; o rótulo diz porquê.
   if (rowKind === "control") {
-    return { data, error: "Linha de controlo (ex: fecho, saldo, reconciliação) — não é lançada automaticamente" };
+    return { data, error: target !== "transaction" && /^NC(?:\s|$|\d)/i.test(externalNumber)
+      ? "Nota de crédito; não lançar como fatura"
+      : "Linha de controlo (ex: fecho, saldo, reconciliação) — não é lançada automaticamente" };
   }
 
-  const conflict = target === "transaction" && !splitAmbiguous ? detectDescriptionDirectionConflict(description, direction) : undefined;
+  const conflict = target === "transaction" && !splitAmbiguous && direction ? detectDescriptionDirectionConflict(description, direction) : undefined;
   data.conflict_reason = conflict;
 
   let error = splitAmbiguous
     ? "Entrada e saída preenchidas na mesma linha; confirma manualmente o valor e o sentido"
     : amount <= 0 ? "Valor inválido ou não encontrado" : undefined;
+  if (!error && target === "transaction" && !direction) error = "Sentido incerto: escolhe Receita ou Despesa";
+  if (!error && oppositeCategory) error = "A categoria do ficheiro não corresponde ao sentido do movimento";
   if (!error && target === "transaction" && !dateOk(date)) error = "Data do lançamento não reconhecida";
   if (!error && target === "transaction" && !account) error = "Sem conta: escolhe a conta da importação acima";
   if (!error && target !== "transaction" && !dateOk(issueDate)) error = "Data de emissão não reconhecida";
   if (!error && target !== "transaction" && !contact) error = "Contacto não encontrado; escolhe um contacto";
   if (!error && target !== "transaction" && (!dateOk(dueDate) || dueDate < issueDate)) error = "Vencimento inválido";
+  if (!error && target !== "transaction" && !externalNumber) error = "Número da fatura em falta";
+  if (!error && invoice?.error) error = invoice.error;
   if (!error && conflict) error = conflict;
   return { data, error };
 }
@@ -444,9 +446,17 @@ export default function ImportacoesPage() {
 
   const loadRows = async (selected: ImportBatch) => {
     setBusy(true); setMessage(""); setConfirmLaunch(false); setAiMessage(""); setAiUsage(null);
-    const { data, error } = await supabase.from("import_rows").select("*").eq("batch_id", selected.id).order("row_number");
-    if (error) setMessage(error.message);
-    else { setBatch(selected); setTarget(selected.target_type); setRows((data || []) as ImportRow[]); }
+    const loaded: ImportRow[] = [];
+    let loadError = "";
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await supabase.from("import_rows").select("*")
+        .eq("batch_id", selected.id).order("row_number").range(offset, offset + 499);
+      if (error) { loadError = error.message; break; }
+      loaded.push(...((data || []) as ImportRow[]));
+      if (!data || data.length < 500) break;
+    }
+    if (loadError) setMessage(loadError);
+    else { setBatch(selected); setTarget(selected.target_type); setRows(loaded); }
     setBusy(false);
   };
 
@@ -475,7 +485,11 @@ export default function ImportacoesPage() {
   };
 
   const createImport = async () => {
-    if (!file || !orgId) return;
+    if (!file) return;
+    if (!orgId) {
+      setMessage("A organização ainda não está disponível. Aguarda o carregamento ou volta a selecionar a organização.");
+      return;
+    }
     setBusy(true); setMessage("");
     const form = new FormData();
     form.append("file", file);
@@ -494,7 +508,15 @@ export default function ImportacoesPage() {
       return;
     }
     if (!response.ok) { setMessage(parsed.error || "N\u00e3o foi poss\u00edvel ler o ficheiro"); setBusy(false); return; }
-    const rawRows = parsed.rows as Record<string, string>[];
+    const rawRows = (parsed.rows as Record<string, string>[]).filter(raw =>
+      target === "transaction" || !!getField(raw, aliases.contact)
+      || /^\d+$/.test(getField(raw, ["Nº", "N°", "No."]))
+    );
+    if (!rawRows.length) {
+      setMessage("O ficheiro não contém linhas de fatura com cliente ou fornecedor identificável.");
+      setBusy(false);
+      return;
+    }
     // O nome da folha só é conhecido depois de ler o ficheiro; se o utilizador
     // não escolheu conta, ainda dá para a adivinhar a partir dele.
     const contaPadrao = accounts.find(a => a.id === contaPadraoId)
@@ -502,7 +524,8 @@ export default function ImportacoesPage() {
 
     // Fica marcada como movimento normal; linhas de controlo e a reconciliação
     // do saldo são resolvidas já a seguir, com o ficheiro completo em mãos.
-    const normalizedRows = rawRows.map(raw => normalizeRow(raw, target, accounts, contacts, categories, contaPadrao, mappingRules));
+    const sourceDateOrder = detectImportDateOrder(rawRows);
+    const normalizedRows = rawRows.map(raw => normalizeRow(raw, target, accounts, contacts, categories, contaPadrao, mappingRules, sourceDateOrder));
 
     // Item B — reconciliar o saldo declarado (coluna SALDO) contra o saldo
     // calculado a partir dos próprios movimentos, na ordem do ficheiro. Só faz
@@ -599,11 +622,27 @@ export default function ImportacoesPage() {
     setBatch(newBatch as ImportBatch); setRows(inserted as ImportRow[]); setFile(null); setAiMessage(""); setAiUsage(null);
     setSheets([]); setSheetName("");
     await loadBatches(); setBusy(false);
+
+    // Análise inteligente automática (Opção A)
+    if (inserted.length > 0 && inserted.length <= 500) {
+      void analyzeWithClaude(newBatch as ImportBatch, inserted as ImportRow[]);
+    }
   };
 
   const updateRow = async (row: ImportRow, patch: Partial<NormalizedRow>) => {
-    const normalized = { ...row.normalized_data, ...patch };
-    const check = normalizeRow(row.raw_data, target, accounts, contacts, categories, undefined, mappingRules);
+    const normalized = {
+      ...row.normalized_data,
+      ...patch,
+      manual_fields: Array.from(new Set([...(row.normalized_data.manual_fields || []), ...Object.keys(patch)])),
+    };
+    if (patch.direction && normalized.category_id) {
+      const currentCategory = categories.find(c => c.id === normalized.category_id);
+      if (!currentCategory?.isActive || currentCategory.categoryType !== patch.direction) {
+        normalized.category_id = undefined;
+        normalized.category_name = undefined;
+      }
+    }
+    const check = normalizeRow(row.raw_data, target, accounts, contacts, categories, undefined, mappingRules, row.normalized_data.source_date_order);
     const mergedBase: NormalizedRow = { ...check.data, ...normalized };
 
     // Reavalia os duplicados desta linha contra o resto do lote e o que já
@@ -627,12 +666,14 @@ export default function ImportacoesPage() {
     };
     const error = merged.row_kind === "control" ? row.error_message || "Linha de controlo — não é lançada automaticamente"
       : target === "transaction"
-      ? (Number(merged.amount) <= 0 ? "Valor inválido" : !dateOk(merged.date) ? "Data inválida" : !merged.account_id ? "Conta obrigatória" : detectDescriptionDirectionConflict(merged.description || "", merged.direction || "expense"))
-      : (Number(merged.amount) <= 0 ? "Valor inválido" : !dateOk(merged.issue_date) ? "Emissão inválida" : !merged.contact_id ? "Contacto obrigatório" : !dateOk(merged.due_date) || (merged.due_date || "") < (merged.issue_date || "") ? "Vencimento inválido" : undefined);
-    merged.conflict_reason = target === "transaction" ? detectDescriptionDirectionConflict(merged.description || "", merged.direction || "expense") : undefined;
+      ? (Number(merged.amount) <= 0 ? "Valor inválido" : !dateOk(merged.date) ? "Data inválida" : !merged.direction ? "Sentido incerto: escolhe Receita ou Despesa" : !merged.account_id ? "Conta obrigatória" : merged.category_id && !categories.some(c => c.id === merged.category_id && c.isActive && c.categoryType === merged.direction) ? "Categoria incompatível com o sentido" : detectDescriptionDirectionConflict(merged.description || "", merged.direction))
+      : (Number(merged.amount) <= 0 ? "Valor inválido" : !dateOk(merged.issue_date) ? "Emissão inválida" : !merged.contact_id ? "Contacto obrigatório" : !dateOk(merged.due_date) || (merged.due_date || "") < (merged.issue_date || "") ? "Vencimento inválido" : !merged.external_document_number?.trim() ? "Número da fatura em falta" : validateImportedInvoiceBalance({ amount: merged.amount, paidAmount: merged.paid_amount, openAmount: merged.open_amount, sourceStatus: merged.source_status }));
+    merged.conflict_reason = target === "transaction" && merged.direction ? detectDescriptionDirectionConflict(merged.description || "", merged.direction) : undefined;
     const next: ImportRow = { ...row, normalized_data: merged, duplicate_key: ownGroup?.key || null, validation_status: (error ? "error" : "ready") as ImportRow["validation_status"], error_message: error, decision: "pending" };
+    const { error: saveError } = await supabase.from("import_rows").update({ normalized_data: merged, duplicate_key: next.duplicate_key, validation_status: next.validation_status, error_message: error, decision: "pending" }).eq("id", row.id);
+    if (saveError) { setMessage(`Não foi possível guardar a linha ${row.row_number}: ${saveError.message}`); return false; }
     setRows(prev => prev.map(r => r.id === row.id ? next : r));
-    await supabase.from("import_rows").update({ normalized_data: merged, duplicate_key: next.duplicate_key, validation_status: next.validation_status, error_message: error, decision: "pending" }).eq("id", row.id);
+    return true;
   };
 
   /**
@@ -678,56 +719,135 @@ export default function ImportacoesPage() {
     const atualizadas = alvo.map(row => {
       const merged: NormalizedRow = { ...row.normalized_data, account_id: conta.id, account_name: conta.name };
       // O erro de conta desaparece, mas outros (valor, data) têm de continuar.
-      const outroErro = Number(merged.amount) <= 0 ? "Valor inválido"
-        : !dateOk(merged.date) ? "Data do lançamento não reconhecida" : undefined;
+      const outroErro = merged.row_kind === "control" ? "Linha de controlo — não é lançada automaticamente"
+        : Number(merged.amount) <= 0 ? "Valor inválido"
+        : !dateOk(merged.date) ? "Data do lançamento não reconhecida"
+        : !merged.direction ? "Sentido incerto: escolhe Receita ou Despesa"
+        : merged.category_id && !categories.some(c => c.id === merged.category_id && c.isActive && c.categoryType === merged.direction) ? "Categoria incompatível com o sentido"
+        : row.error_message === "A categoria do ficheiro não corresponde ao sentido do movimento" ? row.error_message
+        : detectDescriptionDirectionConflict(merged.description || "", merged.direction);
       return {
         ...row,
         normalized_data: merged,
-        validation_status: (outroErro ? "error" : "ready") as ImportRow["validation_status"],
+        validation_status: (row.decision === "discard" ? "discarded" : outroErro ? "error" : "ready") as ImportRow["validation_status"],
         error_message: outroErro || null,
       };
     });
 
-    setRows(prev => prev.map(r => atualizadas.find(a => a.id === r.id) || r));
-
+    let saveError = "";
     for (const row of atualizadas) {
       const { error } = await supabase.from("import_rows").update({
         normalized_data: row.normalized_data,
         validation_status: row.validation_status,
         error_message: row.error_message,
       }).eq("id", row.id);
-      if (error) { setMessage(error.message); break; }
+      if (error) { saveError = error.message; break; }
     }
+    if (saveError) {
+      if (batch) await loadRows(batch);
+      setMessage(`Não foi possível aplicar a conta a todas as linhas: ${saveError}`);
+      setBusy(false);
+      return;
+    }
+    setRows(prev => prev.map(r => atualizadas.find(a => a.id === r.id) || r));
 
     const comErro = atualizadas.filter(r => r.error_message).length;
     setMessage(comErro
-      ? `Conta aplicada a ${atualizadas.length} linhas. ${comErro} continuam com outro problema (valor ou data).`
+      ? `Conta aplicada a ${atualizadas.length} linhas. ${comErro} continuam com outro problema a rever.`
       : `Conta aplicada a ${atualizadas.length} linhas.`);
+    setBusy(false);
+  };
+
+  /**
+   * Reavalia todas as linhas pendentes do lote com as regras atualizadas de
+   * categorias, sentidos (Despesa/Receita) e contas.
+   */
+  const reapplyRules = async () => {
+    if (!batch || busy) return;
+    setBusy(true);
+    setMessage("");
+    const contaPadrao = accounts.find(a => a.id === contaPadraoId) || suggestAccount(accounts, batch.source_file_name);
+    const alvo = rows.filter(r => r.validation_status !== "applied" && r.decision !== "discard" && !(r.normalized_data.manual_fields?.length));
+
+    const atualizadas = alvo.map(row => {
+      const check = normalizeRow(row.raw_data, batch.target_type, accounts, contacts, categories, contaPadrao, mappingRules, row.normalized_data.source_date_order);
+      return {
+        ...row,
+        normalized_data: {
+          ...check.data,
+          duplicate: row.normalized_data.duplicate,
+          duplicate_tier: row.normalized_data.duplicate_tier,
+          duplicate_reason: row.normalized_data.duplicate_reason,
+          duplicate_existing_label: row.normalized_data.duplicate_existing_label,
+        },
+        decision: "pending" as Decision,
+        validation_status: (check.error ? "error" : "ready") as ImportRow["validation_status"],
+        error_message: check.error || null,
+      };
+    });
+
+    let saveError = "";
+    for (let i = 0; i < atualizadas.length; i += 50) {
+      const result = await Promise.all(atualizadas.slice(i, i + 50).map(row =>
+        supabase.from("import_rows").update({
+          normalized_data: row.normalized_data,
+          validation_status: row.validation_status,
+          error_message: row.error_message,
+          decision: row.decision,
+        }).eq("id", row.id)
+      ));
+      const failed = result.find(item => item.error);
+      if (failed?.error) { saveError = failed.error.message; break; }
+    }
+    if (saveError) {
+      await loadRows(batch);
+      setMessage(`Não foi possível guardar todas as linhas: ${saveError}`);
+      setBusy(false);
+      return;
+    }
+    setRows(prev => prev.map(r => atualizadas.find(a => a.id === r.id) || r));
+    setMessage(`Regras reaplicadas a ${atualizadas.length} linhas. As correções feitas à mão foram mantidas.`);
     setBusy(false);
   };
 
   const decide = async (row: ImportRow, decision: Decision) => {
     const status: ImportRow["validation_status"] = decision === "discard" ? "discarded" : row.error_message ? "error" : "ready";
+    const { error } = await supabase.from("import_rows").update({ decision, validation_status: status }).eq("id", row.id);
+    if (error) { setMessage(`A decisão da linha ${row.row_number} não foi guardada: ${error.message}`); return false; }
     setRows(prev => prev.map(r => r.id === row.id ? { ...r, decision, validation_status: status } : r));
     setConfirmLaunch(false); // o conjunto aprovado mudou — a confirmação anterior já não é válida
-    await supabase.from("import_rows").update({ decision, validation_status: status }).eq("id", row.id);
+    return true;
   };
 
   const decideGroup = async (key: string, decision: Decision) => {
     const group = rows.filter(r => r.duplicate_key === key);
-    for (const row of group) await decide(row, decision);
+    for (const row of group) if (!(await decide(row, decision))) break;
   };
 
   const approveNonDuplicates = async () => {
     setBusy(true);
     const eligible = rows.filter(r => r.validation_status === "ready" && !r.normalized_data.duplicate);
-    for (const row of eligible) await decide(row, "keep");
+    for (const row of eligible) if (!(await decide(row, "keep"))) break;
     setBusy(false);
   };
 
   const applyApproved = async () => {
     const approved = rows.filter(r => r.decision === "keep" && r.validation_status === "ready");
     if (!approved.length) { setMessage("Aprova pelo menos uma linha válida antes de continuar."); return; }
+    const invalid = approved.find(row => {
+      const data = row.normalized_data;
+      if (!Number.isFinite(Number(data.amount)) || Number(data.amount) <= 0 || data.row_kind === "control") return true;
+      if (batch?.target_type === "transaction") {
+        return !["income", "expense"].includes(data.direction || "") || !dateOk(data.date) || !data.account_id;
+      }
+      return !data.contact_id || !dateOk(data.issue_date) || !dateOk(data.due_date) || (data.due_date || "") < (data.issue_date || "") || !data.external_document_number?.trim() || !!validateImportedInvoiceBalance({ amount: data.amount, paidAmount: data.paid_amount, openAmount: data.open_amount, sourceStatus: data.source_status });
+    });
+    if (invalid) {
+      setMessage(`A linha ${invalid.row_number} tem dados incompletos ou inválidos. Corrige-a antes de lançar.`);
+      setExpanded(invalid.id);
+      setConfirmLaunch(false);
+      return;
+    }
     if (!confirmLaunch) { setConfirmLaunch(true); return; }
     setConfirmLaunch(false);
     setBusy(true); setMessage("");
@@ -818,107 +938,168 @@ export default function ImportacoesPage() {
 
   const bulkDecide = async (decision: Decision) => {
     const alvo = rows.filter(r => selected.has(r.id));
-    for (const row of alvo) await decide(row, decision);
+    for (const row of alvo) if (!(await decide(row, decision))) return;
     setSelected(new Set());
   };
   const bulkSetCategory = async (categoryId: string) => {
-    const cat = categories.find(c => c.id === categoryId);
+    const cat = categories.find(c => c.id === categoryId && c.isActive);
+    if (!cat) return;
     const alvo = rows.filter(r => selected.has(r.id));
-    for (const row of alvo) await updateRow(row, { category_id: categoryId || undefined, category_name: cat?.name });
+    if (target === "transaction" && alvo.some(row => row.normalized_data.direction !== cat.categoryType)) {
+      setMessage("Seleciona apenas linhas do mesmo sentido antes de aplicar uma categoria em conjunto.");
+      return;
+    }
+    for (const row of alvo) if (!(await updateRow(row, { category_id: categoryId || undefined, category_name: cat?.name }))) return;
     setSelected(new Set());
   };
 
   const reset = () => { setBatch(null); setRows([]); setFile(null); setMessage(""); setAiMessage(""); setAiUsage(null); setSheets([]); setSheetName(""); setConfirmLaunch(false); setReimportWarning(null); setSearch(""); setSelected(new Set()); };
-  const analyzeWithClaude = async () => {
-    if (!batch || !orgId || aiBusy) return;
-    if (rows.some(row => row.decision === "keep")) {
-      setAiMessage("Analisa antes de aprovar linhas; as aprovações existentes não são alteradas.");
-      return;
-    }
+  const analyzeWithClaude = async (customBatch?: ImportBatch | null, customRows?: ImportRow[]) => {
+    const activeBatch = customBatch || batch;
+    const activeRows = customRows || rows;
+    if (!activeBatch || !orgId || aiBusy) return;
     setAiBusy(true); setAiMessage(""); setAiUsage(null);
     try {
-      const requestRows = rows.slice(0, 500).map(row => ({
+      // A leitura inicial cobre até 500 linhas em blocos pequenos. Reanálises
+      // manuais avançam 100 de cada vez para manter o custo sob controlo.
+      const linhasParaAnalisar = activeRows
+        .filter(r => r.decision === "pending" && r.validation_status !== "applied" && !r.normalized_data.ai_analyzed)
+        .slice(0, customBatch ? 500 : 100);
+      if (!linhasParaAnalisar.length) {
+        setAiMessage("Todas as linhas deste lote já foram analisadas. Revê as sugestões antes de aprovar.");
+        return;
+      }
+
+      const requestRows = linhasParaAnalisar.map(row => ({
         row_number: row.row_number,
         raw_data: row.raw_data,
         normalized_data: row.normalized_data,
       }));
+
+      // Blocos pequenos limitam o tamanho da resposta e permitem retomar a análise.
+      const CHUNK_SIZE = 25;
       const chunks: Array<typeof requestRows> = [];
-      let chunk: typeof requestRows = [];
-      let chunkSize = 2;
-      for (const item of requestRows) {
-        const itemSize = JSON.stringify(item).length + 1;
-        if (chunk.length && chunkSize + itemSize > 120_000) {
-          chunks.push(chunk);
-          chunk = [];
-          chunkSize = 2;
-        }
-        chunk.push(item);
-        chunkSize += itemSize;
+      for (let i = 0; i < requestRows.length; i += CHUNK_SIZE) {
+        chunks.push(requestRows.slice(i, i + CHUNK_SIZE));
       }
-      if (chunk.length) chunks.push(chunk);
 
       const suggestions: AiSuggestion[] = [];
+      const successfulRows: number[] = [];
+      let chunkError = "";
       let inputTokens = 0;
       let outputTokens = 0;
+      let chunkIndex = 0;
+
       for (const currentChunk of chunks) {
+        chunkIndex++;
+        setAiMessage(`A analisar com Claude: lote ${chunkIndex} de ${chunks.length} (${suggestions.length} linhas concluídas)…`);
+
+        try {
         const response = await fetch("/api/imports/analyze", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             orgId,
             mode: "import",
-            targetType: batch.target_type,
-            fileName: batch.source_file_name,
+            targetType: activeBatch.target_type,
+            fileName: activeBatch.source_file_name,
             rows: currentChunk,
+            availableAccounts: accounts.filter(a => !a.isArchived).map(a => a.name),
+            availableContacts: contacts.filter(c => !c.isArchived).map(c => c.name),
           }),
         });
         const parsed = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(parsed.error || "Não foi possível analisar com Claude");
         suggestions.push(...((parsed.suggestions || []) as AiSuggestion[]));
+        successfulRows.push(...currentChunk.map(row => row.row_number));
         inputTokens += Number(parsed.usage?.input_tokens) || 0;
         outputTokens += Number(parsed.usage?.output_tokens) || 0;
+        } catch (error) {
+          chunkError = error instanceof Error ? error.message : "A análise deste grupo falhou";
+          break;
+        }
       }
+      if (!successfulRows.length) throw new Error(chunkError || "O Claude não analisou nenhuma linha");
       const parsed = { suggestions, usage: { input_tokens: inputTokens, output_tokens: outputTokens } };
       const byRow = new Map<number, AiSuggestion>((parsed.suggestions || []).map((item: AiSuggestion) => [Number(item.row_number), item]));
-      const updated = rows.map(row => {
+      const requestedNumbers = new Set(successfulRows);
+      const updated = activeRows.map(row => {
+        if (!requestedNumbers.has(row.row_number)) return row;
         const suggestion = byRow.get(row.row_number);
-        if (!suggestion) return row;
-        const normalized: NormalizedRow = { ...row.normalized_data, ai_suggestion: suggestion };
-        const explicitDirection = Object.entries(row.raw_data).some(([key, value]) =>
-          /tipo|direc|entrada|saida|saída|credito|crédito|debito|débito/i.test(key) && clean(value),
-        );
-        if (batch.target_type === "transaction" && suggestion.direction && !explicitDirection) normalized.direction = suggestion.direction;
+        const normalized: NormalizedRow = { ...row.normalized_data, ai_analyzed: true, ...(suggestion ? { ai_suggestion: suggestion } : {}) };
+        if (!suggestion) return { ...row, normalized_data: normalized };
+        const explicitDirection = Boolean(getField(row.raw_data, aliases.type));
+        if (activeBatch.target_type === "transaction" && ["income", "expense"].includes(suggestion.classification) && suggestion.direction && !normalized.direction && !explicitDirection && !(normalized.manual_fields || []).includes("direction")) {
+          normalized.direction = suggestion.direction;
+        }
         if (!normalized.document_kind && suggestion.document_kind) normalized.document_kind = suggestion.document_kind;
-        if ((!normalized.description || normalized.description === "Importação de ficheiro") && suggestion.suggested_description) normalized.description = suggestion.suggested_description;
+        if ((!normalized.description || normalized.description === "Importação de ficheiro") && suggestion.suggested_description) {
+          normalized.description = suggestion.suggested_description;
+        }
         if (!normalized.account_id && suggestion.account) {
           const account = findAccount(accounts, suggestion.account);
           if (account) { normalized.account_id = account.id; normalized.account_name = account.name; }
         }
-        if (!normalized.category_id && suggestion.category) {
-          const category = findCategory(categories, suggestion.category, batch.target_type);
+        if (!normalized.category_id && suggestion.category_id) {
+          const expectedDirection = activeBatch.target_type === "transaction" ? normalized.direction : activeBatch.target_type === "receivable" ? "income" : "expense";
+          const category = categories.find(c => c.id === suggestion.category_id && c.isActive && c.categoryType === expectedDirection);
           if (category) { normalized.category_id = category.id; normalized.category_name = category.name; }
         }
         if (!normalized.contact_id && suggestion.contact) {
           const match = findContact(contacts, suggestion.contact);
-          if (match.contact && (match.tier === "nif" || match.tier === "phone" || match.tier === "exact_name")) {
+          if (match.contact && (match.tier === "nif" || match.tier === "phone" || match.tier === "exact_name" || match.tier === "fuzzy_name")) {
             normalized.contact_id = match.contact.id; normalized.contact_name = match.contact.name; normalized.contact_match_tier = match.tier;
           }
         }
-        return { ...row, normalized_data: normalized };
+
+        // Reavaliar erro e validação após intervenção da IA
+        let error: string | undefined = undefined;
+        if (normalized.row_kind === "control") {
+          error = "Linha de controlo — não é lançada automaticamente";
+        } else if (activeBatch.target_type === "transaction") {
+          if (Number(normalized.amount) <= 0) error = "Valor inválido";
+          else if (!dateOk(normalized.date)) error = "Data do lançamento não reconhecida";
+          else if (!normalized.direction) error = "Sentido incerto: escolhe Receita ou Despesa";
+          else if (!normalized.account_id) error = "Sem conta: escolhe a conta da importação acima";
+          else if (normalized.category_id && !categories.some(c => c.id === normalized.category_id && c.isActive && c.categoryType === normalized.direction)) error = "Categoria incompatível com o sentido";
+          else if (row.error_message === "A categoria do ficheiro não corresponde ao sentido do movimento") error = row.error_message;
+          else error = detectDescriptionDirectionConflict(normalized.description || "", normalized.direction);
+        } else {
+          if (Number(normalized.amount) <= 0) error = "Valor inválido";
+          else if (!dateOk(normalized.issue_date)) error = "Data de emissão não reconhecida";
+          else if (!normalized.contact_id) error = "Contacto não encontrado; escolhe um contacto";
+          else if (!dateOk(normalized.due_date) || (normalized.due_date || "") < (normalized.issue_date || "")) error = "Vencimento inválido";
+          else if (!normalized.external_document_number?.trim()) error = "Número da fatura em falta";
+          else error = validateImportedInvoiceBalance({ amount: normalized.amount, paidAmount: normalized.paid_amount, openAmount: normalized.open_amount, sourceStatus: normalized.source_status });
+        }
+
+        const nextStatus = error ? "error" : "ready";
+        return {
+          ...row,
+          normalized_data: normalized,
+          validation_status: (row.decision === "discard" ? "discarded" : nextStatus) as ImportRow["validation_status"],
+          error_message: error || null
+        };
       });
-      setRows(updated);
-      const changed = updated.filter(row => byRow.has(row.row_number));
+      const changed = updated.filter(row => requestedNumbers.has(row.row_number));
       for (let i = 0; i < changed.length; i += 50) {
         const result = await Promise.all(changed.slice(i, i + 50).map(row =>
-          supabase.from("import_rows").update({ normalized_data: row.normalized_data }).eq("id", row.id),
+          supabase.from("import_rows").update({
+            normalized_data: row.normalized_data,
+            validation_status: row.validation_status,
+            error_message: row.error_message
+          }).eq("id", row.id),
         ));
         const failed = result.find(item => item.error);
         if (failed?.error) throw new Error(failed.error.message);
       }
+      setRows(updated);
       setAiUsage(parsed.usage || null);
       const applied = updated.filter(row => byRow.has(row.row_number)).length;
-      setAiMessage("Claude analisou " + applied + " linha(s). As sugestões ficaram visíveis para revisão; nada foi lançado.");
+      const remaining = activeRows.filter(row => row.decision === "pending" && row.validation_status !== "applied" && !row.normalized_data.ai_analyzed).length - successfulRows.length;
+      setAiMessage(`Claude devolveu sugestões para ${applied} de ${successfulRows.length} linhas analisadas. ${chunkError ? `A análise parou: ${chunkError}. As linhas já analisadas foram guardadas.` : remaining > 0 ? `Restam ${remaining}; podes analisar o próximo grupo.` : "Revê as linhas antes de aprovar."}`);
     } catch (error) {
+      if (activeBatch) await loadRows(activeBatch);
       setAiMessage(error instanceof Error ? error.message : "Não foi possível analisar com Claude");
     } finally {
       setAiBusy(false);
@@ -929,6 +1110,8 @@ export default function ImportacoesPage() {
 
   const label = batch ? TARGET_LABEL[batch.target_type] : TARGET_LABEL[target];
   const pendingApproved = rows.filter(r => r.decision === "keep" && r.validation_status === "ready").length;
+  const selectedDirections = Array.from(new Set(rows.filter(row => selected.has(row.id)).map(row => row.normalized_data.direction)));
+  const bulkCategoryDirection = selectedDirections.length === 1 ? selectedDirections[0] : undefined;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -937,7 +1120,10 @@ export default function ImportacoesPage() {
           <h1 className="h-page">Importar lançamentos</h1>
           <p className="text-sm text-ink-400 mt-1">Migra dados antigos para {label} com revisão antes de lançar.</p>
         </div>
-        <button className="btn-ghost" onClick={() => setShowHistory(v => !v)}><RotateCcw size={14} /> Histórico</button>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-ghost" onClick={() => router.push("/app/importacoes/contactos")}><Users size={14} /> Importar clientes e fornecedores</button>
+          <button className="btn-ghost" onClick={() => setShowHistory(v => !v)}><RotateCcw size={14} /> Histórico</button>
+        </div>
       </header>
 
       {showHistory && (
@@ -1048,20 +1234,25 @@ export default function ImportacoesPage() {
             <FileText size={18} className="text-maka-400" />
             <div className="flex-1 min-w-0"><div className="font-semibold text-sm truncate">{batch.source_file_name}</div><div className="text-[11px] text-ink-500">{TARGET_LABEL[batch.target_type]} · {rows.length} linhas</div></div>
             <div className="flex gap-2 text-xs"><span className="rounded-full bg-emerald-500/10 text-emerald-400 px-2 py-1">{counts.ready} válidas</span><span className="rounded-full bg-amber-500/10 text-amber-400 px-2 py-1">{counts.duplicate} duplicadas</span><span className="rounded-full bg-red-500/10 text-red-400 px-2 py-1">{counts.error} erros</span></div>
-            <button className="btn-ghost" onClick={reset}><X size={14} /> Nova</button>
+            <div className="flex gap-2">
+              <button className="btn-ghost" disabled={busy} onClick={() => void reapplyRules()} title="Reavalia as linhas com as regras atualizadas de categorias, sentidos e contas">
+                <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Reclassificar
+              </button>
+              <button className="btn-ghost" onClick={reset}><X size={14} /> Nova</button>
+            </div>
           </section>
           <section className="card p-4 flex flex-wrap items-center gap-3 border-maka-500/20">
             <Sparkles size={18} className="text-maka-400 shrink-0" />
             <div className="flex-1 min-w-[220px]">
               <div className="text-sm font-semibold">Leitura inteligente (Claude)</div>
-              <div className="text-[11px] text-ink-500">Sugere classificação, conta, categoria e contacto. Não lança nada sem a tua aprovação.</div>
+              <div className="text-[11px] text-ink-500">Sugere sentido, conta, categoria e contacto. As linhas com dúvida ficam para revisão; nada é lançado sem a tua aprovação.</div>
             </div>
-            <button className="btn-ghost" disabled={busy || aiBusy || rows.some(row => row.decision === "keep")} onClick={() => void analyzeWithClaude()}>
+            <button className="btn-ghost" disabled={busy || aiBusy || !rows.some(row => row.decision === "pending" && row.validation_status !== "applied" && !row.normalized_data.ai_analyzed)} onClick={() => void analyzeWithClaude()}>
               {aiBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {aiBusy ? "A analisar…" : "Analisar com Claude"}
+              {aiBusy ? "A analisar…" : rows.some(row => row.normalized_data.ai_analyzed) ? "Analisar próximas linhas" : "Analisar com Claude"}
             </button>
             {aiUsage && <span className="text-[10px] text-ink-500">{aiUsage.input_tokens || 0} tokens de entrada · {aiUsage.output_tokens || 0} de saída</span>}
-            {aiMessage && <p className="basis-full text-xs text-ink-400">{aiMessage}</p>}
+            {aiMessage && <p role="status" aria-live="polite" className="basis-full text-xs text-ink-400">{aiMessage}</p>}
           </section>
 
           <section className="rounded-xl border border-maka-500/30 bg-maka-500/5 p-4 flex gap-3">
@@ -1075,11 +1266,27 @@ export default function ImportacoesPage() {
               )}
               {target !== "transaction" && (
                 <span className="block mt-1.5 text-ink-400">
-                  Faturas importadas entram como pendentes — mesmo que o ficheiro indique &ldquo;paga&rdquo; ou traga data de pagamento, isso não é lançado automaticamente. Regista o recebimento ou pagamento separadamente depois de aprovar.
+                  O valor pago indicado no ficheiro fica registado como pagamento histórico, sem criar um novo movimento de caixa. Confirma valor, saldo e contacto antes de aprovar; inconsistências ficam por corrigir.
                 </span>
               )}
             </div>
           </section>
+
+          {counts.error > 0 && (
+            <section role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 flex flex-wrap items-center gap-3">
+              <AlertTriangle size={18} className="text-amber-400 shrink-0" aria-hidden="true" />
+              <div className="flex-1 min-w-[220px]">
+                <div className="text-sm font-semibold">{counts.error} linha{counts.error !== 1 ? "s" : ""} precisam de decisão</div>
+                <p className="text-xs text-ink-400 mt-1">Abre a linha para corrigir os campos em falta. Linhas de controlo podem ser eliminadas; não são movimentos.</p>
+              </div>
+              <button className="btn-ghost" onClick={() => {
+                setFilter("error");
+                setPage(0);
+                const first = rows.find(row => row.validation_status === "error");
+                if (first) setExpanded(first.id);
+              }}>Ver linhas por corrigir</button>
+            </section>
+          )}
 
           {/* Corrigir a conta de centenas de linhas uma a uma não é trabalho para
               ninguém — aqui resolve-se de uma vez. */}
@@ -1119,7 +1326,7 @@ export default function ImportacoesPage() {
                   <div key={key} className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-semibold">Grupo com {group.length} linha{group.length !== 1 ? "s" : ""} · <span className="font-normal text-ink-400">{tierLabel}</span></span>
-                      <div className="flex gap-1"><button className="btn-ghost text-xs" onClick={() => void decideGroup(key, "keep")}><Check size={13} /> Manter todos</button><button className="btn-ghost text-xs text-red-400" onClick={() => void decideGroup(key, "discard")}><Trash2 size={13} /> Eliminar todos</button></div>
+                      <div className="flex gap-1"><button className="btn-ghost text-xs text-red-400" onClick={() => void decideGroup(key, "discard")}><Trash2 size={13} /> Eliminar todos</button></div>
                     </div>
                     {existingLabelText && (
                       <div className="mt-2 text-xs flex gap-3 text-ink-400 border-l-2 border-ink-700 pl-2"><span className="w-8 shrink-0">original</span><span className="flex-1">{existingLabelText}</span></div>
@@ -1159,10 +1366,10 @@ export default function ImportacoesPage() {
               <span className="text-xs font-semibold">{selected.size} selecionada{selected.size !== 1 ? "s" : ""}</span>
               <button className="btn-ghost text-xs" onClick={() => void bulkDecide("keep")}><Check size={13} /> Aprovar</button>
               <button className="btn-ghost text-xs text-red-400" onClick={() => void bulkDecide("discard")}><Trash2 size={13} /> Eliminar</button>
-              <select className="input !w-auto text-xs py-1" defaultValue="" aria-label="Aplicar categoria às selecionadas"
+              <select className="input !w-auto text-xs py-1" disabled={target === "transaction" && !bulkCategoryDirection} defaultValue="" aria-label="Aplicar categoria às selecionadas"
                 onChange={e => { if (e.target.value) void bulkSetCategory(e.target.value); e.target.value = ""; }}>
-                <option value="" disabled>Aplicar categoria…</option>
-                {categoryOptions(categories, target === "transaction" ? "any" : target === "receivable" ? "income" : "expense")}
+                <option value="" disabled>{target === "transaction" && !bulkCategoryDirection ? "Seleciona o mesmo sentido" : "Aplicar categoria…"}</option>
+                {categoryOptions(categories, target === "transaction" ? (bulkCategoryDirection || "any") : target === "receivable" ? "income" : "expense")}
               </select>
               <button className="btn-ghost text-xs ml-auto" onClick={() => setSelected(new Set())}>Limpar seleção</button>
             </section>
@@ -1182,9 +1389,23 @@ export default function ImportacoesPage() {
                     <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelected(row.id)} aria-label={`Selecionar linha ${row.row_number}`} />
                     {n.ai_suggestion && <span className="text-[10px] text-violet-300" title={n.ai_suggestion.reason}>IA {Math.round(n.ai_suggestion.confidence * 100)}%</span>}
                     <button className="text-ink-500" onClick={() => setExpanded(isOpen ? null : row.id)}><ChevronDown size={15} className={isOpen ? "rotate-180" : ""} /></button>
-                    <span className="text-[11px] text-ink-500 w-8">#{row.row_number}</span>
-                    <div className="min-w-0 flex-1"><div className="text-sm truncate">{n.description || "Sem descrição"}</div><div className="text-[11px] text-ink-500">{target === "transaction" ? n.date : (n.issue_date || "sem emissão")} {n.contact_name ? " · " + n.contact_name : ""} {n.account_name ? " · " + n.account_name : ""}</div></div>
+                    <span className="text-[11px] text-ink-500 w-8 shrink-0">#{row.row_number}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm truncate">{n.description || "Sem descrição"}</div>
+                      <div className="text-[11px] text-ink-500">
+                        {target === "transaction" ? n.date : (n.issue_date || "sem emissão")}
+                        {n.contact_name ? " · " + n.contact_name : ""}
+                        {target !== "transaction" && n.source_status ? ` · ${n.source_status}` : ""}
+                        {n.account_name ? " · " + n.account_name : ""}
+                        {n.category_id && n.category_name ? (
+                          <span className="text-emerald-400 font-medium"> · {n.category_name}</span>
+                        ) : (
+                          <span className="text-amber-400/80"> · {n.category_name ? `Categoria do ficheiro por associar: ${n.category_name}` : "Sem categoria"}</span>
+                        )}
+                      </div>
+                    </div>
                     <span className="text-sm font-semibold shrink-0">{fmtKz(Number(n.amount || 0))}</span>
+                    {target !== "transaction" && <span className="text-[11px] text-ink-400 shrink-0" title="Saldo que ficará por receber ou pagar">em aberto {fmtKz(Number(n.open_amount || 0))}</span>}
                     {n.row_kind === "control" && <span className="text-[10px] text-sky-400">controlo</span>}
                     {n.conflict_reason && <span className="text-[10px] text-orange-400">conflito</span>}
                     {n.balance_status === "relevant_diff" && <span className="text-[10px] text-red-400">saldo não bate</span>}
@@ -1217,12 +1438,15 @@ export default function ImportacoesPage() {
                       <div><label className="label">{target === "transaction" ? "Data" : "Emissão"}</label><input className="input" type="date" value={(target === "transaction" ? n.date : n.issue_date) || ""} onChange={e => void updateRow(row, target === "transaction" ? { date: e.target.value } : { issue_date: e.target.value })} /></div>
                       {target !== "transaction" && <div><label className="label">Vencimento</label><input className="input" type="date" value={n.due_date || ""} onChange={e => void updateRow(row, { due_date: e.target.value })} /></div>}
                       <div><label className="label">Valor</label><input className="input" type="number" value={n.amount || ""} onChange={e => void updateRow(row, { amount: Number(e.target.value) })} /></div>
+                      {target !== "transaction" && <div><label className="label">Já pago no ficheiro</label><input className="input" type="number" min="0" step="0.01" value={n.paid_amount ?? ""} onChange={e => void updateRow(row, { paid_amount: Number(e.target.value) })} /></div>}
+                      {target !== "transaction" && <div><label className="label">Em aberto no ficheiro</label><input className="input" type="number" min="0" step="0.01" value={n.open_amount ?? ""} onChange={e => void updateRow(row, { open_amount: Number(e.target.value) })} /></div>}
+                      {target !== "transaction" && <div><label className="label">Data do pagamento histórico</label><input className="input" type="date" value={n.payment_date || ""} onChange={e => void updateRow(row, { payment_date: e.target.value })} /></div>}
                       <div className="md:col-span-2"><label className="label">Descrição</label><input className="input" value={n.description || ""} onChange={e => void updateRow(row, { description: e.target.value })} /></div>
-                      {target === "transaction" ? <><div><label className="label">Conta</label><select className="input" value={n.account_id || ""} onChange={e => void updateRow(row, { account_id: e.target.value, account_name: accounts.find(a => a.id === e.target.value)?.name })}><option value="">Selecionar</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div><div><label className="label">Tipo</label><select className="input" value={n.direction || "expense"} onChange={e => void updateRow(row, { direction: e.target.value as "income" | "expense" })}><option value="expense">Despesa</option><option value="income">Receita</option></select></div></> : <div><label className="label flex items-center justify-between">{target === "receivable" ? "Cliente" : "Fornecedor"}{n.contact_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "contact_id")}>lembrar</button>}</label><select className="input" value={n.contact_id || ""} onChange={e => void updateRow(row, { contact_id: e.target.value, contact_name: contacts.find(c => c.id === e.target.value)?.name })}><option value="">Selecionar</option>{contacts.filter(c => !c.isArchived && (c.kind === "ambos" || c.kind === (target === "receivable" ? "cliente" : "fornecedor"))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
-                      <div><label className="label flex items-center justify-between">Categoria{n.category_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "category_id")}>lembrar</button>}</label><select className="input" value={n.category_id || ""} onChange={e => void updateRow(row, { category_id: e.target.value, category_name: categories.find(c => c.id === e.target.value)?.name })}><option value="">Sem categoria</option>{categoryOptions(categories, target === "transaction" ? (n.direction || "expense") : target === "receivable" ? "income" : "expense")}</select></div>
+                      {target === "transaction" ? <><div><label className="label">Conta</label><select className="input" value={n.account_id || ""} onChange={e => void updateRow(row, { account_id: e.target.value, account_name: accounts.find(a => a.id === e.target.value)?.name })}><option value="">Selecionar</option>{accounts.filter(a => !a.isArchived).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div><div><label className="label">Tipo</label><select className="input" value={n.direction || ""} onChange={e => void updateRow(row, { direction: e.target.value as "income" | "expense" })}><option value="">Confirmar sentido</option><option value="expense">Despesa</option><option value="income">Receita</option></select></div></> : <div><label className="label flex items-center justify-between">{target === "receivable" ? "Cliente" : "Fornecedor"}{n.contact_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "contact_id")}>lembrar</button>}</label><select className="input" value={n.contact_id || ""} onChange={e => void updateRow(row, { contact_id: e.target.value, contact_name: contacts.find(c => c.id === e.target.value)?.name })}><option value="">Selecionar</option>{contacts.filter(c => !c.isArchived && (c.kind === "ambos" || c.kind === (target === "receivable" ? "cliente" : "fornecedor"))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
+                      <div><label className="label flex items-center justify-between">Categoria{n.category_id && <button type="button" className="text-[10px] text-maka-400 normal-case font-normal" onClick={() => void rememberMapping(row, "category_id")}>lembrar</button>}</label><select className="input" disabled={target === "transaction" && !n.direction} value={n.category_id || ""} onChange={e => void updateRow(row, { category_id: e.target.value, category_name: categories.find(c => c.id === e.target.value)?.name })}><option value="">{target === "transaction" && !n.direction ? "Escolhe primeiro o tipo" : "Sem categoria"}</option>{categoryOptions(categories, target === "transaction" ? (n.direction || "any") : target === "receivable" ? "income" : "expense")}</select></div>
                       {target === "transaction" && <div><label className="label">Referência (fatura/doc.)</label><input className="input" value={n.reference || ""} onChange={e => void updateRow(row, { reference: e.target.value })} /></div>}
                       {target !== "transaction" && <div><label className="label">Tipo de documento</label><select className="input" value={n.document_kind || (target === "receivable" ? "invoice_reference" : "supplier_invoice")} onChange={e => void updateRow(row, { document_kind: e.target.value })}>{Object.entries(OBLIGATION_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>}
-                      {target !== "transaction" && <div><label className="label">Nº documento externo</label><input className="input" placeholder="opcional" value={n.external_document_number || ""} onChange={e => void updateRow(row, { external_document_number: e.target.value })} /></div>}
+                      {target !== "transaction" && <div><label className="label">Nº da fatura</label><input className="input" placeholder="Obrigatório para lançar" value={n.external_document_number || ""} onChange={e => void updateRow(row, { external_document_number: e.target.value })} /></div>}
                     </div>
                   )}
                 </div>
