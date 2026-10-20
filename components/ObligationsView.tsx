@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useStore } from "@/lib/store";
 import {
   fmtKz, fmtDate, daysUntil, Obligation, ObligationDirection, Settlement,
@@ -7,12 +8,13 @@ import {
   saleTax, TAX_INSIDE_VALUE, REGIMES, EntryDocumentKind, ENTRY_DOCUMENT_KIND_LABEL,
 } from "@/lib/data";
 import { Plus, X, RotateCcw, Ban, Wallet, Pencil, Printer } from "lucide-react";
+import { canInvoiceContact, hasDuplicateInvoice, isLoanObligation, isTradeInvoice, matchesObligationStatus, ObligationScope, ObligationStatusFilter } from "@/lib/obligations";
 
 // Categorias mostradas ao criar uma obrigação — deliberadamente compactas
 // (ver docs/RECEIVABLES-PAYABLES.md): uma fatura de cliente é sempre venda de
 // produto ou serviço; uma fatura de fornecedor pode ser quase qualquer
 // despesa, exceto as que nunca chegam por fatura de terceiro.
-const RECEIVABLE_CATEGORY_NAMES = ["Vendas de produtos", "Prestação de serviços"];
+const RECEIVABLE_CATEGORY_NAMES = ["Receita Operacional", "Receitas Operacionais", "Vendas de produtos", "Prestação de serviços"];
 const PAYABLE_EXCLUDED_CATEGORY_NAMES = ["Pessoal", "Sócios", "Financiamento", "Transferências internas"];
 const NAVY = "#26305c";
 const fmtAOA = (n: number) => new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " AOA";
@@ -29,17 +31,21 @@ const STATUS_STYLE: Record<FinancialStatus, string> = {
   cancelled: "bg-ink-900 text-ink-600",
 };
 
-export default function ObligationsView({ direction }: { direction: ObligationDirection }) {
+export default function ObligationsView({ direction, initialContactId = "" }: { direction: ObligationDirection; initialContactId?: string }) {
   const { obligations, contacts, accounts, categories, settlements, reserves, company, createObligation, postSettlement, reverseSettlement, cancelObligation, updateObligation } = useStore();
   const reservedFor = (obligationId: string) => reserves
     .filter(r => r.obligationId === obligationId && (r.status === "active" || r.status === "partially_released"))
     .reduce((s, r) => s + r.reservedAmount, 0);
   const linkedReserve = (obligationId: string) => reserves.find(r => r.obligationId === obligationId && (r.status === "active" || r.status === "partially_released"));
   const isRec = direction === "receivable";
+  const [scope, setScope] = useState<ObligationScope>("invoices");
+  const [contactFilter, setContactFilter] = useState(initialContactId);
   const contactPool = useMemo(
-    () => contacts.filter(c => !c.isArchived && (c.kind === "ambos" || c.kind === (isRec ? "cliente" : "fornecedor"))),
-    [contacts, isRec]
+    () => contacts.filter(c => !c.isArchived && (scope === "other" || canInvoiceContact(direction, c.kind))),
+    [contacts, direction, scope]
   );
+  const invoiceContactIds = useMemo(() => new Set(obligations.filter(o => o.direction === direction && isTradeInvoice(o)).map(o => o.contactId)), [obligations, direction]);
+  const filterContacts = useMemo(() => contacts.filter(c => scope === "other" || canInvoiceContact(direction, c.kind) || invoiceContactIds.has(c.id)), [contacts, direction, scope, invoiceContactIds]);
   const catType = isRec ? "income" : "expense";
   // Arquivadas não entram numa obrigação nova (mas continuam no histórico
   // das que já as usavam, via o categoryId já gravado nessas obrigações).
@@ -50,18 +56,16 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
   // é ruído aqui. Isso mostra-se em Transações, que cobre lançamentos diretos.
   const parentCats = useMemo(() => {
     const base = activeCats.filter(c => !c.parentId && c.categoryType === catType);
+    if (scope === "other") return base;
     if (isRec) return base.filter(c => RECEIVABLE_CATEGORY_NAMES.includes(c.name));
     return base.filter(c => !PAYABLE_EXCLUDED_CATEGORY_NAMES.includes(c.name));
-  }, [activeCats, catType, isRec]);
+  }, [activeCats, catType, isRec, scope]);
 
-  const list = useMemo(() => obligations.filter(o => o.direction === direction), [obligations, direction]);
-  const [filter, setFilter] = useState<"all" | "open" | "overdue" | "paid" | "cancelled">("all");
-  const shown = useMemo(() => list.filter(o => {
-    if (filter === "all") return true;
-    if (filter === "overdue") return o.financialStatus === "overdue" || o.financialStatus === "partial_overdue";
-    if (filter === "open") return ["open", "partial", "due_today", "overdue", "partial_overdue"].includes(o.financialStatus);
-    return o.financialStatus === filter;
-  }), [list, filter]);
+  const list = useMemo(() => obligations.filter(o => o.direction === direction
+    && (!contactFilter || o.contactId === contactFilter)
+    && isTradeInvoice(o) === (scope === "invoices")), [obligations, direction, scope, contactFilter]);
+  const [filter, setFilter] = useState<ObligationStatusFilter>("all");
+  const shown = useMemo(() => list.filter(o => matchesObligationStatus(o.financialStatus, filter)), [list, filter]);
 
   const totals = useMemo(() => {
     const open = list.filter(o => o.lifecycleStatus === "open");
@@ -73,6 +77,8 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
 
   // ---- Create modal ----
   const [showNew, setShowNew] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [createBusy, setCreateBusy] = useState(false);
   const [nContact, setNContact] = useState("");
   const [nAmount, setNAmount] = useState("");
   const [nDue, setNDue] = useState("");
@@ -85,20 +91,28 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
   const [nIsSale, setNIsSale] = useState(true);
   const nSubCats = useMemo(() => activeCats.filter(c => c.parentId === nParentCat), [activeCats, nParentCat]);
   const openNew = () => {
-    setNContact(contactPool[0]?.id ?? ""); setNAmount(""); setNDesc(""); setNExtRef("");
+    setCreateError("");
+    setNContact(contactPool.find(c => c.id === contactFilter)?.id ?? ""); setNAmount(""); setNDesc(""); setNExtRef("");
     setNParentCat(""); setNSubCat("");
     setNIssue(new Date().toISOString().slice(0, 10)); setNDue(new Date().toISOString().slice(0, 10));
-    setNKind(isRec ? "invoice_reference" : "supplier_invoice"); setNIsSale(true); setShowNew(true);
+    setNKind(scope === "invoices" ? (isRec ? "invoice_reference" : "supplier_invoice") : "other"); setNIsSale(scope === "invoices"); setShowNew(true);
   };
   const nTaxPreview = isRec && nIsSale && Number(nAmount) > 0 ? saleTax(Number(nAmount), company.regime) : 0;
   const submitNew = async () => {
-    if (!nContact || !nAmount || !nDue) return;
+    if (createBusy) return;
+    if (!nContact || !nIssue || !nDue || !Number.isFinite(Number(nAmount)) || Number(nAmount) <= 0) { setCreateError("Preenche o contacto, as datas e um valor superior a zero."); return; }
+    if (nDue < nIssue) { setCreateError("O vencimento não pode ser anterior à emissão."); return; }
+    if (scope === "invoices" && !nExtRef.trim()) { setCreateError("Indica o número da fatura."); return; }
+    if (scope === "invoices" && hasDuplicateInvoice(obligations, { direction, contactId: nContact, externalDocumentNumber: nExtRef })) { setCreateError("Já existe uma fatura com este número para o contacto selecionado."); return; }
+    setCreateBusy(true);
     const err = await createObligation({
       direction, contactId: nContact, amount: Number(nAmount), dueDate: nDue, issueDate: nIssue,
       documentKind: nKind, externalDocumentNumber: nExtRef || undefined, description: nDesc || undefined,
-      categoryId: nSubCat || nParentCat || undefined, isSale: isRec ? nIsSale : false,
+      categoryId: nSubCat || nParentCat || undefined, isSale: scope === "invoices" && isRec ? nIsSale : false,
     });
+    setCreateBusy(false);
     if (!err) setShowNew(false);
+    else setCreateError(err);
   };
 
   // ---- Edit modal ----
@@ -217,8 +231,24 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
             {totals.count} documento{totals.count !== 1 ? "s" : ""} em aberto · controlo interno, não é documento fiscal certificado
           </p>
         </div>
-        <button onClick={openNew} className="btn-primary"><Plus size={15} /> {isRec ? "Nova conta a receber" : "Nova conta a pagar"}</button>
+        <button onClick={openNew} className="btn-primary"><Plus size={15} /> {scope === "invoices" ? (isRec ? "Nova fatura de cliente" : "Nova fatura de fornecedor") : (isRec ? "Nova conta a receber" : "Nova conta a pagar")}</button>
       </header>
+
+      <div className="segmented-tabs !flex !flex-wrap !w-fit !max-w-full" role="group" aria-label="Tipo de contas">
+        <button type="button" aria-pressed={scope === "invoices"} className={`segmented-tab ${scope === "invoices" ? "segmented-tab-active" : ""}`} onClick={() => { setScope("invoices"); setFilter("all"); setContactFilter(""); }}>{isRec ? "Faturas de clientes" : "Faturas de fornecedores"}</button>
+        <button type="button" aria-pressed={scope === "other"} className={`segmented-tab ${scope === "other" ? "segmented-tab-active" : ""}`} onClick={() => { setScope("other"); setFilter("all"); setContactFilter(""); }}>Outras contas {isRec ? "a receber" : "a pagar"}</button>
+      </div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <p className="text-sm text-ink-400 flex-1">{scope === "invoices"
+          ? (isRec ? "Vendas de produtos ou serviços a clientes." : "Compras faturadas pelos fornecedores.")
+          : <>Dívidas e outros compromissos, separados das faturas comerciais. <Link className="text-maka-400 hover:underline" href="/app/emprestimos">Gerir empréstimos e adiantamentos</Link>.</>}</p>
+        <label className="text-xs text-ink-400 sm:w-60">{scope === "invoices" ? (isRec ? "Filtrar por cliente" : "Filtrar por fornecedor") : "Filtrar por contacto"}
+          <select className="input mt-1" value={contactFilter} onChange={e => setContactFilter(e.target.value)}>
+            <option value="">Todos</option>
+            {filterContacts.map(c => <option key={c.id} value={c.id}>{c.name}{c.isArchived ? " (arquivado)" : ""}</option>)}
+          </select>
+        </label>
+      </div>
 
       <div className="app-metric-strip">
         <div className="app-metric"><div className="app-metric-label">{isRec ? "Total a receber" : "Total a pagar"}</div><div className="app-metric-value">{fmtKz(totals.outstanding)}</div></div>
@@ -226,14 +256,16 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
         <div className="app-metric"><div className="app-metric-label">Vence em 7 dias</div><div className="app-metric-value text-amber-400">{fmtKz(totals.due7)}</div></div>
       </div>
 
-      <div className="segmented-tabs" aria-label="Filtrar documentos">
+      <div className="segmented-tabs !flex !flex-wrap !w-fit !max-w-full" role="group" aria-label="Estado dos documentos">
         {(["all", "open", "overdue", "paid", "cancelled"] as const).map(v => (
-          <button key={v} onClick={() => setFilter(v)}
+          <button key={v} type="button" aria-pressed={filter === v} onClick={() => setFilter(v)}
             className={`segmented-tab ${filter === v ? "segmented-tab-active" : ""}`}>
             {{ all: "Todos", open: "Em aberto", overdue: "Vencidos", paid: "Pagos", cancelled: "Cancelados" }[v]}
           </button>
         ))}
       </div>
+
+      <p role="status" className="text-xs text-ink-500">{shown.length} documento{shown.length !== 1 ? "s" : ""} neste filtro.</p>
 
       <div className="card divide-y divide-ink-800">
         {shown.map(o => {
@@ -278,12 +310,12 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-semibold">{isRec ? "Nova conta a receber" : "Nova conta a pagar"}</h3>
+              <h3 className="text-lg font-semibold">{scope === "invoices" ? (isRec ? "Nova fatura de cliente" : "Nova fatura de fornecedor") : (isRec ? "Nova conta a receber" : "Nova conta a pagar")}</h3>
               <button onClick={() => setShowNew(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="label">{isRec ? "Cliente" : "Fornecedor"}</label>
+                <label className="label">{scope === "other" ? "Contacto" : isRec ? "Cliente" : "Fornecedor"}</label>
                 <select className="input" value={nContact} onChange={e => setNContact(e.target.value)}>
                   <option value="">— selecionar —</option>
                   {contactPool.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -299,7 +331,11 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                 <div>
                   <label className="label">Tipo</label>
                   <select className="input" value={nKind} onChange={e => setNKind(e.target.value as ObligationDocumentKind)}>
-                    {Object.entries(OBLIGATION_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    {Object.entries(OBLIGATION_KIND_LABEL).filter(([k]) => scope === "invoices"
+                      ? k === (isRec ? "invoice_reference" : "supplier_invoice")
+                      : !isTradeInvoice({ direction, documentKind: k }) && !isLoanObligation({ direction, documentKind: k })
+                        && k !== "supplier_invoice" && !["invoice_reference", "product_sale", "service_charge"].includes(k))
+                      .map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
                 </div>
                 <div><label className="label">Nº documento externo</label><input className="input" placeholder="opcional" value={nExtRef} onChange={e => setNExtRef(e.target.value)} /></div>
@@ -324,7 +360,7 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                 </div>
               </div>
               <div><label className="label">Descrição</label><input className="input" placeholder="opcional" value={nDesc} onChange={e => setNDesc(e.target.value)} /></div>
-              {isRec && (
+              {isRec && scope === "invoices" && (
                 <label className="flex items-start gap-2 text-sm text-ink-300 rounded-lg border border-ink-800 p-3 cursor-pointer">
                   <input type="checkbox" checked={nIsSale} onChange={e => setNIsSale(e.target.checked)} className="mt-0.5" />
                   <span>
@@ -340,7 +376,8 @@ export default function ObligationsView({ direction }: { direction: ObligationDi
                   </span>
                 </label>
               )}
-              <button onClick={submitNew} disabled={!nContact || !nAmount || !nDue} className="btn-primary w-full justify-center disabled:opacity-40">Criar documento</button>
+              {createError && <p role="alert" className="text-sm text-red-400">{createError}</p>}
+              <button onClick={submitNew} disabled={createBusy || !nContact || !nAmount || !nDue} className="btn-primary w-full justify-center disabled:opacity-40">{createBusy ? "A guardar…" : scope === "invoices" ? "Guardar fatura" : "Guardar conta"}</button>
             </div>
           </div>
         </div>
