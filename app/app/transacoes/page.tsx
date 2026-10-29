@@ -1,8 +1,9 @@
 "use client";
 import { useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { useStore } from "@/lib/store";
-import { fmtKz, fmtDate, JournalEntry, EntryDocumentKind, ENTRY_DOCUMENT_KIND_LABEL } from "@/lib/data";
-import { Plus, TrendingUp, TrendingDown, ArrowLeftRight, RotateCcw, ChevronLeft, ChevronRight, X, Landmark, Printer } from "lucide-react";
+import { fmtKz, fmtDate, JournalEntry, JournalEntryEdit, EntryDocumentKind, ENTRY_DOCUMENT_KIND_LABEL } from "@/lib/data";
+import { Plus, TrendingUp, TrendingDown, ArrowLeftRight, RotateCcw, ChevronLeft, ChevronRight, X, Landmark, Printer, Pencil } from "lucide-react";
 
 const PAGE_SIZE = 20;
 const NAVY = "#26305c";
@@ -19,8 +20,8 @@ const safeUrl = (u: string) => {
 // (repayment) ou despesa (disbursement), mas o entry_type é um dos 4 tipos
 // dedicados — não 'income'/'expense' — para não entrar na DRE. A UI trata
 // os dois pares como equivalentes visualmente (entra/sai), só o rótulo muda.
-const INFLOW_TYPES = new Set(["income", "loan_repayment", "salary_advance_repayment"]);
-const OUTFLOW_TYPES = new Set(["expense", "loan_disbursement", "salary_advance_disbursement"]);
+const INFLOW_TYPES = new Set(["income", "loan_repayment", "salary_advance_repayment", "custody_in"]);
+const OUTFLOW_TYPES = new Set(["expense", "loan_disbursement", "salary_advance_disbursement", "custody_out"]);
 const LOAN_ENTRY_TYPES = new Set(["loan_disbursement", "salary_advance_disbursement", "loan_repayment", "salary_advance_repayment"]);
 const LOAN_ENTRY_LABEL: Record<string, string> = {
   loan_disbursement: "Empréstimo concedido", salary_advance_disbursement: "Adiantamento concedido",
@@ -28,7 +29,7 @@ const LOAN_ENTRY_LABEL: Record<string, string> = {
 };
 
 export default function TransacoesPage() {
-  const { journalEntries, accounts, categories, contacts, obligations, company, addTransaction, reverseEntry, convertEntryToLoan } = useStore();
+  const { journalEntries, accounts, categories, contacts, obligations, company, orgId, refreshEntries, addTransaction, editJournalEntry, reverseEntry, convertEntryToLoan } = useStore();
   const [converting, setConverting] = useState<JournalEntry | null>(null);
   const [cvKind, setCvKind] = useState<"employee_loan" | "salary_advance">("employee_loan");
   const [cvContactId, setCvContactId] = useState("");
@@ -48,14 +49,41 @@ export default function TransacoesPage() {
     if (err) { setCvErr(err); return; }
     setConverting(null);
   };
-  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer">("all");
+  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "loan" | "custody">("all");
   const [accFilter, setAccFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(0);
   const [show, setShow] = useState(false);
+  const [showCustody, setShowCustody] = useState(false);
+  const [custodyDirection, setCustodyDirection] = useState<"in" | "out">("in");
+  const [custodyAccount, setCustodyAccount] = useState("");
+  const [custodyAmount, setCustodyAmount] = useState("");
+  const [custodyDate, setCustodyDate] = useState("");
+  const [custodyDescription, setCustodyDescription] = useState("");
+  const [custodyReference, setCustodyReference] = useState("");
+  const [custodyError, setCustodyError] = useState("");
+  const [custodyBusy, setCustodyBusy] = useState(false);
+  const [custodyIdem, setCustodyIdem] = useState("");
   const [showReverse, setShowReverse] = useState<JournalEntry | null>(null);
   const [reverseReason, setReverseReason] = useState("");
+  const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editAccountId, setEditAccountId] = useState("");
+  const [editFromAccountId, setEditFromAccountId] = useState("");
+  const [editToAccountId, setEditToAccountId] = useState("");
+  const [editCategoryId, setEditCategoryId] = useState("");
+  const [editContactId, setEditContactId] = useState("");
+  const [editReference, setEditReference] = useState("");
+  const [editDocKind, setEditDocKind] = useState<EntryDocumentKind>("none");
+  const [editDocNumber, setEditDocNumber] = useState("");
+  const [editDocDate, setEditDocDate] = useState("");
+  const [editDocNotes, setEditDocNotes] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [editErr, setEditErr] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
 
   const [txType, setTxType] = useState<"income" | "expense">("expense");
   const [amount, setAmount] = useState("");
@@ -77,12 +105,17 @@ export default function TransacoesPage() {
   const activeCats = useMemo(() => categories.filter(c => c.isActive), [categories]);
   const parentCats = useMemo(() => activeCats.filter(c => !c.parentId && c.categoryType === txType), [activeCats, txType]);
   const subCats = useMemo(() => activeCats.filter(c => c.parentId === parentCatId), [activeCats, parentCatId]);
+  const editCats = useMemo(() => activeCats.filter(c => c.categoryType === (editingEntry?.entryType === "income" ? "income" : "expense")), [activeCats, editingEntry]);
 
   const displayEntries = useMemo(() => {
     let list = journalEntries.filter(e =>
       e.entryType !== "opening_balance" && e.entryType !== "adjustment" && e.entryType !== "reversal"
     );
-    if (filter !== "all") list = list.filter(e => e.entryType === filter);
+    if (filter === "income") list = list.filter(e => INFLOW_TYPES.has(e.entryType) && e.entryType !== "custody_in");
+    if (filter === "expense") list = list.filter(e => OUTFLOW_TYPES.has(e.entryType) && e.entryType !== "custody_out");
+    if (filter === "transfer") list = list.filter(e => e.entryType === "transfer");
+    if (filter === "loan") list = list.filter(e => LOAN_ENTRY_TYPES.has(e.entryType));
+    if (filter === "custody") list = list.filter(e => e.entryType === "custody_in" || e.entryType === "custody_out");
     if (accFilter) list = list.filter(e => e.lines.some(l => l.accountId === accFilter));
     if (dateFrom) list = list.filter(e => e.transactionDate >= dateFrom);
     if (dateTo) list = list.filter(e => e.transactionDate <= dateTo);
@@ -93,6 +126,70 @@ export default function TransacoesPage() {
   const pageEntries = displayEntries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const accName = (id: string) => accounts.find(a => a.id === id)?.name ?? "—";
   const contactName = (id?: string) => id ? contacts.find(c => c.id === id)?.name ?? "—" : "—";
+
+  const isEditable = (e: JournalEntry) => {
+    if (e.status !== "posted" || !(["income", "expense", "transfer"] as string[]).includes(e.entryType)) return false;
+    if (e.source === "requisition" || e.source === "reversal") return false;
+    const protectedKeys = ["requisition_id", "obligation_id", "settlement_id", "employee_loan_obligation_id", "linked_repayment_obligation_id"];
+    return !protectedKeys.some(key => e.metadata && Object.prototype.hasOwnProperty.call(e.metadata, key));
+  };
+
+  const openEdit = (e: JournalEntry) => {
+    setEditingEntry(e);
+    setEditAmount(String(entryAmount(e)));
+    setEditDesc(e.description || "");
+    setEditDate(e.transactionDate || new Date().toISOString().slice(0, 10));
+    setEditReference(e.reference || "");
+    setEditDocKind(e.documentKind || "none");
+    setEditDocNumber(e.documentNumber || "");
+    setEditDocDate(e.documentDate || "");
+    setEditDocNotes(e.documentNotes || "");
+    setEditCategoryId(e.categoryId || "");
+    setEditContactId(e.contactId || "");
+    const from = e.lines.find(l => l.direction === "credit");
+    const to = e.lines.find(l => l.direction === "debit");
+    setEditAccountId(e.lines[0]?.accountId || accounts[0]?.id || "");
+    setEditFromAccountId(from?.accountId || "");
+    setEditToAccountId(to?.accountId || "");
+    setEditReason(""); setEditErr(""); setEditBusy(false);
+  };
+
+  const submitEdit = async () => {
+    if (!editingEntry) return;
+    const value = Number(editAmount.replace(",", "."));
+    if (!Number.isFinite(value) || value <= 0) { setEditErr("Indica um valor válido maior que zero."); return; }
+    if (!editDesc.trim()) { setEditErr("A descrição é obrigatória."); return; }
+    if (!editDate) { setEditErr("A data é obrigatória."); return; }
+    if (editingEntry.entryType === "transfer" && (!editFromAccountId || !editToAccountId || editFromAccountId === editToAccountId)) {
+      setEditErr("Seleciona contas de origem e destino diferentes."); return;
+    }
+    if (editingEntry.entryType !== "transfer" && !editAccountId) { setEditErr("Seleciona a conta do lançamento."); return; }
+    if (!editReason.trim()) { setEditErr("Indica o motivo da alteração para a auditoria."); return; }
+    setEditBusy(true); setEditErr("");
+    const patch: JournalEntryEdit = {
+      amount: value,
+      description: editDesc.trim(),
+      date: editDate,
+      reference: editReference.trim() || null,
+      documentKind: editDocKind,
+      documentNumber: editDocKind === "none" ? null : (editDocNumber.trim() || null),
+      documentDate: editDocKind === "none" ? null : (editDocDate || null),
+      documentNotes: editDocKind === "none" ? null : (editDocNotes.trim() || null),
+    };
+    if (editingEntry.entryType === "transfer") {
+      patch.fromAccountId = editFromAccountId;
+      patch.toAccountId = editToAccountId;
+      patch.categoryId = null;
+      patch.contactId = null;
+    } else {
+      patch.accountId = editAccountId;
+      patch.categoryId = editCategoryId || null;
+      patch.contactId = editContactId || null;
+    }
+    const err = await editJournalEntry(editingEntry.id, patch, editReason.trim());
+    if (err) { setEditErr(err); setEditBusy(false); return; }
+    setEditingEntry(null); setEditBusy(false);
+  };
 
   const openNew = () => {
     setTxType("expense"); setAmount(""); setDesc("");
@@ -116,6 +213,25 @@ export default function TransacoesPage() {
       documentNotes: docKind === "none" ? (docNotes.trim() || undefined) : undefined,
     });
     setShow(false);
+  };
+
+  const submitCustody = async () => {
+    const value = Number(custodyAmount.replace(",", "."));
+    if (!orgId || !custodyAccount || !custodyDate || !custodyDescription.trim() || !custodyReference.trim()
+      || !Number.isFinite(value) || value <= 0 || Math.round(value * 100) !== value * 100) {
+      setCustodyError("Indica conta, data, valor, descrição e referência do extrato.");
+      return;
+    }
+    setCustodyBusy(true); setCustodyError("");
+    const { error } = await createClient().rpc("post_custody_movement", {
+      p_org_id: orgId, p_account_id: custodyAccount, p_amount: value,
+      p_direction: custodyDirection, p_description: custodyDescription.trim(),
+      p_date: custodyDate, p_reference: custodyReference.trim(),
+      p_idempotency_key: custodyIdem,
+    });
+    if (error) { setCustodyError(error.message); setCustodyBusy(false); return; }
+    await refreshEntries(orgId);
+    setShowCustody(false); setCustodyBusy(false); setFilter("custody"); setPage(0);
   };
 
   const submitReverse = () => {
@@ -240,14 +356,22 @@ export default function TransacoesPage() {
           <h1 className="h-page">Movimentos</h1>
           <p className="text-sm text-ink-400 mt-1">{displayEntries.length} lançamento{displayEntries.length !== 1 ? "s" : ""} · vendas registam-se em Faturas</p>
         </div>
-        <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo lançamento</button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => {
+            setCustodyDirection("in"); setCustodyAccount(accounts.find(a => a.type === "bank")?.id ?? accounts[0]?.id ?? "");
+            setCustodyAmount(""); setCustodyDate(new Date().toISOString().slice(0, 10));
+            setCustodyDescription(""); setCustodyReference(""); setCustodyError("");
+            setCustodyIdem(crypto.randomUUID()); setShowCustody(true);
+          }} className="btn-ghost">Valores de terceiros</button>
+          <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo lançamento</button>
+        </div>
       </header>
 
       <div className="flex flex-wrap gap-2 items-center">
-        {(["all", "income", "expense", "transfer"] as const).map(v => (
+        {(["all", "income", "expense", "transfer", "loan", "custody"] as const).map(v => (
           <button key={v} onClick={() => { setFilter(v); setPage(0); }}
             className={`rounded-full px-4 py-1.5 text-sm border transition-colors ${filter === v ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400 hover:border-ink-500"}`}>
-            {{ all: "Todos", income: "Receitas", expense: "Despesas", transfer: "Transferências" }[v]}
+            {{ all: "Todos", income: "Receitas", expense: "Despesas", transfer: "Transferências", loan: "Empréstimos / adiantamentos", custody: "Valores de terceiros" }[v]}
           </button>
         ))}
         <div className="flex-1" />
@@ -277,6 +401,7 @@ export default function TransacoesPage() {
                   {e.description}
                   {isReversed && <span className="ml-2 text-[10px] text-red-400 font-bold uppercase">Revertido</span>}
                   {LOAN_ENTRY_TYPES.has(e.entryType) && <span className="ml-2 text-[10px] text-maka-400 font-bold uppercase">{LOAN_ENTRY_LABEL[e.entryType]}</span>}
+                  {(e.entryType === "custody_in" || e.entryType === "custody_out") && <span className="ml-2 text-[10px] text-sky-400 font-bold uppercase">Valores de terceiros</span>}
                 </div>
                 <div className="text-[11px] text-ink-500">
                   {e.entryNumber}{e.categoryName ? ` · ${e.categoryName}` : ""} · {entryAccounts(e)} · {fmtDate(e.transactionDate)}
@@ -290,6 +415,9 @@ export default function TransacoesPage() {
                 <button onClick={() => printEntry(e)} className="text-ink-500 hover:text-maka-400" title="Imprimir comprovativo interno"><Printer size={14} /></button>
                 {!isReversed && (
                   <>
+                    {isEditable(e) && (
+                      <button onClick={() => openEdit(e)} className="text-ink-500 hover:text-maka-400" title="Editar lançamento"><Pencil size={14} /></button>
+                    )}
                     {isConvertible(e) && (
                       <button onClick={() => openConvert(e)} className="text-ink-500 hover:text-maka-400" title="Converter em empréstimo/adiantamento"><Landmark size={14} /></button>
                     )}
@@ -313,6 +441,35 @@ export default function TransacoesPage() {
           <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="btn-ghost disabled:opacity-30"><ChevronLeft size={16} /></button>
           <span className="text-sm text-ink-400">{page + 1} / {totalPages}</span>
           <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="btn-ghost disabled:opacity-30"><ChevronRight size={16} /></button>
+        </div>
+      )}
+
+      {showCustody && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-lg">Valores de terceiros</h3>
+              <button onClick={() => setShowCustody(false)} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-ink-400">Dinheiro que passa pela conta, mas não pertence à empresa. Não entra nas receitas nem nas despesas.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button className={custodyDirection === "in" ? "btn-primary" : "btn-ghost"} onClick={() => setCustodyDirection("in")}>Entrada</button>
+              <button className={custodyDirection === "out" ? "btn-primary" : "btn-ghost"} onClick={() => setCustodyDirection("out")}>Saída</button>
+            </div>
+            <label className="label">Conta
+              <select className="input" value={custodyAccount} onChange={e => setCustodyAccount(e.target.value)}>
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </label>
+            <label className="label">Valor (Kz)<input className="input" type="number" min="0.01" step="0.01" value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} /></label>
+            <label className="label">Data<input className="input" type="date" value={custodyDate} onChange={e => setCustodyDate(e.target.value)} /></label>
+            <label className="label">Descrição<input className="input" value={custodyDescription} onChange={e => setCustodyDescription(e.target.value)} /></label>
+            <label className="label">Referência do extrato<input className="input" value={custodyReference} onChange={e => setCustodyReference(e.target.value)} /></label>
+            {custodyError && <p className="text-sm text-red-400">{custodyError}</p>}
+            <button className="btn-primary w-full justify-center disabled:opacity-50" disabled={custodyBusy} onClick={submitCustody}>
+              {custodyBusy ? "A registar…" : "Registar valor de terceiros"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -408,6 +565,105 @@ export default function TransacoesPage() {
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowReverse(null)} className="btn-ghost">Cancelar</button>
               <button onClick={submitReverse} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 transition-colors">Reverter</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingEntry && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="card max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="font-display text-lg">Editar lançamento</h3>
+                <p className="text-[11px] text-ink-500 mt-1">{editingEntry.entryNumber} · alteração auditável</p>
+              </div>
+              <button onClick={() => setEditingEntry(null)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
+            </div>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-200">
+                O lançamento permanece no histórico. A auditoria guarda os valores antes e depois e o motivo indicado.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Valor (Kz)</label><input className="input" type="number" min="0.01" step="0.01" value={editAmount} onChange={e => setEditAmount(e.target.value)} /></div>
+                <div><label className="label">Data</label><input className="input" type="date" value={editDate} onChange={e => setEditDate(e.target.value)} /></div>
+              </div>
+              <div><label className="label">Descrição</label><input className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} /></div>
+
+              {editingEntry.entryType === "transfer" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Conta de origem</label>
+                    <select className="input" value={editFromAccountId} onChange={e => setEditFromAccountId(e.target.value)}>
+                      <option value="">— selecionar —</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Conta de destino</label>
+                    <select className="input" value={editToAccountId} onChange={e => setEditToAccountId(e.target.value)}>
+                      <option value="">— selecionar —</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="label">Conta</label>
+                    <select className="input" value={editAccountId} onChange={e => setEditAccountId(e.target.value)}>
+                      <option value="">— selecionar —</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Categoria</label>
+                      <select className="input" value={editCategoryId} onChange={e => setEditCategoryId(e.target.value)}>
+                        <option value="">— nenhuma —</option>
+                        {editCats.map(c => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Contacto (opcional)</label>
+                      <select className="input" value={editContactId} onChange={e => setEditContactId(e.target.value)}>
+                        <option value="">— nenhum —</option>
+                        {contacts.filter(c => !c.isArchived).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="pt-2 border-t border-ink-800">
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label className="label">Documento associado</label>
+                    <select className="input" value={editDocKind} onChange={e => setEditDocKind(e.target.value as EntryDocumentKind)}>
+                      {Object.entries(ENTRY_DOCUMENT_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">N.º do documento</label>
+                    <input className="input" placeholder="opcional" value={editDocNumber} onChange={e => setEditDocNumber(e.target.value)} disabled={editDocKind === "none"} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div><label className="label">Referência bancária/pagamento</label><input className="input" placeholder="opcional" value={editReference} onChange={e => setEditReference(e.target.value)} /></div>
+                  <div><label className="label">Data do documento</label><input className="input" type="date" value={editDocDate} onChange={e => setEditDocDate(e.target.value)} disabled={editDocKind === "none"} /></div>
+                </div>
+                <div className="mt-3"><label className="label">Notas do documento</label><input className="input" placeholder="opcional" value={editDocNotes} onChange={e => setEditDocNotes(e.target.value)} disabled={editDocKind === "none"} /></div>
+              </div>
+
+              <div className="pt-2 border-t border-ink-800">
+                <label className="label">Motivo da alteração <span className="text-red-400">*</span></label>
+                <input className="input" placeholder="Ex.: correção do valor da fatura" value={editReason} onChange={e => setEditReason(e.target.value)} />
+              </div>
+              {editErr && <p className="text-sm text-red-400">{editErr}</p>}
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setEditingEntry(null)} className="btn-ghost">Cancelar</button>
+                <button onClick={submitEdit} disabled={editBusy} className="btn-primary disabled:opacity-50">{editBusy ? "A guardar…" : "Guardar alteração"}</button>
+              </div>
             </div>
           </div>
         </div>

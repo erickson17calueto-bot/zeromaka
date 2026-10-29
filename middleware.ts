@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { decideRedirect, shouldBypass, PUBLIC_ROUTES } from "@/lib/routes";
+import { EXPIRED_LOGIN, isExpiredSession } from "@/lib/auth/context";
 
 // Proteção de rotas no SERVIDOR (regra do charter: nunca confiar só no frontend).
 // Também renova o token da sessão a cada pedido (padrão @supabase/ssr).
@@ -58,13 +59,26 @@ export async function middleware(request: NextRequest) {
   // nunca getSession() (confia no cookie sem validar).
   const { data: { user } } = await supabase.auth.getUser();
 
+  if (user) {
+    const { data, error } = await supabase.rpc("session_remaining_seconds");
+    if (isExpiredSession(error) || (!error && Number(data) <= 0)) {
+      await supabase.auth.signOut({ scope: "local" });
+      const result = NextResponse.redirect(new URL(EXPIRED_LOGIN, request.url));
+      response.cookies.getAll().forEach(cookie => result.cookies.set(cookie));
+      return result;
+    }
+    if (error) return new NextResponse("Não foi possível validar a sessão. Atualiza a página para tentar novamente.", { status: 503 });
+  }
+
   const target = decideRedirect(path, { hasSession: !!user, hasOrg: "unknown" });
   if (target) {
     const url = request.nextUrl.clone();
     const [pathname, query] = target.split("?");
     url.pathname = pathname;
     url.search = query ? `?${query}` : "";
-    return NextResponse.redirect(url);
+    const result = NextResponse.redirect(url);
+    response.cookies.getAll().forEach(cookie => result.cookies.set(cookie));
+    return result;
   }
 
   return response;

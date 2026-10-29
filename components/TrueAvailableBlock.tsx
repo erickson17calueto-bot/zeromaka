@@ -3,12 +3,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { fmtKz, fmtDate, SafetyState, SAFETY_STATE_LABEL } from "@/lib/data";
-import { Wallet, Info, X, Beaker, ArrowRight } from "lucide-react";
+import { CircleGauge, Info, X, Beaker, ArrowRight } from "lucide-react";
 
-const STATE_STYLE: Record<SafetyState, { text: string; bg: string; border: string }> = {
-  safe: { text: "text-emerald-400", bg: "bg-emerald-500/5", border: "border-emerald-500/30" },
-  warning: { text: "text-amber-400", bg: "bg-amber-500/5", border: "border-amber-500/30" },
-  critical: { text: "text-red-400", bg: "bg-red-500/5", border: "border-red-500/30" },
+const STATE_STYLE: Record<SafetyState, { text: string; border: string; card: string }> = {
+  safe: { text: "text-emerald-400", border: "border-emerald-500/30", card: "true-available-safe" },
+  warning: { text: "text-amber-400", border: "border-amber-500/30", card: "true-available-warning" },
+  critical: { text: "text-red-400", border: "border-red-500/30", card: "true-available-critical" },
 };
 
 export default function TrueAvailableBlock() {
@@ -53,44 +53,45 @@ export default function TrueAvailableBlock() {
   ];
 
   return (
-    <section className={`card border p-5 ${st.border} ${st.bg}`}>
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-ink-400 font-bold">
-            <Wallet size={13} /> Disponível de verdade
-            <span className={`rounded-full px-2 py-0.5 text-[10px] ${st.text} border ${st.border}`}>{SAFETY_STATE_LABEL[tac.safetyState]}</span>
+    <section className={`card true-available-card ${st.card}`}>
+      <div className="true-available-top">
+        <div className="min-w-0">
+          <div className="true-available-title">
+            <span className="true-available-icon"><CircleGauge size={16} strokeWidth={1.8} /></span>
+            Disponível de verdade
+            <span className={`true-available-status ${st.text} border ${st.border}`}>{SAFETY_STATE_LABEL[tac.safetyState]}</span>
           </div>
-          <div className={`mt-1 font-display text-3xl ${st.text}`}>{fmtKz(tac.trueAvailableCash)}</div>
-          <div className="text-[11px] text-ink-500 mt-1">Quanto podes gastar com segurança · apoio à decisão, não aconselhamento contabilístico</div>
+          <div className={`true-available-value ${st.text}`}>{fmtKz(tac.trueAvailableCash)}</div>
+          <p className="true-available-copy">Estimativa do valor que podes usar sem comprometer os pagamentos do período escolhido.</p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex gap-1">
+        <div className="true-available-controls">
+          <div className="true-available-horizon" aria-label="Período da estimativa">
             {[7, 15, 30].map(h => (
               <button key={h} onClick={() => changeHorizon(h)} disabled={busy}
-                className={`rounded-lg px-2.5 py-1 text-xs border transition-colors ${horizon === h ? "border-maka-500 bg-maka-500/10 text-maka-300" : "border-ink-700 text-ink-400 hover:border-ink-500"}`}>
+                className={horizon === h ? "true-available-horizon-active" : ""}>
                 {h}d
               </button>
             ))}
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowSim(true)} className="btn-ghost text-xs px-2 py-1"><Beaker size={13} /> Simular</button>
-            <button onClick={() => setShowCalc(true)} className="btn-ghost text-xs px-2 py-1"><Info size={13} /> Ver cálculo</button>
+          <div className="true-available-actions">
+            <button onClick={() => setShowSim(true)} className="btn-ghost"><Beaker size={14} /> Simular</button>
+            <button onClick={() => setShowCalc(true)} className="btn-ghost"><Info size={14} /> Ver cálculo</button>
           </div>
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-        <div><div className="text-[11px] text-ink-500">Saldo atual</div><div className="font-semibold">{fmtKz(tac.currentCashBalance)}</div></div>
-        <div><div className="text-[11px] text-ink-500">Reservado</div><div className="font-semibold">{fmtKz(tac.activeReservesTotal)}</div></div>
-        <div><div className="text-[11px] text-ink-500">Compromissos ({horizon}d)</div><div className="font-semibold">{fmtKz(tac.uncoveredCommitmentsTotal)}</div></div>
-        <div><div className="text-[11px] text-ink-500">Reserva mínima</div><div className="font-semibold">{fmtKz(tac.minimumCashBuffer)}</div></div>
+      <div className="true-available-metrics">
+        <div><span>Saldo atual</span><strong>{fmtKz(tac.currentCashBalance)}</strong></div>
+        <div><span>Reservado</span><strong>{fmtKz(tac.activeReservesTotal)}</strong></div>
+        <div><span>Compromissos ({horizon}d)</span><strong>{fmtKz(tac.uncoveredCommitmentsTotal)}</strong></div>
+        <div><span>Reserva mínima</span><strong>{fmtKz(tac.minimumCashBuffer)}</strong></div>
       </div>
 
       {showCalc && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowCalc(false)}>
           <div className="card max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display text-lg">Como chegámos a este valor</h3>
+              <h3 className="text-lg font-semibold">Como chegámos a este valor</h3>
               <button onClick={() => setShowCalc(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <div className="space-y-1.5 text-sm">
@@ -102,7 +103,7 @@ export default function TrueAvailableBlock() {
               ))}
               <div className="flex justify-between py-2 mt-1">
                 <span className="font-semibold">Disponível de verdade</span>
-                <span className={`font-display text-lg ${st.text}`}>{fmtKz(tac.trueAvailableCash)}</span>
+                <span className={`text-lg font-semibold ${st.text}`}>{fmtKz(tac.trueAvailableCash)}</span>
               </div>
             </div>
 
@@ -144,7 +145,7 @@ export default function TrueAvailableBlock() {
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowSim(false)}>
           <div className="card max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display text-lg">Simular decisão</h3>
+              <h3 className="text-lg font-semibold">Simular decisão</h3>
               <button onClick={() => setShowSim(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
             <p className="text-[11px] text-ink-500 mb-4">Simulação instantânea — não cria movimentos nem altera dados.</p>
@@ -154,7 +155,7 @@ export default function TrueAvailableBlock() {
               <div className="rounded-lg border border-ink-800 p-4">
                 <div className="flex justify-between text-sm"><span className="text-ink-400">Disponível atual</span><span className="font-semibold">{fmtKz(tac.trueAvailableCash)}</span></div>
                 <div className="flex justify-between text-sm mt-2"><span className="text-ink-400">Após simulação</span>
-                  <span className={`font-display text-lg ${(simResult ?? 0) <= 0 ? "text-red-400" : (simResult ?? 0) < tac.currentCashBalance * 0.2 ? "text-amber-400" : "text-emerald-400"}`}>{fmtKz(simResult ?? 0)}</span>
+                  <span className={`text-lg font-semibold ${(simResult ?? 0) <= 0 ? "text-red-400" : (simResult ?? 0) < tac.currentCashBalance * 0.2 ? "text-amber-400" : "text-emerald-400"}`}>{fmtKz(simResult ?? 0)}</span>
                 </div>
                 {(simResult ?? 0) <= 0 && <p className="text-[11px] text-red-400 mt-2">Esta despesa deixaria o disponível negativo — reservas ou compromissos ficariam descobertos.</p>}
               </div>

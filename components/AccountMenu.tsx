@@ -60,17 +60,13 @@ export default function AccountMenu({
 
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-haspopup="menu"
         title={collapsed ? name : undefined}
-        className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-ink-900 transition-colors ${collapsed ? "justify-center px-0" : ""}`}>
+        className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-ink-900 transition-colors ${collapsed ? "md:justify-center md:px-0" : ""}`}>
         <div className="h-8 w-8 rounded-full bg-maka-500/15 border border-maka-500/40 flex items-center justify-center text-maka-400 font-bold text-xs shrink-0">{initials}</div>
-        {!collapsed && (
-          <>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold truncate leading-tight">{name}</div>
-              {email && <div className="text-[11px] text-ink-500 truncate leading-tight">{email}</div>}
-            </div>
-            <ChevronsUpDown size={14} className="text-ink-600 shrink-0" />
-          </>
-        )}
+        <div className={`min-w-0 flex-1 ${collapsed ? "md:hidden" : ""}`}>
+          <div className="text-sm font-semibold truncate leading-tight">{name}</div>
+          {email && <div className="text-[11px] text-ink-500 truncate leading-tight">{email}</div>}
+        </div>
+        <ChevronsUpDown size={14} className={`shrink-0 text-ink-600 ${collapsed ? "md:hidden" : ""}`} />
       </button>
     </div>
   );

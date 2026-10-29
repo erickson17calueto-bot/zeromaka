@@ -66,6 +66,21 @@ test("descrição sem termo conhecido fica por categorizar", () => {
   assert.equal(nomeSugerido("XPTO 12345"), undefined);
 });
 
+test("não atribui fornecedor só por constar pagamento ou transferência", () => {
+  assert.equal(nomeSugerido("Pagamento REF 8891"), undefined);
+  assert.equal(nomeSugerido("Transferência interna"), undefined);
+  assert.equal(nomeSugerido("Taxista REF 8891"), undefined);
+});
+
+test("reconhece categoria própria da organização apenas no sentido certo", () => {
+  const categorias = [
+    ...TODAS,
+    { id: "custom-1", name: "Formação técnica", categoryType: "expense", isActive: true },
+  ];
+  assert.equal(suggestCategory(categorias, "Formação técnica da equipa", "expense")?.id, "custom-1");
+  assert.equal(suggestCategory(categorias, "Formação técnica da equipa", "income"), undefined);
+});
+
 test("não inventa categoria quando a organização não tem a sugerida", () => {
   const semCombustivel = DESPESAS.filter(c => c.name !== "Combustível");
   assert.equal(suggestCategory(semCombustivel, "COMBUSTÍVEL", "expense"), undefined);
@@ -108,4 +123,80 @@ test("com hierarquia, prefere a subcategoria mais específica", () => {
 
 test("Equipamento só é sugerido quando a organização o semeou", () => {
   assert.equal(suggestCategory([{ id: "d1", name: "Transporte", categoryType: "expense" }], "COMPUTADOR NOVO", "expense"), undefined);
+});
+
+const NOVA_TAXONOMIA = [
+  // Operacional
+  { id: "op", name: "Operacional", categoryType: "expense" },
+  { id: "op1", name: "Compra de mercadoria", categoryType: "expense", parentId: "op" },
+  { id: "op2", name: "Combustível", categoryType: "expense", parentId: "op" },
+  { id: "op3", name: "Manutenção de viaturas", categoryType: "expense", parentId: "op" },
+  { id: "op4", name: "Entregas e logística", categoryType: "expense", parentId: "op" },
+  { id: "op5", name: "Transporte de pessoal", categoryType: "expense", parentId: "op" },
+  // Administrativo
+  { id: "adm", name: "Administrativo", categoryType: "expense" },
+  { id: "adm1", name: "Renda do escritório", categoryType: "expense", parentId: "adm" },
+  { id: "adm2", name: "Água (EPAL)", categoryType: "expense", parentId: "adm" },
+  { id: "adm3", name: "Eletricidade (ENDE)", categoryType: "expense", parentId: "adm" },
+  { id: "adm4", name: "Material de escritório", categoryType: "expense", parentId: "adm" },
+  { id: "adm5", name: "Material de limpeza", categoryType: "expense", parentId: "adm" },
+  { id: "adm6", name: "Internet", categoryType: "expense", parentId: "adm" },
+  { id: "adm7", name: "Telefone e comunicações", categoryType: "expense", parentId: "adm" },
+  { id: "adm8", name: "Equipamentos informáticos", categoryType: "expense", parentId: "adm" },
+  // Pessoal
+  { id: "pes", name: "Pessoal", categoryType: "expense" },
+  { id: "pes1", name: "Salários", categoryType: "expense", parentId: "pes" },
+  { id: "pes2", name: "Subsídios", categoryType: "expense", parentId: "pes" },
+  { id: "pes3", name: "Segurança social (INSS)", categoryType: "expense", parentId: "pes" },
+  // Impostos e Taxas
+  { id: "imp", name: "Impostos e Taxas", categoryType: "expense" },
+  { id: "imp1", name: "IVA", categoryType: "expense", parentId: "imp" },
+  { id: "imp2", name: "Taxas municipais", categoryType: "expense", parentId: "imp" },
+  // Despesas Financeiras
+  { id: "fin", name: "Despesas Financeiras", categoryType: "expense" },
+  { id: "fin1", name: "Comissões bancárias", categoryType: "expense", parentId: "fin" },
+  // Receita Operacional
+  { id: "ro", name: "Receita Operacional", categoryType: "income" },
+  { id: "ro1", name: "Venda de mercadoria", categoryType: "income", parentId: "ro" },
+  { id: "ro2", name: "Prestação de serviços", categoryType: "income", parentId: "ro" },
+  { id: "ro3", name: "Comissões recebidas", categoryType: "income", parentId: "ro" },
+  // Receita Não Operacional
+  { id: "rno", name: "Receita Não Operacional", categoryType: "income" },
+  { id: "rno1", name: "Juros recebidos", categoryType: "income", parentId: "rno" },
+  { id: "rno2", name: "Outros rendimentos", categoryType: "income", parentId: "rno" },
+];
+
+test("nova taxonomia contabilística categoriza com precisão despesas e receitas", () => {
+  const sugerirD = (d) => suggestCategory(NOVA_TAXONOMIA, d, "expense")?.name;
+  const sugerirR = (d) => suggestCategory(NOVA_TAXONOMIA, d, "income")?.name;
+
+  // Operacional
+  assert.equal(sugerirD("ABASTECIMENTO GASÓLEO"), "Combustível");
+  assert.equal(sugerirD("COMPRA DE MERCADORIA P/ REVENDA"), "Compra de mercadoria");
+  assert.equal(sugerirD("REVISÃO DA VIATURA E PNEUS"), "Manutenção de viaturas");
+  assert.equal(sugerirD("ENTREGA DA MERCADORIA"), "Entregas e logística");
+
+  // Administrativo
+  assert.equal(sugerirD("PAGAMENTO DE RENDA DO ESCRITÓRIO"), "Renda do escritório");
+  assert.equal(sugerirD("FACTURA DA EPAL ÁGUA"), "Água (EPAL)");
+  assert.equal(sugerirD("ENERGIA DA ENDE"), "Eletricidade (ENDE)");
+  assert.equal(sugerirD("RECARGA UNITEL 5000 UTT"), "Telefone e comunicações");
+  assert.equal(sugerirD("INTERNET FIBRA DO ESCRITÓRIO"), "Internet");
+  assert.equal(sugerirD("DETERGENTE E LIXÍVIA P/ LIMPEZA"), "Material de limpeza");
+  assert.equal(sugerirD("COMPRA DE COMPUTADOR PORTÁTIL"), "Equipamentos informáticos");
+
+  // Pessoal
+  assert.equal(sugerirD("SALÁRIOS DA EQUIPA - MARÇO"), "Salários");
+  assert.equal(sugerirD("PAGAMENTO DE SUBSÍDIO DE FÉRIAS"), "Subsídios");
+  assert.equal(sugerirD("GUIA DA SEGURANÇA SOCIAL INSS"), "Segurança social (INSS)");
+
+  // Impostos e Despesas Financeiras
+  assert.equal(sugerirD("PAGAMENTO DE IVA TRIMESTRAL"), "IVA");
+  assert.equal(sugerirD("COMISSÃO BANCÁRIA MANUTENÇÃO CONTA"), "Comissões bancárias");
+
+  // Receitas
+  assert.equal(sugerirR("VENDA DE MERCADORIA LOJA"), "Venda de mercadoria");
+  assert.equal(sugerirR("PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA"), "Prestação de serviços");
+  assert.equal(sugerirR("COMISSÕES DE PARCERIA RECEBIDAS"), "Comissões recebidas");
+  assert.equal(sugerirR("JUROS BANCÁRIOS RECEBIDOS"), "Juros recebidos");
 });

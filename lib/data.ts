@@ -27,7 +27,11 @@ export interface Account {
   isArchived?: boolean; currency?: string;
 }
 
-export type JournalEntryType = "income" | "expense" | "transfer" | "opening_balance" | "adjustment" | "reversal";
+export type JournalEntryType =
+  | "income" | "expense" | "transfer" | "opening_balance" | "adjustment" | "reversal"
+  | "loan_disbursement" | "salary_advance_disbursement"
+  | "loan_repayment" | "salary_advance_repayment"
+  | "custody_in" | "custody_out";
 export type JournalStatus = "posted" | "reversed";
 export type LineDirection = "debit" | "credit";
 export type FinCategoryType = "income" | "expense";
@@ -70,6 +74,24 @@ export interface JournalEntry {
   metadata: Record<string, unknown>;
   lines: JournalLine[];
 }
+
+// Campos permitidos para editar um lançamento já confirmado. A API converte
+// estes nomes para snake_case e grava o antes/depois na auditoria.
+export interface JournalEntryEdit {
+  amount?: number;
+  description?: string;
+  date?: string;
+  accountId?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
+  categoryId?: string | null;
+  contactId?: string | null;
+  reference?: string | null;
+  documentKind?: EntryDocumentKind | null;
+  documentNumber?: string | null;
+  documentDate?: string | null;
+  documentNotes?: string | null;
+}
 export type RecurringFrequency = "weekly" | "monthly" | "quarterly" | "yearly";
 export type RecurringTransactionKind = "income" | "expense";
 
@@ -88,6 +110,7 @@ export interface BankStatementLine {
   amount: number; direction: BankStatementDirection; description: string;
   reference?: string; externalId?: string; status: BankStatementStatus;
   matchedJournalEntryId?: string; matchedEntryDescription?: string;
+  metadata?: Record<string, unknown>;
   matchedAt?: string; importedAt: string;
 }
 export interface Transaction {
