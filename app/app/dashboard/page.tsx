@@ -348,22 +348,22 @@ export default function Dashboard() {
       </section>
 
       {showAlert && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="card max-w-md w-full p-6 border-maka-500/40">
-            <div className="flex items-start justify-between">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3 sm:p-4">
+          <div className="card max-w-md w-full p-4 sm:p-6 border-maka-500/40 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2rem)]">
+            <div className="flex items-start justify-between shrink-0">
               <div className="flex items-center gap-3"><div className="h-10 w-10 rounded-full bg-maka-500/15 flex items-center justify-center text-maka-400"><BellRing size={19} /></div><h3 className="font-display text-lg">Vencimentos próximos</h3></div>
               <button onClick={() => setShowAlert(false)} className="text-ink-400 hover:text-ink-100"><X size={18} /></button>
             </div>
-            <p className="text-sm text-ink-300 mt-3">Tens {dueSoon.length} documento{dueSoon.length !== 1 ? "s" : ""} a vencer nos próximos 3 dias:</p>
-            <div className="mt-3 space-y-2">
+            <p className="text-sm text-ink-300 mt-3 shrink-0">Tens {dueSoon.length} documento{dueSoon.length !== 1 ? "s" : ""} a vencer nos próximos 3 dias:</p>
+            <div className="mt-3 space-y-2 flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1">
               {dueSoon.map((o) => (
                 <div key={o.id} className="rounded-lg bg-ink-950 border border-ink-800 px-3 py-2">
-                  <div className="flex justify-between text-sm"><span className="font-medium">{contactName(o.contactId)}</span><span className="font-semibold">{fmtKz(o.outstandingAmount)}</span></div>
+                  <div className="flex justify-between gap-3 text-sm"><span className="font-medium min-w-0 break-words">{contactName(o.contactId)}</span><span className="font-semibold shrink-0 whitespace-nowrap">{fmtKz(o.outstandingAmount)}</span></div>
                   <div className="mt-1 flex items-center justify-between"><DirTag direction={o.direction} /><span className="text-[11px] text-ink-500">{fmtDate(o.dueDate)}</span></div>
                 </div>
               ))}
             </div>
-            <div className="mt-5 flex gap-2 justify-end"><button onClick={() => setShowAlert(false)} className="btn-ghost">Mais tarde</button><Link href="/app/faturas" onClick={() => setShowAlert(false)} className="btn-primary">Ver documentos</Link></div>
+            <div className="mt-4 sm:mt-5 shrink-0 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end"><button onClick={() => setShowAlert(false)} className="btn-ghost justify-center">Mais tarde</button><Link href="/app/faturas" onClick={() => setShowAlert(false)} className="btn-primary justify-center">Ver documentos</Link></div>
           </div>
         </div>
       )}
