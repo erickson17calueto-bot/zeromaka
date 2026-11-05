@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthError } from "@/lib/auth/messages";
 import { ROUTES, safeNext } from "@/lib/routes";
@@ -9,7 +9,6 @@ import PasswordInput from "@/components/PasswordInput";
 import { ArrowRight, Loader2 } from "lucide-react";
 
 function EntrarForm() {
-  const router = useRouter();
   const params = useSearchParams();
   // safeNext bloqueia redirecionamentos para fora do site (open redirect).
   const next = safeNext(params.get("next"));
@@ -18,7 +17,9 @@ function EntrarForm() {
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(params.get("erro"));
-  const notice = params.get("aviso");
+  const notice = params.get("aviso") === "sessao-expirada"
+    ? "A sessão de 30 minutos terminou. Entra novamente para continuar."
+    : params.get("aviso");
 
   const go = async () => {
     if (busy || !email || !pass) return;
@@ -28,8 +29,8 @@ function EntrarForm() {
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
       if (error) { setError(friendlyAuthError(error.message)); return; }
-      router.push(next || ROUTES.dashboard);
-      router.refresh();
+      // Reload the root provider only after the new auth cookies are saved.
+      window.location.assign(next || ROUTES.dashboard);
     } finally {
       setBusy(false);
     }

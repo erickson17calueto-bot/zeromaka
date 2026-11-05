@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { createClient } from "./supabase/client";
 import {
   Account, Transaction, TxType, Badge, UserProfile, Company, Contact, Requisition,
-  JournalEntry, JournalLine, FinancialCategory, FinCategoryType, EntryDocumentKind,
+  JournalEntry, JournalLine, JournalEntryEdit, FinancialCategory, FinCategoryType, EntryDocumentKind,
   Obligation, Settlement, SettlementAllocation, CollectionInteraction,
   ObligationDirection, ObligationDocumentKind, SettlementDirection,
   CollectionChannel, CollectionInteractionType, CollectionOutcome,
@@ -12,6 +12,7 @@ import {
   seedBadges, taxRateFor
 } from "./data";
 import { computeAccountBalance } from "./accounts/balance";
+import { activeOrganization, EXPIRED_LOGIN, isExpiredSession } from "./auth/context";
 
 interface Toast { id: number; msg: string; kind: "ok" | "xp" | "warn" }
 
@@ -41,6 +42,7 @@ export interface OrgSnapshot {
 }
 
 interface Store {
+  contextError: string | null;
   ready: boolean; authed: boolean; orgId: string | null;
   organizations: OrgMembership[]; switchOrganization: (orgId: string) => Promise<void>;
   // ---- Painel de administração (owner/admin) ----
@@ -60,6 +62,7 @@ interface Store {
   transferOwnership: (newOwnerUserId: string) => Promise<string | null>;
   archiveOrganization: (confirmation: string) => Promise<string | null>;
   refreshEntries: (oid?: string) => Promise<void>;
+  refreshContacts: (oid?: string) => Promise<void>;
   logout: () => Promise<void>;
   createOrganization: (orgName: string, companyName: string, userName: string) => Promise<void>;
   company: Company; accounts: Account[]; transactions: Transaction[];
@@ -95,6 +98,7 @@ interface Store {
   deleteAccount: (id: string) => void;
   updateAccountOpeningBalance: (accountId: string, newAmount: number, reason: string, newDate?: string) => Promise<string | null>;
   addTransaction: (t: Omit<Transaction, "id">) => void;
+  editJournalEntry: (id: string, p: JournalEntryEdit, reason: string) => Promise<string | null>;
   editTransaction: (id: string, p: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
   transfer: (from: string, to: string, amount: number, date?: string) => string | null;
@@ -117,7 +121,7 @@ interface Store {
   createRecurringTransaction: (d: { accountId: string; kind: "income" | "expense"; amount: number; description: string; categoryId?: string; contactId?: string; frequency: "weekly" | "monthly" | "quarterly" | "yearly"; startDate: string; nextRunDate: string; active?: boolean }) => Promise<string | null>;
   setRecurringActive: (id: string, active: boolean) => Promise<string | null>;
   generateDueRecurringTransactions: (asOfDate?: string) => Promise<number | null>;
-  importBankStatementLines: (lines: { accountId: string; transactionDate: string; amount: number; direction: BankStatementDirection; description: string; reference?: string; externalId?: string }[]) => Promise<string | null>;
+  importBankStatementLines: (lines: { accountId: string; transactionDate: string; amount: number; direction: BankStatementDirection; description: string; reference?: string; externalId?: string; metadata?: Record<string, unknown> }[]) => Promise<string | null>;
   matchBankStatementLine: (lineId: string, journalEntryId: string) => Promise<string | null>;
   unmatchBankStatementLine: (lineId: string) => Promise<string | null>;
   ignoreBankStatementLine: (lineId: string) => Promise<string | null>;
@@ -187,6 +191,7 @@ const dbToBankStatementLine = (r: any): BankStatementLine => ({
   externalId: r.external_id || undefined, status: r.status,
   matchedJournalEntryId: r.matched_journal_entry_id || undefined,
   matchedAt: r.matched_at || undefined, importedAt: r.imported_at,
+  metadata: (r.metadata || {}) as Record<string, unknown>,
 });
 const dbToCategory = (r: any): FinancialCategory => ({
   id: r.id, organizationId: r.organization_id, name: r.name,
@@ -310,7 +315,7 @@ const dbToCompany = (r: any): Company => ({
 // ---- Journal → backward-compatible Transaction mapper ----
 function entryToTransactions(entry: JournalEntry): Transaction[] {
   if (entry.status === "reversed") return [];
-  if (entry.entryType === "opening_balance" || entry.entryType === "reversal" || entry.entryType === "adjustment") return [];
+  if (entry.entryType === "opening_balance" || entry.entryType === "reversal" || entry.entryType === "adjustment" || entry.entryType === "custody_in" || entry.entryType === "custody_out") return [];
 
   const meta = entry.metadata || {};
 
@@ -330,7 +335,9 @@ function entryToTransactions(entry: JournalEntry): Transaction[] {
   let txType: TxType;
   if (meta.type === "capital_in") txType = "capital_in";
   else if (meta.type === "capital_out") txType = "capital_out";
-  else if (entry.entryType === "income") txType = "income";
+  // No modelo compatível antigo, estes tipos próprios mantêm a direção de
+  // caixa sem os tratarem como receita/despesa operacional na DRE.
+  else if (entry.entryType === "income" || entry.entryType === "loan_repayment" || entry.entryType === "salary_advance_repayment") txType = "income";
   else txType = "expense";
 
   return [{
@@ -428,6 +435,7 @@ const defaultFinSettings: FinancialSettings = {
 // ---- Provider ----
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
   const [authed, setAuthed] = useState(false);
   const [orgId, setOrgId] = useState<string | null>(null);
   const orgIdRef = useRef<string | null>(null);
@@ -495,6 +503,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .eq("organization_id", id)
       .order("transaction_date", { ascending: false });
     if (data) setJournalEntries(data.map(dbToJournalEntry));
+  }, []);
+
+  const refreshContacts: Store["refreshContacts"] = useCallback(async (oid?: string) => {
+    const id = oid || orgIdRef.current;
+    if (!id) return;
+    const { data, error } = await createClient().from("contacts").select("*").eq("organization_id", id).order("name");
+    if (error) throw new Error(error.message);
+    setContacts((data || []).map(dbToContact));
   }, []);
 
   const refreshRecurringTransactions = useCallback(async (oid?: string) => {
@@ -631,24 +647,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // já temos. Em sequência somavam mais uma ida e volta completa ao
     // servidor (em eu-west-3, cada uma custa a mais para quem acede de
     // Angola) sem nenhuma razão para não serem paralelas.
-    const [{ data: dbProfile }, { data: memberships }] = await Promise.all([
+    const [{ data: dbProfile, error: profileError }, { data: memberships, error: membershipsError }] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", userId).single(),
       supabase.from("organization_members").select("role, organizations(id, name, is_archived)").eq("user_id", userId),
     ]);
+    const failure = profileError || membershipsError;
+    if (failure) {
+      if (isExpiredSession(failure)) {
+        await supabase.auth.signOut({ scope: "local" });
+        window.location.replace(EXPIRED_LOGIN);
+      }
+      throw new Error("Não foi possível carregar o acesso à empresa. Tenta novamente.");
+    }
+    const available = (memberships || [])
+      .filter((m: any) => m.organizations && !m.organizations.is_archived) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .map((m: any) => ({ id: m.organizations.id as string, name: m.organizations.name as string, role: m.role as string })); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const activeId = activeOrganization(dbProfile?.current_org_id, available);
+    setOrganizations(available);
     if (dbProfile) {
       setProfile(p => ({ ...p, name: dbProfile.full_name || "", phone: dbProfile.phone || "", bi: dbProfile.bi || "", email: email || "" }));
-      if (dbProfile.current_org_id) {
-        setOrgId(dbProfile.current_org_id);
-        await loadOrgData(dbProfile.current_org_id);
-      }
     }
-    if (memberships) {
-      // Organizações arquivadas ficam fora do seletor/lista — archive_organization()
-      // já limpa current_org_id de quem apontava para lá, isto cobre o resto da UI.
-      setOrganizations(memberships
-        .filter((m: any) => m.organizations && !m.organizations.is_archived) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .map((m: any) => ({ id: m.organizations.id, name: m.organizations.name, role: m.role }))); // eslint-disable-line @typescript-eslint/no-explicit-any
-    }
+    setOrgId(activeId);
+    if (activeId) await loadOrgData(activeId);
   }, [loadOrgData]);
 
   useEffect(() => {
@@ -667,7 +687,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const ensureUserLoaded = (userId: string, email?: string) => {
       if (userIdRef.current !== userId || !loadPromiseRef.current) {
         userIdRef.current = userId;
-        loadPromiseRef.current = loadUserContext(userId, email);
+        setContextError(null);
+        loadPromiseRef.current = loadUserContext(userId, email).catch(() => {
+          setContextError("Não foi possível carregar o acesso à empresa. Atualiza a página para tentar novamente.");
+          loadPromiseRef.current = null;
+        });
       }
       return loadPromiseRef.current;
     };
@@ -693,6 +717,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const user = session?.user;
       setAuthed(!!user);
       if (!user) {
+        setContextError(null);
         userIdRef.current = null;
         loadPromiseRef.current = null;
         setOrgId(null);
@@ -713,7 +738,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       //
       // A comparação com o ref também evita recarregar em TOKEN_REFRESHED,
       // que dispara periodicamente para o mesmo utilizador.
-      void ensureUserLoaded(user.id, user.email);
+      if (userIdRef.current === user.id && loadPromiseRef.current) return;
+      setReady(false);
+      // Never await Supabase calls inside its auth callback.
+      setTimeout(() => { void ensureUserLoaded(user.id, user.email).finally(() => setReady(true)); }, 0);
     });
     return () => subscription.unsubscribe();
   }, [loadUserContext]);
@@ -1092,6 +1120,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       organization_id: orgIdRef.current!, created_by: userIdRef.current, account_id: line.accountId,
       transaction_date: line.transactionDate, amount: line.amount, direction: line.direction,
       description: line.description, reference: line.reference || null, external_id: line.externalId || null,
+      metadata: line.metadata || {},
     }))).select("*");
     if (error) { toast("Erro ao importar extrato: " + error.message, "warn"); return error.message; }
     if (data) setBankStatementLines(prev => [...data.map(dbToBankStatementLine), ...prev]);
@@ -1176,8 +1205,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const editJournalEntry: Store["editJournalEntry"] = async (id, p, reason) => {
+    const patch: Record<string, unknown> = {};
+    const has = (key: keyof JournalEntryEdit) => Object.prototype.hasOwnProperty.call(p, key);
+    if (has("amount")) patch.amount = p.amount;
+    if (has("description")) patch.description = p.description;
+    if (has("date")) patch.date = p.date;
+    if (has("accountId")) patch.account_id = p.accountId;
+    if (has("fromAccountId")) patch.from_account_id = p.fromAccountId;
+    if (has("toAccountId")) patch.to_account_id = p.toAccountId;
+    if (has("categoryId")) patch.category_id = p.categoryId;
+    if (has("contactId")) patch.contact_id = p.contactId;
+    if (has("reference")) patch.reference = p.reference;
+    if (has("documentKind")) patch.document_kind = p.documentKind;
+    if (has("documentNumber")) patch.document_number = p.documentNumber;
+    if (has("documentDate")) patch.document_date = p.documentDate;
+    if (has("documentNotes")) patch.document_notes = p.documentNotes;
+
+    const { error } = await sb().rpc("edit_journal_entry", {
+      p_entry_id: id,
+      p_patch: patch,
+      p_reason: reason,
+    });
+    if (error) { toast("Erro ao editar lançamento: " + error.message, "warn"); return error.message; }
+    await Promise.all([refreshEntries(), refreshAvailable()]);
+    toast("Lançamento atualizado e registado na auditoria", "ok");
+    return null;
+  };
+
   const editTransaction: Store["editTransaction"] = (_id, _p) => {
-    toast("Lançamentos confirmados não podem ser editados. Reverta e crie um novo.", "warn");
+    toast("Use o botão Editar no lançamento para guardar o motivo e o rasto de auditoria.", "warn");
   };
 
   const deleteTransaction: Store["deleteTransaction"] = (id) => {
@@ -1231,9 +1288,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!entry) { toast("Movimento não encontrado", "warn"); return; }
     if (entry.status === "reversed") { toast("Este movimento já foi revertido", "warn"); return; }
 
-    // Optimistic: mark as reversed
+    // Mantém a UI responsiva, mas só confirma ao utilizador depois de o RPC
+    // aceitar a operação (por exemplo, uma devolução já liquidada pode
+    // bloquear a reversão de um empréstimo).
     setJournalEntries(prev => prev.map(e => e.id === entryId ? { ...e, status: "reversed" as const, reversedAt: new Date().toISOString() } : e));
-    toast("Movimento revertido", "ok");
 
     sb().rpc("reverse_journal_entry", { p_entry_id: entryId, p_reason: reason })
       .then(({ error }) => {
@@ -1241,7 +1299,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           toast("Erro na reversão: " + error.message, "warn");
           setJournalEntries(prev => prev.map(e => e.id === entryId ? { ...e, status: "posted" as const, reversedAt: undefined } : e));
         } else {
-          refreshEntries();
+          toast("Movimento revertido", "ok");
+          // A reversão de um desembolso também cancela a obrigação ligada;
+          // recarregar a cadeia completa evita deixar /emprestimos com o
+          // estado antigo até ao próximo refresh.
+          refreshObligations();
         }
       });
   };
@@ -1652,7 +1714,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      ready, authed, orgId, organizations, switchOrganization, refreshEntries, logout, createOrganization,
+      ready, contextError, authed, orgId, organizations, switchOrganization, refreshEntries, refreshContacts, logout, createOrganization,
       addOrganization, listMembers, addMember, changeMemberRole, removeMember, transferOwnership, archiveOrganization, getOrgSnapshot,
       listInvites, createInvite, revokeInvite,
       company, accounts, transactions, contacts, requisitions, badges, profile, toasts,
@@ -1663,7 +1725,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       reserves, reserveCategories, reserveMovements, finSettings, trueAvailable,
       refreshAvailable, createReserve, increaseReserve, releaseReserve, cancelReserve, updateFinSettings,
       updateCompany, addAccount, editAccount, deleteAccount, updateAccountOpeningBalance,
-      addTransaction, editTransaction, deleteTransaction, transfer, reverseEntry,
+      addTransaction, editJournalEntry, editTransaction, deleteTransaction, transfer, reverseEntry,
       addContact, editContact, removeContact,
       addRequisition, editRequisition, deleteRequisition, approveRequisition, disburseRequisition, rejectRequisition,
       addCapital, updateProfile, gainXp,

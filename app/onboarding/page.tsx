@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ROUTES } from "@/lib/routes";
 import { track } from "@/lib/analytics";
+import { activeOrganization, EXPIRED_LOGIN, isExpiredSession } from "@/lib/auth/context";
 import { ArrowLeft, ArrowRight, Check, Loader2, Rocket } from "lucide-react";
 
 type Draft = {
@@ -62,12 +63,19 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [d, setD] = useState<Draft>(VAZIO);
   const [carregado, setCarregado] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const guardar = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const expire = async () => {
+    await supabase.auth.signOut({ scope: "local" });
+    window.location.replace(EXPIRED_LOGIN);
+  };
+
   // Retoma o rascunho e o nome já conhecido do utilizador.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       // getSession() lê o cookie local, sem ida ao servidor — o middleware já
       // validou a sessão com getUser() antes de servir esta página; repetir
@@ -77,11 +85,30 @@ export default function OnboardingPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) { router.replace(ROUTES.entrar); return; }
-      const { data: perfil } = await supabase
-        .from("profiles").select("full_name, onboarding_step, onboarding_draft, onboarding_status")
-        .eq("id", user.id).single();
-
-      if (perfil?.onboarding_status === "completed") { router.replace(ROUTES.dashboard); return; }
+      const { data: remaining, error: sessionError } = await supabase.rpc("session_remaining_seconds");
+      if (isExpiredSession(sessionError) || (!sessionError && Number(remaining) <= 0)) {
+        await supabase.auth.signOut({ scope: "local" });
+        window.location.replace(EXPIRED_LOGIN); return;
+      }
+      if (sessionError) throw sessionError;
+      const [{ data: perfil, error: profileError }, { data: members, error: membershipError }] = await Promise.all([
+        supabase.from("profiles").select("full_name, current_org_id, onboarding_step, onboarding_draft, onboarding_status").eq("id", user.id).single(),
+        supabase.from("organization_members").select("organizations(id,is_archived)").eq("user_id", user.id),
+      ]);
+      if (cancelled) return;
+      const failure = profileError || membershipError;
+      if (isExpiredSession(failure)) {
+        await supabase.auth.signOut({ scope: "local" });
+        window.location.replace(EXPIRED_LOGIN); return;
+      }
+      if (failure) throw failure;
+      const available = (members || []).flatMap(member => {
+        const org = member.organizations as unknown as { id: string; is_archived: boolean } | null;
+        return org && !org.is_archived ? [{ id: org.id }] : [];
+      });
+      if (activeOrganization(perfil?.current_org_id, available)) {
+        window.location.replace(ROUTES.dashboard); return;
+      }
 
       const rascunho = (perfil?.onboarding_draft ?? {}) as Partial<Draft>;
       setD({
@@ -96,7 +123,10 @@ export default function OnboardingPage() {
       if (perfil?.onboarding_step) setStep(Math.min(Math.max(perfil.onboarding_step, 1), 6));
       setCarregado(true);
       track("onboarding_iniciado");
-    })();
+    })().catch(() => {
+      if (!cancelled) { setLoadFailed(true); setCarregado(true); setError("Não foi possível verificar o acesso à empresa. Nenhuma nova empresa foi criada."); }
+    });
+    return () => { cancelled = true; };
   }, [supabase, router]);
 
   // Grava o rascunho no servidor com atraso, para um refresh não perder tudo.
@@ -105,16 +135,19 @@ export default function OnboardingPage() {
   }, [step, carregado]);
 
   useEffect(() => {
-    if (!carregado) return;
+    if (!carregado || loadFailed || busy) return;
     if (guardar.current) clearTimeout(guardar.current);
     guardar.current = setTimeout(async () => {
       const { error } = await supabase.rpc("save_onboarding_progress", { p_step: step, p_draft: d });
       // Ignorar o resultado esconderia uma gravação que nunca aconteceu — o
       // utilizador só descobriria ao perder o que já tinha preenchido.
-      if (error) console.error("Falha ao guardar o progresso do onboarding:", error.message);
+      if (isExpiredSession(error)) {
+        await supabase.auth.signOut({ scope: "local" });
+        window.location.replace(EXPIRED_LOGIN);
+      }
     }, 800);
     return () => { if (guardar.current) clearTimeout(guardar.current); };
-  }, [d, step, carregado, supabase]);
+  }, [d, step, carregado, loadFailed, busy, supabase]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   const setC = (k: keyof Draft["company"], v: string | number) =>
@@ -162,6 +195,7 @@ export default function OnboardingPage() {
           obligations: obrigacoes,
         },
       });
+      if (isExpiredSession(error)) { await expire(); return; }
       if (error) { setError(error.message); return; }
       // Só sinais agregados: se houve saldo e se houve contactos, nunca os valores.
       track("onboarding_concluido", {
@@ -169,8 +203,7 @@ export default function OnboardingPage() {
         com_contactos: contactos.length > 0,
       });
       track("primeira_conta_criada", { tipo: d.account.type as "bank" | "mobile_money" | "cash" });
-      router.replace(ROUTES.dashboard);
-      router.refresh();
+      window.location.replace(ROUTES.dashboard);
     } finally {
       setBusy(false);
     }
@@ -179,6 +212,11 @@ export default function OnboardingPage() {
   if (!carregado) {
     return <div className="min-h-screen flex items-center justify-center text-ink-500">A carregar…</div>;
   }
+  if (loadFailed) return <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="card max-w-md p-6"><p role="alert">{error}</p>
+      <button type="button" className="btn-primary mt-4" onClick={() => window.location.reload()}>Tentar novamente</button>
+      <button type="button" className="btn-secondary mt-3 ml-3" onClick={async () => { await supabase.auth.signOut({ scope: "local" }); window.location.assign(ROUTES.entrar); }}>Entrar novamente</button>
+    </div></div>;
 
   return (
     <div className="min-h-screen bg-ink-950 py-8 px-4">

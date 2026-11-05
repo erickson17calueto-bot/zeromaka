@@ -1,10 +1,13 @@
 "use client";
 import { ChangeEvent, useMemo, useState } from "react";
 import { Check, FileUp, GitCompareArrows, RefreshCw, Undo2, X } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import type { AiSuggestion, AiUsage } from "@/lib/imports/ai-types";
 import { useStore } from "@/lib/store";
 import { BankStatementDirection, fmtDate, fmtKz, JournalEntry } from "@/lib/data";
 
-type ParsedLine = { accountId: string; transactionDate: string; amount: number; direction: BankStatementDirection; description: string; reference?: string; externalId?: string };
+type ParsedLine = { accountId: string; transactionDate: string; amount: number; direction: BankStatementDirection; description: string; reference?: string; externalId?: string; ai_suggestion?: AiSuggestion };
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const parseCsvLine = (line: string, delimiter: string) => {
@@ -84,6 +87,7 @@ const lineMatchesEntry = (line: ParsedLine | { accountId: string; transactionDat
 export default function ReconciliacaoPage() {
   const {
     accounts, journalEntries, bankStatementLines, importBankStatementLines,
+    orgId,
     matchBankStatementLine, unmatchBankStatementLine, ignoreBankStatementLine,
     refreshBankStatementLines,
   } = useStore();
@@ -92,6 +96,9 @@ export default function ReconciliacaoPage() {
   const [selectedMatches, setSelectedMatches] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [fileError, setFileError] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
 
   const visibleLines = useMemo(() => bankStatementLines.filter(line => !accountId || line.accountId === accountId), [bankStatementLines, accountId]);
   const unmatched = visibleLines.filter(line => line.status === "unmatched").length;
@@ -108,9 +115,38 @@ export default function ReconciliacaoPage() {
     event.target.value = "";
   };
 
+  const analyzePreviewWithClaude = async () => {
+    if (!orgId || !preview.length || aiBusy) return;
+    setAiBusy(true); setAiMessage(""); setAiUsage(null);
+    try {
+      const response = await fetch("/api/imports/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          orgId,
+          mode: "reconciliation",
+          targetType: "transaction",
+          fileName: "extrato bancário",
+          lines: preview.map((line, index) => ({ row_number: index + 1, data: line })),
+        }),
+      });
+      const parsed = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parsed.error || "Não foi possível analisar o extrato com Claude");
+      const byRow = new Map<number, AiSuggestion>((parsed.suggestions || []).map((item: AiSuggestion) => [Number(item.row_number), item]));
+      setPreview(current => current.map((line, index) => ({ ...line, ai_suggestion: byRow.get(index + 1) })));
+      setAiUsage(parsed.usage || null);
+      setAiMessage("Claude analisou " + byRow.size + " linha(s). A reconciliação continua a exigir confirmação.");
+    } catch (error) {
+      setAiMessage(error instanceof Error ? error.message : "Não foi possível analisar o extrato com Claude");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+
   const importPreview = async () => {
     setLoading(true);
-    const error = await importBankStatementLines(preview);
+    const error = await importBankStatementLines(preview.map(line => ({ ...line, metadata: line.ai_suggestion ? { ai_suggestion: line.ai_suggestion } : undefined })));
     setLoading(false);
     if (!error) setPreview([]);
   };
@@ -127,6 +163,24 @@ export default function ReconciliacaoPage() {
       <section className="card p-5 space-y-4"><div className="flex items-center gap-2 font-semibold"><FileUp size={16} className="text-maka-400" /> Importar extrato CSV</div><div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end"><div><label className="label">Conta bancária</label><select className="input" value={accountId} onChange={e => { setAccountId(e.target.value); setPreview([]); }}><option value="">Escolhe a conta…</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div><label className={`btn-primary cursor-pointer ${!accountId ? "opacity-50 pointer-events-none" : ""}`}><FileUp size={15} /> Escolher CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} /></label></div><p className="text-[11px] text-ink-500">Aceita CSV com data, descrição e valor. Também reconhece colunas separadas de débito e crédito, vírgula, ponto e vírgula ou tabulação.</p>{fileError && <p className="text-sm text-red-400">{fileError}</p>}
         {preview.length > 0 && <div className="rounded-lg border border-maka-500/30 bg-maka-500/5 p-3"><div className="flex items-center justify-between gap-3"><div className="text-sm">Pré-visualização: <span className="font-semibold">{preview.length} linhas válidas</span></div><button className="btn-primary text-xs" onClick={importPreview} disabled={loading}>{loading ? "A importar…" : "Importar linhas"}</button></div><div className="mt-3 space-y-1 text-xs text-ink-400">{preview.slice(0, 5).map((line, index) => <div key={`${line.transactionDate}-${index}`} className="flex justify-between gap-3"><span>{fmtDate(line.transactionDate)} · {line.description}</span><span className={line.direction === "incoming" ? "text-emerald-400" : "text-red-400"}>{line.direction === "incoming" ? "+" : "−"}{fmtKz(line.amount)}</span></div>)}{preview.length > 5 && <div>… e mais {preview.length - 5} linhas</div>}</div></div>}
       </section>
+
+      {preview.length > 0 && (
+        <section className="card p-4 flex flex-wrap items-center gap-3 border-maka-500/20">
+          <Sparkles size={18} className="text-maka-400 shrink-0" />
+          <div className="flex-1 min-w-[220px]">
+            <div className="text-sm font-semibold">Leitura inteligente (Claude)</div>
+            <div className="text-[11px] text-ink-500">Classifica movimentos e explica conflitos; a reconciliação continua a exigir confirmação.</div>
+          </div>
+          <button className="btn-ghost text-xs" onClick={() => void analyzePreviewWithClaude()} disabled={loading || aiBusy}>
+            {aiBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+            {aiBusy ? "A analisar…" : "Analisar com Claude"}
+          </button>
+          {aiUsage && <span className="text-[10px] text-ink-500">{aiUsage.input_tokens || 0} tokens de entrada · {aiUsage.output_tokens || 0} de saída</span>}
+          {aiMessage && <p className="basis-full text-xs text-ink-400">{aiMessage}</p>}
+          {preview.some(line => line.ai_suggestion) && <div className="basis-full mt-1 space-y-1 text-xs text-ink-400">{preview.slice(0, 5).map((line, index) => line.ai_suggestion && <div key={"ai-" + index}><span className="text-violet-300">#{index + 1} {line.ai_suggestion.classification} ({Math.round(line.ai_suggestion.confidence * 100)}%)</span> — {line.ai_suggestion.reason}</div>)}</div>}
+        </section>
+      )}
+
 
       <section className="card overflow-hidden"><div className="p-5 border-b border-ink-800"><h2 className="font-semibold">Linhas para revisão</h2><p className="text-xs text-ink-500 mt-1">O sistema sugere lançamentos pela conta, valor, direção e uma janela de 30 dias.</p></div>{visibleLines.length === 0 ? <div className="p-10 text-center text-sm text-ink-500">Ainda não há linhas importadas para esta conta.</div> : <div className="divide-y divide-ink-800">{visibleLines.map(line => { const candidates = candidatesFor(line); const selected = selectedMatches[line.id] || ""; const matchedEntry = line.matchedJournalEntryId ? journalEntries.find(e => e.id === line.matchedJournalEntryId) : undefined; return <div key={line.id} className="p-4 flex flex-col lg:flex-row lg:items-center gap-3"><div className="min-w-0 lg:w-[31%]"><div className="font-medium truncate">{line.description || "Movimento bancário"}</div><div className="text-xs text-ink-500 mt-1">{fmtDate(line.transactionDate)}{line.reference ? ` · Ref. ${line.reference}` : ""}</div></div><div className={`font-display text-lg lg:w-[13%] ${line.direction === "incoming" ? "text-emerald-400" : "text-red-400"}`}>{line.direction === "incoming" ? "+" : "−"}{fmtKz(line.amount)}</div><div className="lg:flex-1">{line.status === "matched" ? <div className="text-xs text-emerald-400 flex items-center gap-1"><Check size={14} /> {matchedEntry?.description || "Lançamento confirmado"}</div> : line.status === "ignored" ? <div className="text-xs text-ink-500 flex items-center gap-1"><X size={14} /> Ignorada</div> : candidates.length > 0 ? <select className="input text-xs" value={selected} onChange={e => setSelectedMatches(prev => ({ ...prev, [line.id]: e.target.value }))}><option value="">Escolhe um lançamento sugerido…</option>{candidates.map(entry => <option key={entry.id} value={entry.id}>{fmtDate(entry.transactionDate)} · {entry.description} · {fmtKz(line.amount)}</option>)}</select> : <span className="text-xs text-ink-500">Nenhum lançamento coincidente encontrado</span>}</div><div className="flex gap-2 lg:w-auto">{line.status === "unmatched" && <><button className="btn-primary text-xs" disabled={!selected} onClick={() => matchBankStatementLine(line.id, selected)}><Check size={13} /> Confirmar</button><button className="btn-ghost text-xs" onClick={() => ignoreBankStatementLine(line.id)}><X size={13} /> Ignorar</button></>}{line.status === "matched" && <button className="btn-ghost text-xs" onClick={() => unmatchBankStatementLine(line.id)}><Undo2 size={13} /> Desfazer</button>}</div></div>; })}</div>}</section>
     </div>

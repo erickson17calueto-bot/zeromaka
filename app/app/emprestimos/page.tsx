@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
-import { fmtKz, fmtDate, daysUntil, Obligation, OBLIGATION_KIND_LABEL, ObligationDocumentKind } from "@/lib/data";
+import { fmtKz, fmtDate, daysUntil, Obligation, OBLIGATION_KIND_LABEL, ObligationDocumentKind, FIN_STATUS_LABEL } from "@/lib/data";
 import { Plus, X, Wallet, HandCoins, ChevronDown, ChevronUp, Printer } from "lucide-react";
 
 type LoanKind = "employee_loan" | "salary_advance";
@@ -254,6 +254,7 @@ export default function EmprestimosPage() {
                   </div>
                   <div className="text-[11px] text-ink-500">
                     {OBLIGATION_KIND_LABEL[o.documentKind as ObligationDocumentKind]} · concedido {fmtDate(o.issueDate)}
+                    {o.financialStatus === "cancelled" && <span className="text-red-400"> · {FIN_STATUS_LABEL.cancelled}</span>}
                     {o.dueDate && o.dueDate !== o.issueDate && ` · devolução prevista ${fmtDate(o.dueDate)}`}
                     {o.daysOverdue > 0 && <span className="text-red-400"> · {o.daysOverdue}d em atraso</span>}
                   </div>

@@ -16,7 +16,8 @@ const PALAVRAS_CABECALHO = [
   "entrada", "saida", "credito", "debito", "haver", "deve",
   "conta", "account", "categoria", "tipo", "saldo", "balance",
   "fatura", "factura", "documento", "referencia", "cliente", "fornecedor",
-  "emissao", "vencimento",
+  "emissao", "vencimento", "nome", "razao social", "designacao", "nif", "nuit",
+  "telefone", "telemovel", "celular", "email", "morada", "localizacao", "endereco",
 ];
 
 function pontuacao(linha: string[]): number {

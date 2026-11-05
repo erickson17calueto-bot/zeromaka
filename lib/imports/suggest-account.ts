@@ -23,16 +23,58 @@ export function normalizar(valor: string): string {
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[_\-.]+/g, " ")
     .replace(/\s+/g, " ");
 }
 
 const TERMOS_POR_TIPO: { termos: string[]; tipo: ContaSugerivel["type"] }[] = [
-  { termos: ["caixa", "cash", "numerario", "dinheiro"], tipo: "cash" },
-  { termos: ["unitel money", "unitel", "mpesa", "m pesa", "multicaixa express", "carteira", "movel", "mobile"], tipo: "mobile_money" },
-  { termos: ["banco", "bank", "extrato", "conta bancaria"], tipo: "bank" },
+  { termos: ["caixa", "caixa fisico", "caixa fisica", "caixa geral", "cash", "numerario", "dinheiro"], tipo: "cash" },
+  { termos: ["unitel money", "unitel", "mpesa", "m pesa", "multicaixa express", "multicaixa", "carteira", "movel", "mobile", "emis"], tipo: "mobile_money" },
+  { termos: ["banco", "bank", "extrato", "conta bancaria", "bai", "bfa", "bic", "bni", "bca", "sol", "atlantico", "keve", "economico", "bpc"], tipo: "bank" },
 ];
+
+/**
+ * Procura uma conta existente na organização que corresponda ao nome dado (ex: da coluna do ficheiro).
+ * Aceita correspondência exata ou aproximada (ex: "Caixa Físico" bate em conta "Caixa").
+ */
+export function matchAccount<T extends ContaSugerivel>(
+  contas: T[],
+  nome: string | null | undefined
+): T | undefined {
+  const abertas = contas.filter(c => !c.isArchived);
+  if (!abertas.length) return undefined;
+
+  const texto = normalizar(nome || "");
+  if (!texto) return undefined;
+
+  // 1. Igualdade exata após normalização
+  const exata = abertas.find(c => normalizar(c.name) === texto);
+  if (exata) return exata;
+
+  // 2. Se o nome da conta estiver contido no texto ou vice-versa
+  // Ex: conta "Caixa" e texto "Caixa Físico" -> match!
+  // Ex: conta "Banco BAI AKZ" e texto "BAI" -> match!
+  const porInclusao = abertas.find(c => {
+    const nomeConta = normalizar(c.name);
+    return texto.includes(nomeConta) || (nomeConta.length > 3 && nomeConta.includes(texto));
+  });
+  if (porInclusao) return porInclusao;
+
+  // 3. Pelo banco associado
+  const porBanco = abertas.find(c => c.bank && texto.includes(normalizar(c.bank)));
+  if (porBanco) return porBanco;
+
+  // 4. Pelo tipo semântico (se tiver apenas 1 conta desse tipo)
+  for (const { termos, tipo } of TERMOS_POR_TIPO) {
+    if (termos.some(t => texto.includes(t))) {
+      const candidatas = abertas.filter(c => c.type === tipo);
+      if (candidatas.length === 1) return candidatas[0];
+    }
+  }
+
+  return undefined;
+}
 
 export function suggestAccount<T extends ContaSugerivel>(
   contas: T[],
@@ -57,15 +99,11 @@ export function suggestAccount<T extends ContaSugerivel>(
     .sort((a, b) => (b.bank?.length || 0) - (a.bank?.length || 0))[0];
   if (porBanco) return porBanco;
 
-  // 3. O tipo está implícito na palavra usada. Só decide quando existe uma
-  //    única conta desse tipo — com duas contas de caixa não há como escolher.
+  // 3. O tipo está implícito na palavra usada.
   for (const { termos, tipo } of TERMOS_POR_TIPO) {
     if (termos.some(t => texto.includes(t))) {
       const candidatas = abertas.filter(c => c.type === tipo);
       if (candidatas.length === 1) return candidatas[0];
-      // O título diz o tipo mas não há uma conta clara desse tipo. Devolver a
-      // única conta que existe seria pior do que não sugerir: um ficheiro
-      // chamado "diário de caixa" acabaria atribuído a uma conta bancária.
       return undefined;
     }
   }

@@ -46,3 +46,13 @@ test("só procura nas primeiras linhas", () => {
 test("matriz vazia não rebenta", () => {
   assert.equal(encontrarLinhaCabecalho([]), 0);
 });
+
+test("encontra cabeçalho de lista de clientes após capa da folha", () => {
+  const matriz = [
+    ["CARTEIRA DE CLIENTES", ""],
+    ["Atualização de setembro", ""],
+    ["Nome", "NIF", "Telefone", "E-mail", "Morada"],
+    ["Hotel Talatona", "5000222333", "+244 222 000 222", "compras@hotel.ao", "Talatona"],
+  ];
+  assert.equal(encontrarLinhaCabecalho(matriz), 2);
+});

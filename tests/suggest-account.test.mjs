@@ -65,3 +65,12 @@ test("acentos e separadores não impedem a correspondência", () => {
   assert.equal(suggestAccount(TODAS, "DIÁRIO_DE_CAIXA.CSV")?.id, CAIXA.id);
   assert.equal(suggestAccount(TODAS, "extrato-bai-empresa.csv")?.id, BAI.id);
 });
+
+test("matchAccount associa nomes flexíveis de contas", () => {
+  const contas = [
+    { id: "c1", name: "Caixa", type: "cash" },
+    { id: "b1", name: "Banco BAI", type: "bank" }
+  ];
+  // O ficheiro traz "Caixa Físico", mas o sistema só tem "Caixa"
+  assert.equal(suggestAccount(contas, "Caixa Físico")?.id, "c1");
+});
