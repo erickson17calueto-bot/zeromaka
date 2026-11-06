@@ -433,6 +433,30 @@ const defaultFinSettings: FinancialSettings = {
 };
 
 // ---- Provider ----
+// O PostgREST devolve no máximo 1000 linhas por pedido. Com mais lançamentos
+// do que isso, os saldos calculados no cliente ficavam errados (estornos sem o
+// original). Lê tudo por páginas, com ordenação estável.
+const JOURNAL_PAGE_SIZE = 1000;
+async function fetchAllJournalEntries(supabase: any, orgId: string): Promise<{ data: any[] | null; error: any }> {
+  const all: any[] = [];
+  for (let from = 0; ; from += JOURNAL_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select("*, journal_lines(*), financial_categories(name)")
+      .eq("organization_id", orgId)
+      .order("transaction_date", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + JOURNAL_PAGE_SIZE - 1);
+    if (error) {
+      console.error("Erro a carregar lançamentos:", error.message);
+      return { data: null, error };
+    }
+    all.push(...(data || []));
+    if (!data || data.length < JOURNAL_PAGE_SIZE) break;
+  }
+  return { data: all, error: null };
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
@@ -497,11 +521,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const supabase = createClient();
     const id = oid || orgIdRef.current;
     if (!id) return;
-    const { data } = await supabase
-      .from("journal_entries")
-      .select("*, journal_lines(*), financial_categories(name)")
-      .eq("organization_id", id)
-      .order("transaction_date", { ascending: false });
+    const { data } = await fetchAllJournalEntries(supabase, id);
     if (data) setJournalEntries(data.map(dbToJournalEntry));
   }, []);
 
@@ -580,7 +600,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const [compRes, accRes, entryRes, catRes, conRes, rqRes, obRes, stRes, ciRes, resRes, rcatRes, rmovRes, fsRes, tacRes, recRes, bankRes] = await Promise.all([
       supabase.from("companies").select("*").eq("organization_id", oid).single(),
       supabase.from("accounts").select("*").eq("organization_id", oid).eq("is_archived", false).order("created_at"),
-      supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
+      fetchAllJournalEntries(supabase, oid),
       // Sem filtro de is_active: arquivadas continuam a ser precisas para a
       // gestão de categorias (reativar) — quem escolhe categoria para um
       // lançamento NOVO é que filtra isActive, não esta carga inicial.
@@ -628,7 +648,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const generated = Number((autoRecurrence.data as any)?.generated || 0);
       if (!autoRecurrence.error && generated > 0) {
         const [freshEntries, freshRecurring] = await Promise.all([
-          supabase.from("journal_entries").select("*, journal_lines(*), financial_categories(name)").eq("organization_id", oid).order("transaction_date", { ascending: false }),
+          fetchAllJournalEntries(supabase, oid),
           supabase.from("recurring_transactions").select("*").eq("organization_id", oid).order("next_run_date"),
         ]);
         if (freshEntries.data) setJournalEntries(freshEntries.data.map(dbToJournalEntry));
